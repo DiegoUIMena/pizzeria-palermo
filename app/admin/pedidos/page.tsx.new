@@ -1,0 +1,521 @@
+"use client"
+
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Clock,
+  Package,
+  Truck,
+  CheckCircle,
+  Search,
+  Filter,
+  MapPin,
+  Phone,
+  DollarSign,
+  Calendar,
+  Printer
+} from "lucide-react"
+import AdminHeader from "../components/AdminHeader"
+import { useFormattedAdminOrders } from "../../../hooks/useAdminOrders"
+import { doc, updateDoc } from "firebase/firestore"
+import { db } from "../../../lib/firebase"
+
+interface Pedido {
+  id: string
+  documentId: string
+  cliente: { nombre: string; telefono: string; email: string }
+  direccion?: { calle: string; numero: string; comuna: string; referencia?: string }
+  items: Array<{ nombre: string; cantidad: number; precio: number }>
+  total: number
+  estado: "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
+  tipoEntrega: "Delivery" | "Retiro"
+  metodoPago: string
+  fechaCreacion: string
+  tiempoEstimado?: string
+  tiempoEstimadoMinutos?: number
+  tiempoEstimadoInicio?: string
+  tiempoEstimadoFin?: string
+  notas?: string
+}
+
+export default function AdminPedidos() {
+  const [filtroEstado, setFiltroEstado] = useState("todos")
+  const [busqueda, setBusqueda] = useState("")
+  const [tiemposEstimados, setTiemposEstimados] = useState<Record<string, number>>({})
+  const [cuentasRegresivas, setCuentasRegresivas] = useState<Record<string, number>>({})
+  const [pedidosNuevosSinAtender, setPedidosNuevosSinAtender] = useState<Set<string>>(new Set())
+  const [alarmaActiva, setAlarmaActiva] = useState(false)
+  
+  // Referencias para tracking
+  const pedidosNotificadosRef = useRef<Set<string>>(new Set());
+  const ultimaActualizacionFirebaseRef = useRef<Record<string, number>>({});
+  const intervaloAlarmaRef = useRef<number | null>(null);
+
+  const { pedidos, isLoading, error, actualizarEstado: actualizarEstadoOriginal } = useFormattedAdminOrders()
+  
+  // Alarmas con Web Audio API (sin cargar mp3 externo)
+  const reproducirAlarmaNuevoPedido = useCallback(() => {
+    const context = new AudioContext()
+    const oscillator = context.createOscillator()
+    const gainNode = context.createGain()
+    oscillator.connect(gainNode)
+    gainNode.connect(context.destination)
+    oscillator.frequency.value = 800
+    oscillator.type = 'sine'
+    gainNode.gain.setValueAtTime(0.3, context.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.3)
+    oscillator.start(context.currentTime)
+    oscillator.stop(context.currentTime + 0.3)
+  }, [])
+  
+  // Función para iniciar la alarma repetitiva
+  const iniciarAlarmaRepetitiva = useCallback(() => {
+    if (intervaloAlarmaRef.current !== null) {
+      return; // La alarma ya está activa
+    }
+    
+    setAlarmaActiva(true);
+    
+    // Ejecutar la alarma inmediatamente la primera vez
+    reproducirAlarmaNuevoPedido();
+    
+    // Configurar intervalo para repetir la alarma cada 3 segundos
+    intervaloAlarmaRef.current = window.setInterval(() => {
+      reproducirAlarmaNuevoPedido();
+    }, 3000);
+  }, [reproducirAlarmaNuevoPedido]);
+  
+  // Función para detener la alarma repetitiva
+  const detenerAlarmaRepetitiva = useCallback(() => {
+    if (intervaloAlarmaRef.current !== null) {
+      clearInterval(intervaloAlarmaRef.current);
+      intervaloAlarmaRef.current = null;
+      setAlarmaActiva(false);
+    }
+  }, []);
+  
+  // Función para marcar un pedido como atendido (detiene la alarma)
+  const marcarPedidoAtendido = useCallback((pedidoId: string) => {
+    setPedidosNuevosSinAtender(prev => {
+      const nuevos = new Set(prev);
+      nuevos.delete(pedidoId);
+      
+      // Si ya no hay pedidos sin atender, detener la alarma
+      if (nuevos.size === 0) {
+        detenerAlarmaRepetitiva();
+      }
+      
+      return nuevos;
+    });
+  }, [detenerAlarmaRepetitiva]);
+  
+  // Sobrescribir la función actualizarEstado para también marcar el pedido como atendido
+  const actualizarEstado = useCallback((pedidoId: string, nuevoEstado: Pedido['estado']) => {
+    // Llamar a la función original
+    actualizarEstadoOriginal(pedidoId, nuevoEstado);
+    
+    // Marcar el pedido como atendido (detiene la alarma)
+    marcarPedidoAtendido(pedidoId);
+  }, [actualizarEstadoOriginal, marcarPedidoAtendido]);
+
+  const reproducirAlarmaTiempoAgotandose = useCallback(() => {
+    const context = new AudioContext()
+    const oscillator = context.createOscillator()
+    const gainNode = context.createGain()
+    oscillator.connect(gainNode)
+    gainNode.connect(context.destination)
+    oscillator.frequency.value = 600
+    oscillator.type = 'square'
+    gainNode.gain.setValueAtTime(0.2, context.currentTime)
+    gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.2)
+    oscillator.start(context.currentTime)
+    oscillator.stop(context.currentTime + 0.2)
+  }, [])
+
+  // Funciones auxiliares
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "Pendiente": return <Clock className="w-4 h-4 text-yellow-500" />
+      case "En preparación": return <Package className="w-4 h-4 text-blue-500" />
+      case "En camino": return <Truck className="w-4 h-4 text-purple-500" />
+      case "Pedido Listo": return <CheckCircle className="w-4 h-4 text-green-600" />
+      case "Entregado": return <CheckCircle className="w-4 h-4 text-green-500" />
+      case "Cancelado": return <Clock className="w-4 h-4 text-red-500" />
+      default: return <Clock className="w-4 h-4 text-gray-500" />
+    }
+  }
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "Pendiente": return "bg-yellow-500"
+      case "En preparación": return "bg-blue-500"
+      case "En camino": return "bg-purple-500"
+      case "Pedido Listo": return "bg-green-600"
+      case "Entregado": return "bg-green-500"
+      case "Cancelado": return "bg-red-500"
+      default: return "bg-gray-500"
+    }
+  }
+  const getNextStatus = (current: string, tipo: string): Pedido['estado'] | null => {
+    if (tipo === "Retiro") {
+      switch (current) {
+        case "Pendiente": return "En preparación"
+        case "En preparación": return "Pedido Listo"
+        case "Pedido Listo": return "Entregado"
+        default: return null
+      }
+    } else {
+      switch (current) {
+        case "Pendiente": return "En preparación"
+        case "En preparación": return "En camino"
+        case "En camino": return "Entregado"
+        default: return null
+      }
+    }
+  }
+
+  const formatearTiempo = (seg: number) => {
+    const m = Math.floor(seg/60)
+    const s = seg % 60
+    return `${m}:${s.toString().padStart(2,'0')}`
+  }
+
+  // Función para imprimir la comanda
+  const imprimirComanda = (pedido: Pedido) => {
+    console.log("Imprimiendo comanda para pedido:", pedido.id)
+    const printWindow = window.open('', '_blank')
+    
+    if (!printWindow) {
+      alert('Por favor habilite las ventanas emergentes para imprimir comandas')
+      return
+    }
+    
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Comanda Pedido ${pedido.id}</title>
+          <style>
+            body { font-family: Arial, sans-serif; font-size: 12px; margin: 0; padding: 10px; }
+            h1 { font-size: 18px; text-align: center; border-bottom: 1px solid #000; padding-bottom: 10px; }
+            h2 { font-size: 14px; margin-top: 15px; margin-bottom: 5px; }
+            .item { margin-bottom: 8px; }
+            .divider { border-top: 1px dashed #000; margin: 10px 0; }
+            .info { margin-bottom: 5px; }
+            .total { font-size: 16px; font-weight: bold; text-align: right; }
+            .estado { text-align: center; font-size: 16px; margin: 15px 0; }
+            @media print {
+              button { display: none; }
+              body { margin: 0; padding: 5mm; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>PIZZERÍA PALERMO - COMANDA</h1>
+          <div class="info"><strong>PEDIDO:</strong> ${pedido.id}</div>
+          <div class="info"><strong>FECHA:</strong> ${pedido.fechaCreacion}</div>
+          <div class="info"><strong>CLIENTE:</strong> ${pedido.cliente.nombre}</div>
+          <div class="info"><strong>TELÉFONO:</strong> ${pedido.cliente.telefono}</div>
+          ${pedido.tipoEntrega === "Delivery" ? 
+            `<div class="info"><strong>DIRECCIÓN:</strong> ${pedido.direccion?.calle} ${pedido.direccion?.numero}, ${pedido.direccion?.comuna}</div>
+             ${pedido.direccion?.referencia ? `<div class="info"><strong>REFERENCIA:</strong> ${pedido.direccion.referencia}</div>` : ''}` 
+            : 
+            `<div class="info"><strong>RETIRO EN LOCAL</strong></div>`
+          }
+          <div class="info"><strong>MÉTODO DE PAGO:</strong> ${pedido.metodoPago}</div>
+          ${pedido.notas ? `<div class="info"><strong>NOTAS:</strong> ${pedido.notas}</div>` : ''}
+          <div class="divider"></div>
+          <h2>PRODUCTOS:</h2>
+          ${pedido.items.map(item => `
+            <div class="item">
+              <strong>${item.cantidad}x ${item.nombre}</strong> - $${item.precio.toLocaleString('es-CL')}
+            </div>
+          `).join('')}
+          <div class="divider"></div>
+          <div class="total">TOTAL: $${pedido.total.toLocaleString('es-CL')}</div>
+          <div class="estado">ESTADO: ${pedido.estado}</div>
+          <div class="divider"></div>
+          <button onclick="window.print(); window.close()">Imprimir</button>
+        </body>
+      </html>
+    `)
+    printWindow.document.close()
+    
+    // Imprimir automáticamente
+    setTimeout(() => {
+      printWindow.print()
+    }, 500)
+    
+    // Marcar el pedido como atendido (detiene la alarma)
+    marcarPedidoAtendido(pedido.documentId);
+  }
+
+  // Establecer tiempo estimado
+  const establecerTiempoEstimado = useCallback(async (pedidoId: string, minutos: number) => {
+    const inicio = new Date()
+    const fin = new Date(inicio.getTime() + minutos*60000)
+    setTiemposEstimados(prev => ({ ...prev, [pedidoId]: minutos }))
+    setCuentasRegresivas(prev => ({ ...prev, [pedidoId]: minutos*60 }))
+    await updateDoc(doc(db,'orders',pedidoId), {
+      tiempoEstimadoMinutos: minutos,
+      tiempoEstimadoInicio: inicio.toISOString(),
+      tiempoEstimadoFin: fin.toISOString()
+    })
+    
+    // Marcar el pedido como atendido (detiene la alarma)
+    marcarPedidoAtendido(pedidoId);
+  }, [marcarPedidoAtendido])
+
+  // lógica de cuenta regresiva
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setCuentasRegresivas(prev => {
+        const next = { ...prev }
+        for (const id in next) {
+          if (next[id] > 0) {
+            if (next[id] === 180) reproducirAlarmaTiempoAgotandose()
+            next[id]--
+          }
+        }
+        return next
+      })
+    }, 1000)
+    return () => clearInterval(iv)
+  }, [reproducirAlarmaTiempoAgotandose])
+
+  // Detectar pedidos nuevos y mantener la alarma hasta que se atiendan
+  useEffect(() => {
+    // Obtener pedidos pendientes
+    const pendientes = pedidos.filter(p => p.estado === "Pendiente");
+    
+    // Verificar si hay nuevos pedidos pendientes que no estén siendo atendidos
+    const nuevos = pendientes.filter(p => !pedidosNotificadosRef.current.has(p.documentId));
+    
+    if (nuevos.length > 0) {
+      // Añadir los nuevos pedidos al set de pedidos sin atender
+      const nuevosIds = new Set(pedidosNuevosSinAtender);
+      nuevos.forEach(p => {
+        nuevosIds.add(p.documentId);
+        pedidosNotificadosRef.current.add(p.documentId);
+      });
+      
+      setPedidosNuevosSinAtender(nuevosIds);
+      
+      // Iniciar la alarma si no está activa
+      if (!alarmaActiva && nuevosIds.size > 0) {
+        iniciarAlarmaRepetitiva();
+      }
+    }
+    
+    // Si no hay pedidos sin atender, detener la alarma
+    if (pedidosNuevosSinAtender.size > 0 && pendientes.length === 0) {
+      setPedidosNuevosSinAtender(new Set());
+      detenerAlarmaRepetitiva();
+    }
+    
+    // Limpiar IDs de pedidos que ya no están pendientes
+    pedidos.forEach(p => {
+      if (p.estado !== "Pendiente" && pedidosNotificadosRef.current.has(p.documentId)) {
+        pedidosNotificadosRef.current.delete(p.documentId);
+      }
+    });
+  }, [pedidos, pedidosNuevosSinAtender, alarmaActiva, iniciarAlarmaRepetitiva, detenerAlarmaRepetitiva]);
+
+  // Limpiar el intervalo de alarma al desmontar el componente
+  useEffect(() => {
+    return () => {
+      if (intervaloAlarmaRef.current !== null) {
+        clearInterval(intervaloAlarmaRef.current);
+      }
+    };
+  }, []);
+
+  // restaurar tiempos
+  useEffect(() => {
+    // Crear objetos temporales para actualizar en batch
+    const newTiemposEstimados = { ...tiemposEstimados };
+    const newCuentasRegresivas = { ...cuentasRegresivas };
+    let hasChanges = false;
+    
+    pedidos.forEach(p => {
+      if (p.tiempoEstimadoInicio && p.tiempoEstimadoMinutos && !["Entregado","Cancelado"].includes(p.estado)) {
+        const ini = new Date(p.tiempoEstimadoInicio).getTime()
+        const total = p.tiempoEstimadoMinutos*60
+        const trans = Math.floor((Date.now()-ini)/1000)
+        const rest = Math.max(0,total-trans)
+        
+        // Actualizar en objetos temporales
+        if (newTiemposEstimados[p.documentId] !== p.tiempoEstimadoMinutos) {
+          newTiemposEstimados[p.documentId] = p.tiempoEstimadoMinutos!;
+          hasChanges = true;
+        }
+        
+        if (newCuentasRegresivas[p.documentId] !== rest) {
+          newCuentasRegresivas[p.documentId] = rest;
+          hasChanges = true;
+        }
+      }
+    });
+    
+    // Solo actualizar estados si hay cambios reales
+    if (hasChanges) {
+      setTiemposEstimados(newTiemposEstimados);
+      setCuentasRegresivas(newCuentasRegresivas);
+    }
+  }, [pedidos, tiemposEstimados, cuentasRegresivas])
+
+  // sync con firebase cada minuto
+  useEffect(() => {
+    const iv = setInterval(async () => {
+      for (const id in cuentasRegresivas) {
+        const currentValue = cuentasRegresivas[id];
+        // Solo actualizar si:
+        // 1. El valor ha cambiado desde la última actualización
+        // 2. El valor es múltiplo de 60 (cada minuto)
+        // 3. El tiempo es mayor que 0
+        if (
+          currentValue > 0 && 
+          currentValue % 60 === 0 && 
+          ultimaActualizacionFirebaseRef.current[id] !== currentValue
+        ) {
+          await updateDoc(doc(db,'orders',id), { tiempoRestante: currentValue });
+          ultimaActualizacionFirebaseRef.current[id] = currentValue;
+        }
+      }
+    }, 60000);
+    
+    return () => clearInterval(iv);
+  }, [cuentasRegresivas]);
+
+  const pedidosFiltrados = pedidos.filter(p =>
+    (filtroEstado==='todos'||p.estado===filtroEstado) &&
+    (p.id.toLowerCase().includes(busqueda.toLowerCase())||p.cliente.nombre.toLowerCase().includes(busqueda.toLowerCase()))
+  )
+
+  if (isLoading) return <div className="min-h-screen bg-gray-50"><AdminHeader/><p className="p-8 text-center">Cargando pedidos...</p></div>
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader />
+      <main className="container mx-auto px-4 py-8">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-3xl font-bold">Gestión de Pedidos</h1>
+            <p className="text-gray-600">Administra y actualiza el estado de los pedidos</p>
+          </div>
+          <div className="flex space-x-2">
+            <Search className="w-5 h-5 text-gray-500" />
+            <Input placeholder="Buscar por ID o cliente" value={busqueda} onChange={e=>setBusqueda(e.target.value)} className="w-64" />
+            <Filter className="w-5 h-5 text-gray-500" />
+            {/* Filtro de estado */}
+            <div className="flex items-center space-x-2">
+              <label htmlFor="filtroEstado" className="sr-only">Filtrar estado</label>
+              <select
+                id="filtroEstado"
+                value={filtroEstado}
+                onChange={e => setFiltroEstado(e.target.value)}
+                className="border rounded px-2 py-1"
+              >
+                <option value="todos">Todos</option>
+                <option value="Pendiente">Pendiente</option>
+                <option value="En preparación">En preparación</option>
+                <option value="En camino">En camino</option>
+                <option value="Pedido Listo">Pedido Listo</option>
+                <option value="Entregado">Entregado</option>
+                <option value="Cancelado">Cancelado</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div className="grid gap-6">
+          {pedidosFiltrados.map(pedido => (
+            <Card key={pedido.documentId} className={`hover:shadow-md transition-shadow ${pedidosNuevosSinAtender.has(pedido.documentId) ? 'border-2 border-red-500 animate-pulse' : ''}`}>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center space-x-2">
+                    {getStatusIcon(pedido.estado)}
+                    <span className={`px-2 py-0.5 rounded-full text-white ${getStatusColor(pedido.estado)}`}>{pedido.estado}</span>
+                    {pedidosNuevosSinAtender.has(pedido.documentId) && (
+                      <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">
+                        ¡NUEVO!
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-mono">{pedido.id}</div>
+                </div>
+                <div className="flex items-center space-x-4 text-xs text-gray-600 mt-2">
+                  <Calendar className="w-4 h-4"/><span>{pedido.fechaCreacion}</span>
+                  <DollarSign className="w-4 h-4"/><span>{pedido.metodoPago}</span>
+                  <Badge variant={pedido.tipoEntrega==='Delivery'?'destructive':'outline'}>{pedido.tipoEntrega}</Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid md:grid-cols-3 gap-6">
+                  {/* Cliente */}
+                  <div>
+                    <h4 className="font-medium mb-2">Cliente</h4>
+                    <div className="space-y-1 text-sm">
+                      <div><strong>Nombre:</strong> {pedido.cliente.nombre}</div>
+                      <div className="flex items-center"><Phone className="w-4 h-4 mr-1"/> {pedido.cliente.telefono}</div>
+                    </div>
+                    {pedido.direccion && (
+                      <div className="mt-2 text-sm text-gray-600">
+                        <MapPin className="w-4 h-4 inline"/> {pedido.direccion.calle} {pedido.direccion.numero}, {pedido.direccion.comuna}
+                        {pedido.direccion.referencia && <div className="text-xs">Ref: {pedido.direccion.referencia}</div>}
+                      </div>
+                    )}
+                  </div>
+                  {/* Productos y montos */}
+                  <div>
+                    <h4 className="font-medium mb-2">Productos</h4>
+                    <div className="space-y-1 text-sm">
+                      {pedido.items.map((i, idx) => (
+                        <div key={idx} className="flex justify-between"><span>{i.cantidad}x {i.nombre}</span><span>${i.precio.toLocaleString()}</span></div>
+                      ))}
+                      <div className="border-t pt-2 font-bold flex justify-between"><span>Total</span><span>${pedido.total.toLocaleString()}</span></div>
+                      {pedido.notas && <div className="mt-2 text-xs bg-yellow-50 p-1 rounded">Notas: {pedido.notas}</div>}
+                    </div>
+                  </div>
+                  {/* Acciones y timers */}
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      {[15,30,45,60].map(m => (
+                        <Button key={m} size="sm" variant={tiemposEstimados[pedido.documentId]===m?'default':'outline'} onClick={()=>establecerTiempoEstimado(pedido.documentId,m)}>
+                          {m}m
+                        </Button>
+                      ))}
+                    </div>
+                    {cuentasRegresivas[pedido.documentId] !== undefined && (
+                      <div className="font-mono text-lg text-center">{formatearTiempo(cuentasRegresivas[pedido.documentId])}</div>
+                    )}
+                    {getNextStatus(pedido.estado, pedido.tipoEntrega) && (
+                      <Button size="sm" className="w-full bg-pink-600 text-white" 
+                        onClick={() => {
+                          const nuevoEstado = getNextStatus(pedido.estado, pedido.tipoEntrega);
+                          if (nuevoEstado) {
+                            actualizarEstado(pedido.documentId, nuevoEstado);
+                          }
+                        }}>
+                        Marcar como {getNextStatus(pedido.estado, pedido.tipoEntrega)}
+                      </Button>
+                    )}
+                    {pedido.estado !== "Entregado" && pedido.estado !== "Cancelado" && (
+                      <Button size="sm" className="w-full bg-red-600 text-white uppercase font-bold" 
+                        onClick={() => actualizarEstado(pedido.documentId, "Cancelado")}>
+                        Cancelar Pedido
+                      </Button>
+                    )}
+                    <Button size="sm" className="w-full bg-green-600 text-white" onClick={()=>imprimirComanda(pedido)}>
+                      <Printer className="w-4 h-4 mr-2"/> Imprimir Comanda
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </main>
+    </div>
+  )
+}
