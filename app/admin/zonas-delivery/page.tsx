@@ -63,6 +63,13 @@ export default function ZonasDeliveryPage() {
               <Edit className="w-4 h-4 mr-2" />
               Editar Zonas en Mapa
             </Button>
+            <Button 
+              onClick={() => window.location.href = '/admin/debug-mapa-mejorado'} 
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <MapPin className="w-4 h-4 mr-2" />
+              Herramienta de Diagnóstico
+            </Button>
             <div className="flex space-x-2">
               <Button variant="outline" onClick={exportZones}>
                 <Download className="w-4 h-4 mr-2" />
@@ -124,6 +131,22 @@ export default function ZonasDeliveryPage() {
         </div>
 
         <DeliveryZoneMap isOpen={isMapOpen} onClose={() => setIsMapOpen(false)} onSaveZones={handleSaveZones} />
+        
+        {/* Sección de herramientas adicionales */}
+        <div className="mt-10 p-6 border rounded-lg bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800">
+          <h2 className="text-xl font-semibold mb-3 dark:text-white">Herramientas de Diagnóstico</h2>
+          <p className="text-gray-600 dark:text-gray-300 mb-4">
+            Si experimentas problemas con la visualización del mapa o necesitas probar la funcionalidad de ubicación,
+            puedes utilizar nuestra herramienta avanzada de diagnóstico.
+          </p>
+          <Button 
+            onClick={() => window.location.href = '/admin/debug-mapa-mejorado'} 
+            className="bg-blue-600 hover:bg-blue-700 text-white"
+          >
+            <MapPin className="w-4 h-4 mr-2" />
+            Acceder a Herramienta de Diagnóstico de Mapa
+          </Button>
+        </div>
       </main>
     </div>
   )

@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label"
 import { Map } from "lucide-react"
 import MapSelectionModal from "./MapSelectionModal"
 import DeliveryZoneChecker from "./DeliveryZoneChecker"
-import OpenStreetMapPicker from "./OpenStreetMapPicker"
+import FixedMapPicker from "./FixedMapPicker"
 import type { DeliveryZone } from "../../lib/delivery-zones"
 
 interface LocationPickerProps {
@@ -69,28 +69,21 @@ export default function LocationPicker({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Mapa Integrado */}
-      <div className="space-y-3">
-        <Label className="text-base font-medium">Seleccionar Ubicación en el Mapa</Label>
-        <OpenStreetMapPicker
+    <div className="flex flex-col h-full">
+      {/* Mapa Integrado con altura 100% para ajustarse al contenedor padre */}
+      <div className="flex-1">
+        <FixedMapPicker
           onLocationSelect={handleMapPickerLocationSelect}
           initialLocation={selectedLocation ? { lat: selectedLocation.lat, lng: selectedLocation.lng } : null}
           showDeliveryZones={true}
         />
       </div>
 
-      {/* Verificador de Zona de Delivery - Mejorado visualmente */}
-      <div className="space-y-3">
-        <Label className="text-base font-medium">Información de Entrega</Label>
-        <DeliveryZoneChecker selectedLocation={selectedLocation} onZoneChange={handleZoneChange} />
-      </div>
-
-      {/* Modal del Mapa (para pantalla completa) */}
-      <div className="space-y-3">
-        <Button type="button" variant="outline" onClick={openMapModal} className="w-full">
-          <Map className="w-4 h-4 mr-2" />
-          Abrir mapa en pantalla completa
+      {/* Botón compacto para modal de mapa completo */}
+      <div className="mt-2">
+        <Button type="button" variant="outline" onClick={openMapModal} className="w-full text-sm h-8 px-3">
+          <Map className="w-3 h-3 mr-1" />
+          Ver mapa en pantalla completa
         </Button>
       </div>
 

@@ -134,21 +134,30 @@ export const deliveryZones: DeliveryZone[] = [
   },
 ]
 
-// 2. Algoritmo de detección de zona (Point-in-Polygon)
+// 2. Algoritmo de detección de zona (Point-in-Polygon) - Ray Casting Algorithm
 export function isPointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
-  const [lat, lng] = point
-  let inside = false
-
+  // Algoritmo de punto en polígono mejorado
+  if (polygon.length < 3) return false; // Un polígono necesita al menos 3 puntos
+  
+  const [lat, lng] = point;
+  console.log(`🔎 Verificando punto [${lat}, ${lng}] en polígono`);
+  
+  let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const [latI, lngI] = polygon[i]
-    const [latJ, lngJ] = polygon[j]
-
-    if (lngI > lng !== lngJ > lng && lat < ((latJ - latI) * (lng - lngI)) / (lngJ - lngI) + latI) {
-      inside = !inside
+    const [lat1, lng1] = polygon[i];
+    const [lat2, lng2] = polygon[j];
+    
+    // Verificación de intersección mejorada
+    const intersect = ((lng1 > lng) !== (lng2 > lng)) && 
+      (lat < (lat2 - lat1) * (lng - lng1) / (lng2 - lng1) + lat1);
+    
+    if (intersect) {
+      inside = !inside;
     }
   }
-
-  return inside
+  
+  console.log(`🔍 Resultado para punto [${lat}, ${lng}]: ${inside ? 'DENTRO' : 'FUERA'} del polígono`);
+  return inside;
 }
 
 // 3. Función principal para detectar zona del cliente
@@ -161,17 +170,28 @@ export function detectarZonaCliente(
   tarifa: number
   mensaje: string
 } {
-  const punto: [number, number] = [lat, lng]
+  const punto: [number, number] = [lat, lng];
 
-  console.log(`🔍 Verificando ubicación: ${lat}, ${lng}`)
+  console.log(`🔍 Verificando ubicación: [${lat}, ${lng}]`);
+  
+  // Validación de coordenadas
+  if (isNaN(lat) || isNaN(lng) || !lat || !lng) {
+    console.error("❌ Coordenadas inválidas:", lat, lng);
+    return {
+      zona: null,
+      disponible: false,
+      tarifa: 0,
+      mensaje: "Coordenadas inválidas. Por favor intenta seleccionar nuevamente."
+    };
+  }
 
   // Buscar en qué zona está el punto
   for (const zona of deliveryZones) {
-    console.log(`📍 Verificando zona: ${zona.nombre}`)
-    console.log(`🔢 Polígono:`, zona.poligono)
+    console.log(`📍 Verificando zona: ${zona.nombre} (${zona.id})`);
+    console.log(`🔢 Polígono con ${zona.poligono.length} puntos:`, JSON.stringify(zona.poligono));
 
     if (isPointInPolygon(punto, zona.poligono)) {
-      console.log(`✅ Punto encontrado en zona: ${zona.nombre}`)
+      console.log(`✅ Punto encontrado en zona: ${zona.nombre}`);
 
       if (zona.disponible) {
         return {
@@ -179,19 +199,19 @@ export function detectarZonaCliente(
           disponible: true,
           tarifa: zona.tarifa,
           mensaje: `Delivery disponible en ${zona.nombre}. Costo: $${zona.tarifa.toLocaleString()}. Tiempo estimado: ${zona.tiempoEstimado}.`,
-        }
+        };
       } else {
         return {
           zona,
           disponible: false,
           tarifa: 0,
           mensaje: `Lo sentimos, el servicio de delivery no está disponible en ${zona.nombre}.`,
-        }
+        };
       }
     }
   }
 
-  console.log(`❌ Punto no encontrado en ninguna zona`)
+  console.log(`❌ Punto [${lat}, ${lng}] no encontrado en ninguna zona`);
 
   // Si no está en ninguna zona definida
   return {
@@ -199,7 +219,7 @@ export function detectarZonaCliente(
     disponible: false,
     tarifa: 0,
     mensaje: "Lo sentimos, tu ubicación está fuera de nuestra zona de cobertura de delivery.",
-  }
+  };
 }
 
 // Función para calcular distancia aproximada (opcional, para validación adicional)

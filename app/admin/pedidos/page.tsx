@@ -92,17 +92,23 @@ export default function AdminPedidos() {
   
   // Alarmas con Web Audio API (sin cargar mp3 externo)
   const reproducirAlarmaNuevoPedido = useCallback(() => {
-    const context = new AudioContext()
-    const oscillator = context.createOscillator()
-    const gainNode = context.createGain()
-    oscillator.connect(gainNode)
-    gainNode.connect(context.destination)
-    oscillator.frequency.value = 800
-    oscillator.type = 'sine'
-    gainNode.gain.setValueAtTime(0.3, context.currentTime)
-    gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.3)
-    oscillator.start(context.currentTime)
-    oscillator.stop(context.currentTime + 0.3)
+    try {
+      console.log("🔊 Reproduciendo alarma de nuevo pedido...")
+      const context = new AudioContext()
+      const oscillator = context.createOscillator()
+      const gainNode = context.createGain()
+      oscillator.connect(gainNode)
+      gainNode.connect(context.destination)
+      oscillator.frequency.value = 800
+      oscillator.type = 'sine'
+      gainNode.gain.setValueAtTime(0.3, context.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.3)
+      oscillator.start(context.currentTime)
+      oscillator.stop(context.currentTime + 0.3)
+      console.log("🔊 Alarma de nuevo pedido reproducida correctamente")
+    } catch (error) {
+      console.error("Error al reproducir alarma de nuevo pedido:", error)
+    }
   }, [])
   
   // Función para iniciar la alarma repetitiva
@@ -173,78 +179,89 @@ export default function AdminPedidos() {
   }, [actualizarEstadoOriginal, marcarPedidoAtendido]);
 
   const reproducirAlarmaTiempoAgotandose = useCallback(() => {
-    const context = new AudioContext()
-    
-    // Crear sonido de alarma más notorio
-    // Primer tono - más grave con volumen más alto
-    const oscillator1 = context.createOscillator()
-    const gainNode1 = context.createGain()
-    oscillator1.connect(gainNode1)
-    gainNode1.connect(context.destination)
-    oscillator1.frequency.value = 500
-    oscillator1.type = 'square'
-    gainNode1.gain.setValueAtTime(0.4, context.currentTime)
-    oscillator1.start(context.currentTime)
-    oscillator1.stop(context.currentTime + 0.5)
-    
-    // Segundo tono - más agudo, con pequeño retraso
-    const oscillator2 = context.createOscillator()
-    const gainNode2 = context.createGain()
-    oscillator2.connect(gainNode2)
-    gainNode2.connect(context.destination)
-    oscillator2.frequency.value = 700
-    oscillator2.type = 'square'
-    gainNode2.gain.setValueAtTime(0.4, context.currentTime + 0.5)
-    oscillator2.start(context.currentTime + 0.5)
-    oscillator2.stop(context.currentTime + 1.0)
-    
-    // Tercer tono - más agudo, con pequeño retraso adicional
-    const oscillator3 = context.createOscillator()
-    const gainNode3 = context.createGain()
-    oscillator3.connect(gainNode3)
-    gainNode3.connect(context.destination)
-    oscillator3.frequency.value = 900
-    oscillator3.type = 'square'
-    gainNode3.gain.setValueAtTime(0.4, context.currentTime + 1.0)
-    gainNode3.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 1.5)
-    oscillator3.start(context.currentTime + 1.0)
-    oscillator3.stop(context.currentTime + 1.5)
-    
-    // Repetir la secuencia una vez más después de una pausa
-    setTimeout(() => {
-      const context2 = new AudioContext()
+    try {
+      console.log("🔊 Reproduciendo alarma de tiempo agotándose...")
+      const context = new AudioContext()
       
-      const osc1 = context2.createOscillator()
-      const gain1 = context2.createGain()
-      osc1.connect(gain1)
-      gain1.connect(context2.destination)
-      osc1.frequency.value = 500
-      osc1.type = 'square'
-      gain1.gain.setValueAtTime(0.4, context2.currentTime)
-      osc1.start(context2.currentTime)
-      osc1.stop(context2.currentTime + 0.5)
+      // Crear sonido de alarma más notorio
+      // Primer tono - más grave con volumen más alto
+      const oscillator1 = context.createOscillator()
+      const gainNode1 = context.createGain()
+      oscillator1.connect(gainNode1)
+      gainNode1.connect(context.destination)
+      oscillator1.frequency.value = 500
+      oscillator1.type = 'square'
+      gainNode1.gain.setValueAtTime(0.4, context.currentTime)
+      oscillator1.start(context.currentTime)
+      oscillator1.stop(context.currentTime + 0.5)
       
-      const osc2 = context2.createOscillator()
-      const gain2 = context2.createGain()
-      osc2.connect(gain2)
-      gain2.connect(context2.destination)
-      osc2.frequency.value = 700
-      osc2.type = 'square'
-      gain2.gain.setValueAtTime(0.4, context2.currentTime + 0.5)
-      osc2.start(context2.currentTime + 0.5)
-      osc2.stop(context2.currentTime + 1.0)
+      // Segundo tono - más agudo, con pequeño retraso
+      const oscillator2 = context.createOscillator()
+      const gainNode2 = context.createGain()
+      oscillator2.connect(gainNode2)
+      gainNode2.connect(context.destination)
+      oscillator2.frequency.value = 700
+      oscillator2.type = 'square'
+      gainNode2.gain.setValueAtTime(0.4, context.currentTime + 0.5)
+      oscillator2.start(context.currentTime + 0.5)
+      oscillator2.stop(context.currentTime + 1.0)
       
-      const osc3 = context2.createOscillator()
-      const gain3 = context2.createGain()
-      osc3.connect(gain3)
-      gain3.connect(context2.destination)
-      osc3.frequency.value = 900
-      osc3.type = 'square'
-      gain3.gain.setValueAtTime(0.4, context2.currentTime + 1.0)
-      gain3.gain.exponentialRampToValueAtTime(0.01, context2.currentTime + 1.5)
-      osc3.start(context2.currentTime + 1.0)
-      osc3.stop(context2.currentTime + 1.5)
-    }, 2000)
+      // Tercer tono - más agudo, con pequeño retraso adicional
+      const oscillator3 = context.createOscillator()
+      const gainNode3 = context.createGain()
+      oscillator3.connect(gainNode3)
+      gainNode3.connect(context.destination)
+      oscillator3.frequency.value = 900
+      oscillator3.type = 'square'
+      gainNode3.gain.setValueAtTime(0.4, context.currentTime + 1.0)
+      gainNode3.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 1.5)
+      oscillator3.start(context.currentTime + 1.0)
+      oscillator3.stop(context.currentTime + 1.5)
+      
+      // Repetir la secuencia una vez más después de una pausa
+      setTimeout(() => {
+        try {
+          const context2 = new AudioContext()
+          
+          const osc1 = context2.createOscillator()
+          const gain1 = context2.createGain()
+          osc1.connect(gain1)
+          gain1.connect(context2.destination)
+          osc1.frequency.value = 500
+          osc1.type = 'square'
+          gain1.gain.setValueAtTime(0.4, context2.currentTime)
+          osc1.start(context2.currentTime)
+          osc1.stop(context2.currentTime + 0.5)
+          
+          const osc2 = context2.createOscillator()
+          const gain2 = context2.createGain()
+          osc2.connect(gain2)
+          gain2.connect(context2.destination)
+          osc2.frequency.value = 700
+          osc2.type = 'square'
+          gain2.gain.setValueAtTime(0.4, context2.currentTime + 0.5)
+          osc2.start(context2.currentTime + 0.5)
+          osc2.stop(context2.currentTime + 1.0)
+          
+          const osc3 = context2.createOscillator()
+          const gain3 = context2.createGain()
+          osc3.connect(gain3)
+          gain3.connect(context2.destination)
+          osc3.frequency.value = 900
+          osc3.type = 'square'
+          gain3.gain.setValueAtTime(0.4, context2.currentTime + 1.0)
+          gain3.gain.exponentialRampToValueAtTime(0.01, context2.currentTime + 1.5)
+          osc3.start(context2.currentTime + 1.0)
+          osc3.stop(context2.currentTime + 1.5)
+          console.log("🔊 Segunda parte de la alarma reproducida correctamente")
+        } catch (error) {
+          console.error("Error al reproducir la segunda parte de la alarma:", error)
+        }
+      }, 2000)
+      console.log("🔊 Primera parte de la alarma reproducida correctamente")
+    } catch (error) {
+      console.error("Error al reproducir la alarma:", error)
+    }
   }, [])
 
   // Funciones auxiliares
@@ -540,18 +557,34 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
 
   // Establecer tiempo estimado
   const establecerTiempoEstimado = useCallback(async (pedidoId: string, minutos: number) => {
-    const inicio = new Date()
-    const fin = new Date(inicio.getTime() + minutos*60000)
-    setTiemposEstimados(prev => ({ ...prev, [pedidoId]: minutos }))
-    setCuentasRegresivas(prev => ({ ...prev, [pedidoId]: minutos*60 }))
-    await updateDoc(doc(db,'orders',pedidoId), {
-      tiempoEstimadoMinutos: minutos,
-      tiempoEstimadoInicio: inicio.toISOString(),
-      tiempoEstimadoFin: fin.toISOString()
-    })
-    
-    // Marcar el pedido como atendido (detiene la alarma)
-    marcarPedidoAtendido(pedidoId);
+    try {
+      console.log(`Estableciendo tiempo estimado para pedido ${pedidoId}: ${minutos} minutos`)
+      const inicio = new Date()
+      const fin = new Date(inicio.getTime() + minutos * 60000)
+      
+      // Si el tiempo es menor a 3.5 minutos, mostrar advertencia
+      if (minutos < 3.5) {
+        console.warn(`⚠️ Estableciendo tiempo muy corto (${minutos} minutos) para pruebas de alarma`)
+      }
+      
+      setTiemposEstimados(prev => ({ ...prev, [pedidoId]: minutos }))
+      
+      // Calcular los segundos correctamente
+      const segundos = Math.round(minutos * 60)
+      setCuentasRegresivas(prev => ({ ...prev, [pedidoId]: segundos }))
+      
+      await updateDoc(doc(db,'orders',pedidoId), {
+        tiempoEstimadoMinutos: minutos,
+        tiempoEstimadoInicio: inicio.toISOString(),
+        tiempoEstimadoFin: fin.toISOString()
+      })
+      
+      // Marcar el pedido como atendido (detiene la alarma)
+      marcarPedidoAtendido(pedidoId);
+      console.log(`✅ Tiempo establecido correctamente: ${segundos} segundos`)
+    } catch (error) {
+      console.error("Error al establecer tiempo estimado:", error)
+    }
   }, [marcarPedidoAtendido])
 
   // lógica de cuenta regresiva
@@ -565,10 +598,10 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
         for (const id in next) {
           if (next[id] > 0) {
             // Si llega exactamente a 180 segundos (3 minutos), reproducir alarma
-            if (next[id] === 180) {
+            if (Math.floor(next[id]) === 180) {
+              console.log(`⚠️ ¡Alarma! Quedan exactamente 3 minutos (${next[id]} segundos) para el pedido ${id}`)
               reproducirAlarmaTiempoAgotandose()
               nuevosPocoTiempo.add(id)
-              console.log(`⚠️ ¡Alarma! Quedan 3 minutos para el pedido ${id}`)
             } 
             // Si está por debajo de 180 segundos, mantenerlo en pedidos con poco tiempo
             else if (next[id] < 180) {
@@ -928,11 +961,22 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       {["Entregado", "Cancelado"].includes(pedido.estado) ? (
                         <div className="text-sm text-gray-500 dark:text-gray-400 italic">Pedido finalizado</div>
                       ) : (
-                        [15,30,45,60].map(m => (
-                          <Button key={m} size="sm" variant={tiemposEstimados[pedido.documentId]===m?'default':'outline'} onClick={()=>establecerTiempoEstimado(pedido.documentId,m)}>
-                            {m}m
+                        <>
+                          {[15,30,45,60].map(m => (
+                            <Button key={m} size="sm" variant={tiemposEstimados[pedido.documentId]===m?'default':'outline'} onClick={()=>establecerTiempoEstimado(pedido.documentId,m)}>
+                              {m}m
+                            </Button>
+                          ))}
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="bg-yellow-600 text-white hover:bg-yellow-700"
+                            onClick={() => establecerTiempoEstimado(pedido.documentId, 3.1)}
+                            title="Establece 3 minutos y 6 segundos para probar la alarma"
+                          >
+                            TEST 3m
                           </Button>
-                        ))
+                        </>
                       )}
                     </div>
                     {/* Solo mostrar cuenta regresiva si el pedido no está entregado o cancelado */}

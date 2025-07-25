@@ -348,6 +348,40 @@ const Cart = () => {
     setDiscountError("")
   }
 
+  // Montar/desmontar el selector de ubicación para forzar recarga
+  const [mapKey, setMapKey] = useState<number>(Date.now())
+  
+  // Forzar remonte del componente de mapa cuando cambia la vista o al activar delivery
+  useEffect(() => {
+    if (currentView === "address" && isDelivery) {
+      console.log("Forzando recreación del componente de mapa");
+      
+      // Múltiples intentos de remontaje para asegurar la correcta visualización
+      // Primero inmediatamente
+      setMapKey(Date.now());
+      
+      // Luego con varios retrasos para asegurar que el mapa se muestre correctamente
+      setTimeout(() => setMapKey(Date.now()), 250);
+      setTimeout(() => setMapKey(Date.now()), 500);
+      setTimeout(() => setMapKey(Date.now()), 1000);
+    }
+  }, [currentView, isDelivery]);
+  
+  // Limpieza del mapa cuando el usuario abandona la vista de dirección
+  useEffect(() => {
+    if (currentView !== "address" && document) {
+      // Limpiar cualquier mapa residual
+      const mapContainers = document.querySelectorAll('.leaflet-container');
+      mapContainers.forEach(container => {
+        try {
+          container.remove();
+        } catch (err) {
+          console.error("Error al limpiar contenedor de mapa:", err);
+        }
+      });
+    }
+  }, [currentView]);
+
   const goBack = () => {
     if (currentView === "address" || currentView === "payment") {
       setCurrentView("cart")
@@ -537,59 +571,124 @@ const Cart = () => {
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-6">
-            <div className="space-y-3">
+            {/* Sección del mapa con altura aumentada */}
+            <div className="space-y-2">
               <Label className="text-base font-medium">Seleccionar Ubicación</Label>
-              <LocationPicker
-                onLocationSelect={handleLocationSelect}
-                selectedLocation={selectedLocation}
-                onDeliveryInfoChange={handleDeliveryInfoChange}
-              />
+              <div className="h-[400px] md:h-[450px] overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+                <LocationPicker
+                  key={mapKey} // Forzar recreación del componente
+                  onLocationSelect={handleLocationSelect}
+                  selectedLocation={selectedLocation}
+                  onDeliveryInfoChange={handleDeliveryInfoChange}
+                />
+              </div>
+              {/* Indicación de uso como mensaje flotante que se auto-oculta */}
+              {!selectedLocation && (
+                <div className="bg-yellow-50 border border-yellow-100 rounded-md p-2 text-center animate-pulse">
+                  <p className="text-xs text-yellow-700">Haz clic en el mapa para seleccionar tu ubicación exacta</p>
+                </div>
+              )}
             </div>
             <div className="space-y-4">
               <h3 className="font-medium text-gray-800">Detalles de la Dirección</h3>
-              <div className="grid grid-cols-2 gap-4">
+              
+              {/* Resumen de ubicación seleccionada */}
+              {selectedLocation && (
+                <div className={`p-2 rounded-md text-sm mb-3 ${deliveryInfo.disponible ? "bg-green-50 border border-green-100" : "bg-red-50 border border-red-100"}`}>
+                  <div className="flex items-center mb-1">
+                    <MapPin className="h-3 w-3 mr-1 flex-shrink-0 text-gray-500" />
+                    <span className="text-xs font-medium text-gray-700 truncate">
+                      {selectedLocation?.address || "Ubicación seleccionada en el mapa"}
+                    </span>
+                  </div>
+                  {deliveryInfo.zone && (
+                    <div className="text-xs text-gray-600">
+                      Zona: <span style={{color: deliveryInfo.zone.color}} className="font-medium">{deliveryInfo.zone.nombre}</span>
+                      {deliveryInfo.disponible && <span className="ml-1">(${deliveryInfo.tarifa.toLocaleString()})</span>}
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Grid responsivo con mejor manejo para móviles */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="calle">Calle</Label>
+                  <Label htmlFor="calle" className="text-sm">Calle</Label>
                   <Input
                     id="calle"
                     value={calle}
                     onChange={(e) => setCalle(e.target.value)}
                     placeholder="Av. Principal"
+                    className="h-9"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="numero">Número</Label>
-                  <Input id="numero" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="123" />
+                  <Label htmlFor="numero" className="text-sm">Número</Label>
+                  <Input 
+                    id="numero" 
+                    value={numero} 
+                    onChange={(e) => setNumero(e.target.value)} 
+                    placeholder="123"
+                    className="h-9" 
+                  />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              {/* Segunda fila también adaptativa */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="depto">Depto/Casa</Label>
-                  <Input id="depto" value={depto} onChange={(e) => setDepto(e.target.value)} placeholder="Depto 42" />
+                  <Label htmlFor="depto" className="text-sm">Depto/Casa</Label>
+                  <Input 
+                    id="depto" 
+                    value={depto} 
+                    onChange={(e) => setDepto(e.target.value)} 
+                    placeholder="Depto 42"
+                    className="h-9" 
+                  />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="comuna">Comuna</Label>
+                  <Label htmlFor="comuna" className="text-sm">Comuna</Label>
                   <Input
                     id="comuna"
                     value={comuna}
                     onChange={(e) => setComuna(e.target.value)}
                     placeholder="Santiago"
+                    className="h-9"
                   />
                 </div>
               </div>
+              {/* Referencia a pantalla completa */}
               <div className="space-y-2">
-                <Label htmlFor="referencia">Referencia</Label>
+                <Label htmlFor="referencia" className="text-sm">Referencia</Label>
                 <Input
                   id="referencia"
                   value={referencia}
                   onChange={(e) => setReferencia(e.target.value)}
                   placeholder="Edificio azul, cerca del parque, timbre 3"
+                  className="h-9"
                 />
               </div>
             </div>
           </div>
         </div>
         <div className="p-4 border-t border-gray-200 bg-gray-50">
+          {/* Mensaje de error mejorado como tooltip flotante */}
+          {(!calle || !numero || !comuna || !selectedLocation) && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3">
+              <p className="text-sm text-yellow-700 text-center">
+                Por favor, completa todos los campos obligatorios y selecciona una ubicación.
+              </p>
+            </div>
+          )}
+          
+          {/* Mensaje de error específico para zona no disponible */}
+          {selectedLocation && !deliveryInfo.disponible && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
+              <p className="text-sm text-red-700 text-center">
+                Lo sentimos, el delivery no está disponible en esta zona. Por favor, selecciona otra ubicación.
+              </p>
+            </div>
+          )}
+          
           <Button
             onClick={handleAddressSubmit}
             disabled={!calle || !numero || !comuna || !selectedLocation || !deliveryInfo.disponible}
@@ -597,13 +696,6 @@ const Cart = () => {
           >
             Continuar al Pago
           </Button>
-          {(!calle || !numero || !comuna || !selectedLocation || !deliveryInfo.disponible) && (
-            <p className="text-xs text-gray-500 mt-2 text-center">
-              {!deliveryInfo.disponible && selectedLocation
-                ? "Delivery no disponible en esta zona"
-                : "Completa todos los campos y selecciona una ubicación válida"}
-            </p>
-          )}
         </div>
       </div>
     )

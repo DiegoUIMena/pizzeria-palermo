@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MapPin } from "lucide-react"
-import OpenStreetMapPicker from "./OpenStreetMapPicker"
+import FixedMapPicker from "./FixedMapPicker"
 
 interface MapSelectionModalProps {
   isOpen: boolean
@@ -77,11 +77,13 @@ export default function MapSelectionModal({
         <div className="flex-1 flex flex-col h-full">
           {/* Mapa OpenStreetMap */}
           <div className="flex-1 p-4">
-            <OpenStreetMapPicker
+                      <div className="h-full max-h-[calc(100vh-150px)]">
+            <FixedMapPicker
               onLocationSelect={handleLocationSelect}
-              initialLocation={initialLocation}
+              initialLocation={initialLocation ? { lat: initialLocation.lat, lng: initialLocation.lng } : null}
               showDeliveryZones={showDeliveryZones}
             />
+          </div>
           </div>
 
           {/* Botones de acción */}
