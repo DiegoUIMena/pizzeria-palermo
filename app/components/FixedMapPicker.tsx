@@ -280,19 +280,45 @@ export default function FixedMapPicker({
 
   // Inicializar el mapa
   useEffect(() => {
-    // Solo intentar inicializar si el script está cargado pero el mapa no está inicializado
-    if (scriptLoaded && !mapInitialized && initAttempts > 0) {
+    // Solo intentar inicializar si no está inicializado y tenemos un intento activo
+    if (!mapInitialized && initAttempts > 0) {
       console.log(`Intento #${initAttempts} de inicialización del mapa`);
-      initializeMap();
       
-      // Si después de varios intentos aún no se inicializa, forzar reinicio del script
-      if (initAttempts >= 3 && !mapInitialized) {
-        console.log("Múltiples intentos fallidos, forzando recarga del script...");
+      // Si Leaflet está disponible, inicializar directamente
+      if (window.L) {
+        initializeMap();
+      } 
+      // Si no está disponible, asegurar que el script esté cargado
+      else if (!scriptLoaded) {
+        console.log("Leaflet no disponible, asegurando carga del script...");
+        setScriptLoaded(true);
+      } 
+      // Si el script está cargado pero Leaflet no está disponible, recargar script
+      else {
+        console.log("Script cargado pero Leaflet no disponible, recargando script...");
         setScriptLoaded(false);
-        setTimeout(() => {
-          setScriptLoaded(true);
-          setInitAttempts(1);
-        }, 500);
+        setTimeout(() => setScriptLoaded(true), 200);
+      }
+      
+      // Si después de varios intentos aún no se inicializa, intentar medidas más drásticas
+      if (initAttempts >= 3 && !mapInitialized) {
+        console.log("Múltiples intentos fallidos, aplicando medidas de recuperación...");
+        
+        // Limpiar completamente el DOM del mapa y forzar recarga
+        if (mapContainerRef.current) {
+          while (mapContainerRef.current.firstChild) {
+            mapContainerRef.current.removeChild(mapContainerRef.current.firstChild);
+          }
+        }
+        
+        // Recargar Leaflet completamente
+        const leafletScript = document.createElement('script');
+        leafletScript.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        leafletScript.onload = () => {
+          console.log("Leaflet recargado manualmente");
+          setTimeout(() => initializeMap(), 300);
+        };
+        document.head.appendChild(leafletScript);
       }
     }
   }, [scriptLoaded, mapInitialized, initAttempts]);
@@ -610,30 +636,67 @@ export default function FixedMapPicker({
   
   // Reiniciar mapa
   const resetMap = () => {
+    console.log("🔄 Reiniciando mapa completamente...");
+    
     // Reiniciar ubicación
     setSelectedLocation(null);
     
-    // Eliminar marcador si existe
-    if (markerRef.current && mapInstanceRef.current) {
-      markerRef.current.remove();
-      markerRef.current = null;
-    }
-    
-    // Eliminar marcador circular rojo si existe
-    if (redCircleMarkerRef.current && mapInstanceRef.current) {
-      redCircleMarkerRef.current.remove();
-      redCircleMarkerRef.current = null;
+    // Limpiar el mapa existente si hay uno
+    if (mapInstanceRef.current) {
+      try {
+        console.log("Limpiando mapa existente...");
+        
+        // Eliminar marcadores
+        if (markerRef.current) {
+          markerRef.current.remove();
+          markerRef.current = null;
+        }
+        
+        if (redCircleMarkerRef.current) {
+          redCircleMarkerRef.current.remove();
+          redCircleMarkerRef.current = null;
+        }
+        
+        // Limpiar capas y eventos
+        mapInstanceRef.current.off();
+        if (zonesLayerRef.current) {
+          zonesLayerRef.current.clearLayers();
+        }
+        
+        // Eliminar el mapa
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+        
+        // Limpiar el contenedor
+        if (mapContainerRef.current) {
+          while (mapContainerRef.current.firstChild) {
+            mapContainerRef.current.removeChild(mapContainerRef.current.firstChild);
+          }
+        }
+      } catch (err) {
+        console.error("Error al limpiar mapa existente:", err);
+      }
     }
     
     // Reiniciar estados
     setMapInitialized(false);
-    setInitAttempts(0);
     
-    // Forzar la recarga del script
-    setScriptLoaded(false);
-    setTimeout(() => {
-      setScriptLoaded(true);
-    }, 100);
+    // Forzar un nuevo intento de inicialización
+    console.log("Forzando nueva inicialización del mapa");
+    setInitAttempts(1);
+    
+    // Asegurarse que el script se recargue si es necesario
+    if (!window.L) {
+      setScriptLoaded(false);
+      setTimeout(() => {
+        setScriptLoaded(true);
+      }, 100);
+    } else {
+      // Si Leaflet ya está disponible, inicializar directamente
+      setTimeout(() => {
+        initializeMap();
+      }, 200);
+    }
   };
 
   return (
@@ -653,13 +716,30 @@ export default function FixedMapPicker({
         crossOrigin=""
         strategy="beforeInteractive"
         onLoad={() => {
-          console.log("Script de Leaflet cargado correctamente");
+          console.log("✅ Script de Leaflet cargado correctamente");
           setScriptLoaded(true);
-          // Iniciar un intento inmediatamente después de cargar el script
-          setInitAttempts(prev => prev + 1);
+          // Iniciar un intento inmediatamente después de cargar el script con un pequeño retraso
+          setTimeout(() => {
+            setInitAttempts(prev => prev + 1);
+            // Verificar que Leaflet esté realmente disponible
+            if (window.L) {
+              console.log("✅ Objeto L de Leaflet confirmado como disponible");
+            } else {
+              console.error("❌ Objeto L de Leaflet NO disponible a pesar de carga exitosa");
+            }
+          }, 200);
         }}
         onError={(e) => {
-          console.error("Error al cargar script de Leaflet:", e);
+          console.error("❌ Error al cargar script de Leaflet:", e);
+          // Intentar cargar manualmente como respaldo
+          const leafletScript = document.createElement('script');
+          leafletScript.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+          leafletScript.onload = () => {
+            console.log("✅ Leaflet cargado manualmente como respaldo");
+            setScriptLoaded(true);
+            setTimeout(() => setInitAttempts(prev => prev + 1), 200);
+          };
+          document.head.appendChild(leafletScript);
         }}
       />
 

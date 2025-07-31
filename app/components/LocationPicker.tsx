@@ -32,8 +32,23 @@ export default function LocationPicker({
   // Efecto para inicializar el mapa automáticamente al cargar el componente
   useEffect(() => {
     console.log("LocationPicker montado - inicializando mapa automáticamente");
-    // Reiniciar el mapa al cargar el componente
-    setMapKey(Date.now()); // Fuerza el re-renderizado del mapa
+    
+    // Reiniciar el mapa al cargar el componente con un pequeño retraso
+    // para asegurar que todo esté listo
+    const timer = setTimeout(() => {
+      console.log("Ejecutando inicialización programada del mapa");
+      const newMapKey = Date.now();
+      console.log("Generando nuevo mapKey para inicialización:", newMapKey);
+      setMapKey(newMapKey);
+      
+      // Verificar después de un momento si el mapa se ha inicializado correctamente
+      setTimeout(() => {
+        console.log("Verificando inicialización del mapa...");
+        setLocationDebug("Mapa inicializado automáticamente");
+      }, 1000);
+    }, 500);
+    
+    return () => clearTimeout(timer);
   }, []); // Solo se ejecuta al montar el componente
 
   const handleMapLocationSelect = (lat: number, lng: number, address?: string) => {
@@ -49,11 +64,22 @@ export default function LocationPicker({
   
   // Función para reiniciar el mapa
   const resetMap = () => {
-    console.log("Reiniciando mapa...")
-    setLocationDebug("Mapa reiniciado")
-    setLocalSelectedLocation(null) // Limpiar la ubicación local
-    setZoneStatus(null) // Limpiar el estado de la zona
-    setMapKey(Date.now()) // Forzar re-renderizado
+    console.log("Reiniciando mapa desde LocationPicker...");
+    setLocationDebug("Mapa reiniciado");
+    setLocalSelectedLocation(null); // Limpiar la ubicación local
+    setZoneStatus(null); // Limpiar el estado de la zona
+    
+    // Forzar re-renderizado con un nuevo mapKey
+    const newMapKey = Date.now();
+    console.log("Generando nuevo mapKey:", newMapKey);
+    setMapKey(newMapKey);
+    
+    // Esperar un momento y luego verificar si el mapa se ha reiniciado correctamente
+    setTimeout(() => {
+      console.log("Verificando reinicio del mapa...");
+      // Esta línea nos ayuda a depurar si hay problemas
+      setLocationDebug(prev => `${prev} | Verificando reinicio (${new Date().toLocaleTimeString()})`);
+    }, 1000);
   }
 
   const handleZoneChange = useCallback(
@@ -156,13 +182,15 @@ export default function LocationPicker({
   return (
     <div className="flex flex-col h-full">
       {/* Mapa Integrado con altura 100% para ajustarse al contenedor padre */}
-      <div className="flex-1 relative">
-        <FixedMapPicker
-          key={`location-map-${mapKey}`}
-          onLocationSelect={handleMapPickerLocationSelect}
-          initialLocation={localSelectedLocation ? { lat: localSelectedLocation.lat, lng: localSelectedLocation.lng } : null}
-          showDeliveryZones={true}
-        />
+      <div className="flex-1 relative" id="map-container">
+        {mapKey && (
+          <FixedMapPicker
+            key={`location-map-${mapKey}`}
+            onLocationSelect={handleMapPickerLocationSelect}
+            initialLocation={localSelectedLocation ? { lat: localSelectedLocation.lat, lng: localSelectedLocation.lng } : null}
+            showDeliveryZones={true}
+          />
+        )}
         
         {/* Panel de controles del mapa */}
         <div className="absolute top-2 left-2 z-50 flex flex-col gap-2">
@@ -198,6 +226,32 @@ export default function LocationPicker({
               {locationDebug}
             </div>
           )}
+        </div>
+        
+        {/* Botón de reinicio emergencia (visible solo si el mapa no carga) */}
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={() => {
+              console.log("⚠️ Reinicio de emergencia activado");
+              // Resetear todo completamente
+              setMapKey(Date.now() + 1000);
+              setLocalSelectedLocation(null);
+              setZoneStatus(null);
+              
+              // Forzar recarga del script de Leaflet
+              const leafletScript = document.createElement('script');
+              leafletScript.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+              document.head.appendChild(leafletScript);
+              
+              // Actualizar mensaje
+              setLocationDebug("Reinicio de emergencia ejecutado");
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white shadow-lg"
+          >
+            Forzar carga del mapa
+          </Button>
         </div>
       </div>
 
