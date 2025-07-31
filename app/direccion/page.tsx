@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -12,10 +12,12 @@ import { Label } from "@/components/ui/label"
 import { ArrowLeft, MapPin } from "lucide-react"
 import Header from "../components/Header"
 import Footer from "../components/Footer"
+import LocationPicker from "../components/LocationPicker"
 
 export default function DireccionPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
+  const [mapKey, setMapKey] = useState<number>(Date.now()) // Estado para forzar re-renderizado del mapa
 
   // Formulario de dirección
   const [calle, setCalle] = useState("")
@@ -23,6 +25,17 @@ export default function DireccionPage() {
   const [depto, setDepto] = useState("")
   const [comuna, setComuna] = useState("")
   const [referencia, setReferencia] = useState("")
+
+  // Forzar renderizado del mapa cuando se carga la página
+  useEffect(() => {
+    console.log("Página de dirección cargada - inicializando mapa");
+    // Pequeño retraso para asegurar que el contenedor esté listo
+    const timer = setTimeout(() => {
+      setMapKey(Date.now()); // Esto forzará un re-renderizado del mapa
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,6 +64,39 @@ export default function DireccionPage() {
           </Link>
 
           <h1 className="text-3xl font-bold text-gray-800 mb-8">Dirección de Entrega</h1>
+
+          {/* Mapa para selección de dirección */}
+          <div className="mb-6 h-[300px] md:h-[400px] border border-gray-200 rounded-lg shadow-md overflow-hidden">
+            <LocationPicker 
+              key={`location-map-${mapKey}`} // Esto fuerza un re-renderizado cuando cambia mapKey
+              onLocationSelect={(lat, lng, address) => {
+                console.log("Dirección seleccionada:", lat, lng, address);
+                if (address) {
+                  // Intentar extraer información de la dirección para auto-completar campos
+                  const parts = address.split(", ");
+                  if (parts.length > 0) {
+                    // Intentar separar calle y número
+                    const calleCompleta = parts[0];
+                    const match = calleCompleta.match(/^(.*?)\s?(\d+)?$/);
+                    if (match) {
+                      setCalle(match[1] || "");
+                      setNumero(match[2] || "");
+                    } else {
+                      setCalle(calleCompleta);
+                    }
+                    
+                    // Si hay una segunda parte, podría ser la comuna
+                    if (parts.length > 1) {
+                      setComuna(parts[parts.length - 1]);
+                    }
+                  }
+                }
+              }} 
+              onDeliveryInfoChange={(zone, tarifa, disponible) => {
+                console.log("Información de delivery:", zone, tarifa, disponible);
+              }}
+            />
+          </div>
 
           <Card className="border-gray-200">
             <CardHeader className="bg-gray-50 border-b border-gray-200">

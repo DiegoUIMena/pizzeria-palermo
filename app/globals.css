@@ -319,3 +319,59 @@ textarea:focus {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Estilos específicos para el mapa y marcadores */
+.leaflet-marker-icon {
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
+.leaflet-marker-pane {
+  z-index: 9999 !important;
+}
+
+.custom-marker-icon {
+  background: transparent !important;
+  border: none !important;
+  z-index: 9999 !important;
+  pointer-events: auto !important;
+  width: auto !important;
+  height: auto !important;
+}
+
+.marker-container {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999 !important;
+}
+
+/* Efecto de pulsación para feedback de clic */
+.pulse {
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(255, 0, 128, 0.6);
+  box-shadow: 0 0 0 rgba(255, 0, 128, 0.4);
+  animation: pulse 1s ease-out;
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(0.1);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}

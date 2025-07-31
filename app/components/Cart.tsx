@@ -671,23 +671,20 @@ const Cart = () => {
           </div>
         </div>
         <div className="p-4 border-t border-gray-200 bg-gray-50">
-          {/* Mensaje de error mejorado como tooltip flotante */}
-          {(!calle || !numero || !comuna || !selectedLocation) && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3">
+          {/* Mensajes de error dinámicos que solo aparecen cuando son necesarios */}
+          {(!calle || !numero || !comuna || !selectedLocation) ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3 animate-fadeIn">
               <p className="text-sm text-yellow-700 text-center">
                 Por favor, completa todos los campos obligatorios y selecciona una ubicación.
               </p>
             </div>
-          )}
-          
-          {/* Mensaje de error específico para zona no disponible */}
-          {selectedLocation && !deliveryInfo.disponible && (
-            <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3">
+          ) : selectedLocation && !deliveryInfo.disponible ? (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3 animate-fadeIn">
               <p className="text-sm text-red-700 text-center">
                 Lo sentimos, el delivery no está disponible en esta zona. Por favor, selecciona otra ubicación.
               </p>
             </div>
-          )}
+          ) : null}
           
           <Button
             onClick={handleAddressSubmit}

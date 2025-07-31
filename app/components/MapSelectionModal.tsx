@@ -24,16 +24,32 @@ export default function MapSelectionModal({
 }: MapSelectionModalProps) {
   const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(initialLocation || null)
   const [address, setAddress] = useState<string>("")
+  const [mapKey, setMapKey] = useState<number>(Date.now()) // Estado para forzar re-renderizado
 
-  const handleLocationSelect = async (lat: number, lng: number) => {
-    setSelectedLocation({ lat, lng })
+  // Función para reiniciar el mapa
+  const resetMap = () => {
+    console.log("Reiniciando mapa en modal...")
+    setSelectedLocation(null) // Limpiar la ubicación seleccionada
+    setAddress("") // Limpiar la dirección
+    setMapKey(Date.now()) // Forzar re-renderizado
+  }
+
+  const handleLocationSelect = async (lat: number, lng: number, addr?: string) => {
+    console.log("MapSelectionModal: ubicación seleccionada:", lat, lng, addr);
+    setSelectedLocation({ lat, lng });
+
+    // Si ya se proporcionó una dirección, usarla
+    if (addr) {
+      setAddress(addr);
+      return;
+    }
 
     // Intentar obtener la dirección
     try {
-      const address = await reverseGeocode(lat, lng)
-      setAddress(address)
+      const fetchedAddress = await reverseGeocode(lat, lng);
+      setAddress(fetchedAddress);
     } catch (error) {
-      console.error("Error al obtener dirección:", error)
+      console.error("Error al obtener dirección:", error);
     }
   }
 
@@ -66,7 +82,7 @@ export default function MapSelectionModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl h-[80vh] p-0">
+      <DialogContent className="max-w-[95vw] sm:max-w-[90vw] md:max-w-[85vw] lg:max-w-[80vw] h-[90vh] p-0">
         <DialogHeader className="p-4 border-b">
           <DialogTitle className="flex items-center space-x-2">
             <MapPin className="h-5 w-5 text-pink-600" />
@@ -74,16 +90,28 @@ export default function MapSelectionModal({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex flex-col h-full">
-          {/* Mapa OpenStreetMap */}
-          <div className="flex-1 p-4">
-                      <div className="h-full max-h-[calc(100vh-150px)]">
-            <FixedMapPicker
-              onLocationSelect={handleLocationSelect}
-              initialLocation={initialLocation ? { lat: initialLocation.lat, lng: initialLocation.lng } : null}
-              showDeliveryZones={showDeliveryZones}
-            />
-          </div>
+        <div className="flex-1 flex flex-col h-[calc(90vh-130px)]">
+          {/* Mapa OpenStreetMap a pantalla completa */}
+          <div className="flex-1 p-4 h-full relative">
+            <div className="h-full">
+              <FixedMapPicker
+                key={`modal-map-${mapKey}`} /* Clave única para forzar re-renderizado */
+                onLocationSelect={handleLocationSelect}
+                initialLocation={selectedLocation || initialLocation || null}
+                showDeliveryZones={showDeliveryZones}
+              />
+            </div>
+            
+            {/* Botón de reinicio del mapa */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={resetMap}
+              className="absolute top-6 left-6 z-50 bg-white dark:bg-gray-800 shadow-md"
+              size="sm"
+            >
+              Reiniciar Mapa
+            </Button>
           </div>
 
           {/* Botones de acción */}

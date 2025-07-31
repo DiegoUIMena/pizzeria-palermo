@@ -32,6 +32,7 @@ export default function FixedMapPicker({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
+  const redCircleMarkerRef = useRef<any>(null); // Referencia para el marcador circular rojo
   const zonesLayerRef = useRef<any>(null);
 
   // Estados
@@ -45,6 +46,13 @@ export default function FixedMapPicker({
   const [currentZone, setCurrentZone] = useState<DeliveryZone | null>(null);
   const [address, setAddress] = useState<string>("");
   const [initAttempts, setInitAttempts] = useState(0);
+  
+  // Cuando el componente se monta, forzar un intento inicial de carga
+  useEffect(() => {
+    console.log("FixedMapPicker montado - forzando inicialización del mapa");
+    // Iniciar un intento inmediatamente
+    setInitAttempts(1);
+  }, []);
 
   // Inicializar mapa después de que el script esté cargado
   useEffect(() => {
@@ -74,6 +82,27 @@ export default function FixedMapPicker({
       }
       return;
     }
+
+    // Verificar que el contenedor del mapa exista
+    if (!mapContainerRef.current) {
+      console.error("Contenedor del mapa no disponible");
+      return;
+    }
+
+    // Verificar que el contenedor del mapa tenga dimensiones
+    const mapRect = mapContainerRef.current.getBoundingClientRect();
+    if (mapRect.width === 0 || mapRect.height === 0) {
+      console.error("Contenedor del mapa tiene dimensiones cero:", mapRect);
+      
+      // Forzar un reintento después de un pequeño retraso
+      setTimeout(() => {
+        setInitAttempts(prev => prev + 1);
+      }, 500);
+      
+      return;
+    }
+
+    console.log("Dimensiones del contenedor del mapa:", mapRect.width, "x", mapRect.height);
 
     // Limpiar el mapa existente si hay uno
     if (mapInstanceRef.current) {
@@ -108,37 +137,105 @@ export default function FixedMapPicker({
       // Crear capa para zonas de delivery
       zonesLayerRef.current = window.L.layerGroup().addTo(map);
 
-      // Crear icono personalizado para el marcador
-      const customIcon = window.L.divIcon({
-        className: "custom-marker-icon",
-        html: `<div class="w-8 h-8 bg-pink-600 dark:bg-pink-700 rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-gray-800">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                </svg>
-              </div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 32],
-      });
+      // No creamos aquí el icono personalizado, usaremos la función createMarkerIcon()
+      // que garantiza consistencia en todo el componente
       
       // Añadir marcador si hay ubicación inicial
       if (selectedLocation) {
-        markerRef.current = window.L.marker(
-          [selectedLocation.lat, selectedLocation.lng], 
-          { icon: customIcon }
-        ).addTo(map);
+        console.log("Añadiendo marcador inicial en:", selectedLocation);
+        const icon = createMarkerIcon();
+        
+        if (icon) {
+          try {
+            // Crear el marcador con el ícono estándar
+            markerRef.current = window.L.marker(
+              [selectedLocation.lat, selectedLocation.lng], 
+              { icon: icon }
+            ).addTo(map);
+            
+            // También añadir marcador circular rojo para mejor visibilidad
+            redCircleMarkerRef.current = createRedCircleMarker({ 
+              lat: selectedLocation.lat, 
+              lng: selectedLocation.lng 
+            });
+            
+            console.log("✅ Marcador inicial añadido correctamente");
+            
+            // Verificar que el marcador esté en el mapa
+            if (markerRef.current && markerRef.current._map) {
+              console.log("✅ Confirmado: el marcador inicial está en el mapa");
+            } else {
+              console.error("❌ Error: el marcador inicial no se añadió al mapa correctamente");
+            }
+          } catch (error) {
+            console.error("❌ Error al añadir marcador inicial:", error);
+          }
+        }
       }
 
       // Manejar clics en el mapa
       map.on("click", (e: any) => {
         console.log("🗺️ Click en mapa detectado, coordenadas:", e.latlng);
-        const { lat, lng } = e.latlng;
-        // Asegurarse de que las coordenadas sean válidas
-        if (isNaN(lat) || isNaN(lng)) {
-          console.error("Coordenadas inválidas en el clic del mapa:", e.latlng);
-          return;
+        
+        try {
+          const { lat, lng } = e.latlng;
+          // Asegurarse de que las coordenadas sean válidas
+          if (isNaN(lat) || isNaN(lng)) {
+            console.error("Coordenadas inválidas en el clic del mapa:", e.latlng);
+            return;
+          }
+          
+          // Crear un punto visible temporalmente para confirmar que el clic funciona
+          const clickPoint = window.L.circleMarker([lat, lng], {
+            radius: 8,
+            color: 'blue',
+            fillColor: 'blue',
+            fillOpacity: 0.7,
+            weight: 2
+          }).addTo(map);
+          
+          // Eliminar el punto después de un momento
+          setTimeout(() => {
+            if (clickPoint) {
+              clickPoint.remove();
+            }
+          }, 800);
+          
+          console.log("Procesando clic en coordenadas:", lat, lng);
+          
+          // PRIMERO: Actualizar el marcador - esto es crítico
+          updateMarker(lat, lng);
+          
+          // SEGUNDO: Notificar sobre la ubicación seleccionada
+          handleMapClick(lat, lng);
+          
+          // TERCERO: Verificación adicional para asegurar que el marcador esté presente
+          setTimeout(() => {
+            if (!redCircleMarkerRef.current || !redCircleMarkerRef.current._map) {
+              console.log("⚠️ Verificación adicional: el marcador no está visible, recreándolo...");
+              redCircleMarkerRef.current = createRedCircleMarker({ lat, lng });
+              
+              // Verificación final
+              setTimeout(() => {
+                if (!redCircleMarkerRef.current || !redCircleMarkerRef.current._map) {
+                  console.log("❗ ALERTA: Último intento de recuperación de marcador");
+                  const icon = window.L.icon({
+                    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+                    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+                    iconSize: [25, 41],
+                    iconAnchor: [12, 41]
+                  });
+                  
+                  redCircleMarkerRef.current = window.L.marker([lat, lng], {
+                    icon: icon
+                  }).addTo(map);
+                }
+              }, 300);
+            }
+          }, 1000);
+        } catch (error) {
+          console.error("Error al procesar clic en mapa:", error);
         }
-        // Usar el método handleMapClick para procesar el clic
-        handleMapClick(lat, lng);
       });
 
       // Guardar referencia al mapa
@@ -185,7 +282,18 @@ export default function FixedMapPicker({
   useEffect(() => {
     // Solo intentar inicializar si el script está cargado pero el mapa no está inicializado
     if (scriptLoaded && !mapInitialized && initAttempts > 0) {
+      console.log(`Intento #${initAttempts} de inicialización del mapa`);
       initializeMap();
+      
+      // Si después de varios intentos aún no se inicializa, forzar reinicio del script
+      if (initAttempts >= 3 && !mapInitialized) {
+        console.log("Múltiples intentos fallidos, forzando recarga del script...");
+        setScriptLoaded(false);
+        setTimeout(() => {
+          setScriptLoaded(true);
+          setInitAttempts(1);
+        }, 500);
+      }
     }
   }, [scriptLoaded, mapInitialized, initAttempts]);
 
@@ -200,6 +308,11 @@ export default function FixedMapPicker({
           if (markerRef.current) {
             markerRef.current.remove();
             markerRef.current = null;
+          }
+          // Eliminar marcador circular rojo
+          if (redCircleMarkerRef.current) {
+            redCircleMarkerRef.current.remove();
+            redCircleMarkerRef.current = null;
           }
           // Eliminar capa de zonas
           if (zonesLayerRef.current) {
@@ -259,36 +372,153 @@ export default function FixedMapPicker({
     }
   }, [showZones, mapInitialized]);
 
-  // Manejar clic en el mapa
-  const handleMapClick = (lat: number, lng: number) => {
-    console.log(`🖱️ Clic en mapa: [${lat}, ${lng}]`);
-    setSelectedLocation({ lat, lng });
+  // Función para crear un icono de marcador
+  const createMarkerIcon = () => {
+    if (!window.L) {
+      console.error("❌ Leaflet no disponible para crear icono");
+      return null;
+    }
     
-    // Actualizar marcador
-    if (mapInitialized && mapInstanceRef.current) {
-      // Eliminar marcador existente
+    try {
+      // Usar un ícono Leaflet estándar para máxima compatibilidad
+      return window.L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+    } catch (error) {
+      console.error("❌ Error al crear icono de marcador:", error);
+      return null;
+    }
+  };
+  
+  // Función para crear un marcador circular rojo para indicar la ubicación seleccionada
+  const createRedCircleMarker = (coordinates: { lat: number; lng: number }) => {
+    if (!window.L || !mapInstanceRef.current) {
+      console.error("❌ No se puede crear marcador circular rojo - mapa no inicializado");
+      return null;
+    }
+    
+    try {
+      console.log("🔴 Creando marcador rojo PERMANENTE en:", coordinates);
+      
+      // Crear un marcador estándar con icono predeterminado (más visible y confiable)
+      const defaultIcon = window.L.icon({
+        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+      
+      // Crear un marcador con el icono estándar de Leaflet
+      const marker = window.L.marker([coordinates.lat, coordinates.lng], {
+        icon: defaultIcon,
+        zIndexOffset: 1000 // Asegurarse que esté por encima de otros elementos
+      }).addTo(mapInstanceRef.current);
+      
+      console.log("✅ Marcador estándar creado correctamente");
+      
+      // Verificar que el marcador se haya añadido correctamente al mapa
+      if (!marker._map) {
+        console.error("⚠️ El marcador no se añadió al mapa correctamente, reintentando...");
+        marker.addTo(mapInstanceRef.current);
+      }
+      
+      return marker;
+    } catch (error) {
+      console.error("❌ Error al crear marcador rojo:", error);
+      return null;
+    }
+  };
+
+  // Función para actualizar el marcador en el mapa
+  const updateMarker = (lat: number, lng: number) => {
+    console.log(`🎯 Actualizando marcador en: [${lat}, ${lng}]`);
+    
+    if (!mapInitialized || !mapInstanceRef.current) {
+      console.error("❌ No se puede actualizar el marcador - mapa no inicializado");
+      return;
+    }
+    
+    try {
+      // Guardar las coordenadas actuales
+      setSelectedLocation({ lat, lng });
+      
+      // Eliminar marcadores existentes para asegurar una limpieza adecuada
       if (markerRef.current) {
+        console.log("Eliminando marcador estándar existente");
         markerRef.current.remove();
         markerRef.current = null;
       }
       
-      // Crear nuevo marcador
-      const customIcon = window.L.divIcon({
-        className: "custom-marker-icon",
-        html: `<div class="w-8 h-8 bg-pink-600 dark:bg-pink-700 rounded-full flex items-center justify-center shadow-lg border-2 border-white dark:border-gray-800">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                </svg>
-              </div>`,
-        iconSize: [32, 32],
-        iconAnchor: [16, 32],
-      });
+      if (redCircleMarkerRef.current) {
+        console.log("Eliminando marcador rojo existente");
+        redCircleMarkerRef.current.remove();
+        redCircleMarkerRef.current = null;
+      }
       
-      // Asegurarse de que el marcador se añada al mapa
-      markerRef.current = window.L.marker([lat, lng], { icon: customIcon }).addTo(mapInstanceRef.current);
+      // Crear un nuevo marcador en la posición actualizada
+      console.log("Creando nuevo marcador en:", lat, lng);
+      redCircleMarkerRef.current = createRedCircleMarker({ lat, lng });
       
       // Centrar el mapa en la ubicación seleccionada
       mapInstanceRef.current.panTo([lat, lng]);
+      
+      console.log("✅ Marcador actualizado correctamente");
+      
+      // Verificación diferida para asegurar que el marcador está visible
+      setTimeout(() => {
+        if (!redCircleMarkerRef.current || !redCircleMarkerRef.current._map) {
+          console.log("⚠️ Verificación: el marcador no está visible, recreándolo...");
+          // Si el marcador no está en el mapa, intentar crearlo de nuevo
+          redCircleMarkerRef.current = createRedCircleMarker({ lat, lng });
+        }
+      }, 500);
+    } catch (error) {
+      console.error("❌ Error al actualizar marcador:", error);
+      
+      // Intento de recuperación con un marcador estándar como respaldo
+      setTimeout(() => {
+        try {
+          console.log("🔄 Intento de recuperación de emergencia para marcador");
+          // Usar marcador predeterminado de Leaflet como último recurso
+          const defaultIcon = window.L.icon({
+            iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41]
+          });
+          
+          redCircleMarkerRef.current = window.L.marker([lat, lng], {
+            icon: defaultIcon
+          }).addTo(mapInstanceRef.current);
+        } catch (e) {
+          console.error("Falló el intento de recuperación:", e);
+        }
+      }, 500);
+    }
+  };
+
+  // Manejar clic en el mapa
+  const handleMapClick = (lat: number, lng: number) => {
+    console.log(`🖱️ Procesando clic en mapa: [${lat}, ${lng}]`);
+    
+    // Actualizar estado local
+    setSelectedLocation({ lat, lng });
+    
+    // Detectar zona antes de intentar obtener dirección
+    const zoneResult = detectarZonaCliente(lat, lng);
+    console.log("Resultado de detección de zona:", zoneResult);
+    
+    if (zoneResult.disponible && zoneResult.zona) {
+      setCurrentZone(zoneResult.zona);
+    } else {
+      setCurrentZone(null);
     }
     
     // Intentar obtener dirección
@@ -304,9 +534,11 @@ export default function FixedMapPicker({
             setAddress(shortAddress);
             
             // Notificar selección con dirección
+            console.log("🔔 Notificando selección con dirección:", shortAddress);
             onLocationSelect(lat, lng, shortAddress);
           } else {
             // Notificar selección sin dirección
+            console.log("🔔 Notificando selección sin dirección");
             onLocationSelect(lat, lng);
           }
         })
@@ -319,16 +551,6 @@ export default function FixedMapPicker({
       console.error("Error en la solicitud de geocodificación inversa:", error);
       // Notificar selección sin dirección en caso de error
       onLocationSelect(lat, lng);
-    }
-    
-    // Detectar zona
-    const zoneResult = detectarZonaCliente(lat, lng);
-    console.log("Resultado de detección de zona:", zoneResult);
-    
-    if (zoneResult.disponible && zoneResult.zona) {
-      setCurrentZone(zoneResult.zona);
-    } else {
-      setCurrentZone(null);
     }
   };
 
@@ -397,6 +619,12 @@ export default function FixedMapPicker({
       markerRef.current = null;
     }
     
+    // Eliminar marcador circular rojo si existe
+    if (redCircleMarkerRef.current && mapInstanceRef.current) {
+      redCircleMarkerRef.current.remove();
+      redCircleMarkerRef.current = null;
+    }
+    
     // Reiniciar estados
     setMapInitialized(false);
     setInitAttempts(0);
@@ -423,9 +651,12 @@ export default function FixedMapPicker({
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossOrigin=""
+        strategy="beforeInteractive"
         onLoad={() => {
           console.log("Script de Leaflet cargado correctamente");
           setScriptLoaded(true);
+          // Iniciar un intento inmediatamente después de cargar el script
+          setInitAttempts(prev => prev + 1);
         }}
         onError={(e) => {
           console.error("Error al cargar script de Leaflet:", e);
@@ -494,7 +725,7 @@ export default function FixedMapPicker({
 
       {/* Contenedor del mapa */}
       <div className="relative flex-1">
-        <div ref={mapContainerRef} className="w-full h-full" />
+        <div ref={mapContainerRef} className="w-full h-full relative" style={{position: 'relative'}} />
 
         {!mapInitialized && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800">

@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
+import "./styles/map-markers.css" // Importar estilos para marcadores de mapa
 import { FirebaseProvider } from "./context/FirebaseContext"
 import { AuthProvider } from "./context/AuthContext"
 import { CartProvider } from "./context/CartContext"
