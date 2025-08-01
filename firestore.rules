@@ -41,6 +41,13 @@ service cloud.firestore {
       allow write: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
+    // Reglas para zonas de delivery
+    match /delivery-zones/{document=**} {
+      allow read: if true; // Permitir lectura a todos
+      allow write: if true; // Permitir escritura a todos durante desarrollo
+      // En producción: allow write: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
     // Regla temporal para permitir acceso durante desarrollo
     // ¡IMPORTANTE! Quitar esta regla antes de desplegar a producción
     match /{document=**} {

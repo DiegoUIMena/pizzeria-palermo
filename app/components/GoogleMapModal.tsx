@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Badge } from "@/components/ui/badge"
 import { MapPin, Navigation, ZoomIn, ZoomOut, Layers } from "lucide-react"
 import { deliveryZones, detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones"
+import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 import SimulatedMap from "./SimulatedMap"
 
 interface GoogleMapModalProps {
@@ -35,13 +36,14 @@ export default function GoogleMapModal({
   const [showZones, setShowZones] = useState(showDeliveryZones)
   const [currentZone, setCurrentZone] = useState<DeliveryZone | null>(null)
   const [mapType, setMapType] = useState<"roadmap" | "satellite">("roadmap")
+  const { zones, loading, error } = useDeliveryZones()
 
   useEffect(() => {
     if (selectedLocation) {
-      const resultado = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng)
+      const resultado = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng, zones)
       setCurrentZone(resultado.zona)
     }
-  }, [selectedLocation])
+  }, [selectedLocation, zones])
 
   const handleMapClick = (lat: number, lng: number) => {
     setSelectedLocation({ lat, lng })
@@ -121,7 +123,7 @@ export default function GoogleMapModal({
               onMapClick={handleMapClick}
               marker={selectedLocation}
               showDeliveryZones={showZones}
-              deliveryZones={deliveryZones}
+              deliveryZones={zones && zones.length > 0 ? zones : deliveryZones}
               mapType={mapType}
             />
           </div>

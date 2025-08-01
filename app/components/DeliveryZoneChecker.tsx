@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, AlertCircle } from "lucide-react"
+import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 
 interface DeliveryZoneCheckerProps {
   selectedLocation: { lat: number; lng: number; address?: string } | null | undefined
@@ -14,10 +15,11 @@ export default function DeliveryZoneChecker({ selectedLocation, onZoneChange }: 
   const [zona, setZona] = useState<DeliveryZone | null>(null)
   const [tarifa, setTarifa] = useState(0)
   const [disponible, setDisponible] = useState(false)
+  const { zones, loading, error } = useDeliveryZones()
 
   useEffect(() => {
-    if (selectedLocation) {
-      const resultado = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng)
+    if (selectedLocation && zones && zones.length > 0) {
+      const resultado = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng, zones)
       setZona(resultado.zona)
       setTarifa(resultado.tarifa)
       setDisponible(resultado.disponible)
@@ -34,7 +36,7 @@ export default function DeliveryZoneChecker({ selectedLocation, onZoneChange }: 
         onZoneChange(null, 0, false)
       }
     }
-  }, [selectedLocation, onZoneChange])
+  }, [selectedLocation, zones, onZoneChange])
 
   if (!selectedLocation) {
     return (

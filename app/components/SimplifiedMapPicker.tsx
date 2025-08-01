@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Navigation, ZoomIn, ZoomOut, Layers } from "lucide-react";
 import { deliveryZones, detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones";
+import { useDeliveryZones } from "../../hooks/useDeliveryZones";
 
 // Declaración de tipo para Window con Leaflet
 declare global {
@@ -40,6 +41,9 @@ export default function SimplifiedMapPicker({
   const [selectedLocation, setSelectedLocation] = useState<{lat: number; lng: number} | null>(
     initialLocation || null
   );
+  
+  // Obtener zonas de delivery desde Firestore
+  const { zones: firestoreZones, loading: loadingZones } = useDeliveryZones();
   const [zoom, setZoom] = useState(15);
   const [showZones, setShowZones] = useState(showDeliveryZones);
   const [currentZone, setCurrentZone] = useState<DeliveryZone | null>(null);
@@ -187,8 +191,11 @@ export default function SimplifiedMapPicker({
     // Si no se deben mostrar las zonas, salir
     if (!showZones) return;
 
+    // Usar las zonas de Firestore si están disponibles, o las zonas por defecto si no
+    const zones = firestoreZones && firestoreZones.length > 0 ? firestoreZones : deliveryZones;
+
     // Añadir cada zona como un polígono
-    deliveryZones.forEach((zone) => {
+    zones.forEach((zone) => {
       if (!zone.poligono || zone.poligono.length < 3) return;
 
       const polygon = window.L.polygon(zone.poligono, {
@@ -248,7 +255,7 @@ export default function SimplifiedMapPicker({
     }
     
     // Actualizar zona actual
-    const resultado = detectarZonaCliente(lat, lng);
+    const resultado = detectarZonaCliente(lat, lng, firestoreZones);
     setCurrentZone(resultado.zona);
     
     // Obtener dirección

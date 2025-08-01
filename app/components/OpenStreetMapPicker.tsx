@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Navigation, ZoomIn, ZoomOut, Layers } from "lucide-react";
 import { deliveryZones, detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones";
+import { useDeliveryZones } from "../../hooks/useDeliveryZones";
 
 // Declaración de tipo para Window con Leaflet
 declare global {
@@ -47,6 +48,9 @@ export default function OpenStreetMapPicker({
   const [initAttempts, setInitAttempts] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const leafletLoadedRef = useRef<boolean>(false);
+  
+  // Obtener zonas de Firestore
+  const { zones, loading, error } = useDeliveryZones();
 
   // Inicializar mapa cuando el script esté cargado
   useEffect(() => {
@@ -297,7 +301,7 @@ export default function OpenStreetMapPicker({
         mapInstanceRef.current.setView([selectedLocation.lat, selectedLocation.lng], zoom);
 
         // Actualizar zona actual
-        const resultado = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng);
+        const resultado = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng, zones);
         setCurrentZone(resultado.zona);
 
         // Obtener dirección
@@ -322,8 +326,11 @@ export default function OpenStreetMapPicker({
     // Si no se deben mostrar las zonas, salir
     if (!showZones) return;
 
+    // Usar zonas de Firestore si están disponibles, de lo contrario usar las zonas por defecto
+    const zonasAMostrar = zones && zones.length > 0 ? zones : deliveryZones;
+
     // Añadir cada zona como un polígono
-    deliveryZones.forEach((zone) => {
+    zonasAMostrar.forEach((zone) => {
       if (!zone.poligono || zone.poligono.length < 3) return;
 
       const polygon = window.L.polygon(zone.poligono, {
@@ -350,7 +357,7 @@ export default function OpenStreetMapPicker({
     if (isMapInitialized) {
       updateDeliveryZones();
     }
-  }, [showZones, isMapInitialized]);
+  }, [showZones, isMapInitialized, zones]);
 
   // Manejar clic en el mapa
   const handleMapClick = (lat: number, lng: number) => {
@@ -360,7 +367,7 @@ export default function OpenStreetMapPicker({
     setSelectedLocation({ lat, lng });
     
     // Actualizar zona actual
-    const resultado = detectarZonaCliente(lat, lng);
+    const resultado = detectarZonaCliente(lat, lng, zones);
     console.log("Resultado de detección de zona:", resultado);
     setCurrentZone(resultado.zona);
     

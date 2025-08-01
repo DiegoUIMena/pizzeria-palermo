@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Navigation, ZoomIn, ZoomOut, Layers, RefreshCw } from "lucide-react";
 import { deliveryZones, detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones";
+import { useDeliveryZones } from "../../hooks/useDeliveryZones";
 
 // Declaración de tipo para Window con Leaflet
 declare global {
@@ -41,11 +42,16 @@ export default function FixedMapPicker({
   const [selectedLocation, setSelectedLocation] = useState<{lat: number; lng: number} | null>(
     initialLocation || null
   );
+  const [selectedAddress, setSelectedAddress] = useState<string>("");
+  const [mapTileLayer, setMapTileLayer] = useState<string>("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png");
   const [zoom, setZoom] = useState(15);
   const [showZones, setShowZones] = useState(showDeliveryZones);
   const [currentZone, setCurrentZone] = useState<DeliveryZone | null>(null);
   const [address, setAddress] = useState<string>("");
   const [initAttempts, setInitAttempts] = useState(0);
+  
+  // Obtener zonas de delivery desde Firestore
+  const { zones: firestoreZones, loading: loadingZones } = useDeliveryZones();
   
   // Cuando el componente se monta, forzar un intento inicial de carga
   useEffect(() => {
@@ -368,8 +374,11 @@ export default function FixedMapPicker({
     // Si no se deben mostrar las zonas, salir
     if (!showZones) return;
 
+    // Usar las zonas de Firestore si están disponibles, o las zonas por defecto si no
+    const zones = firestoreZones && firestoreZones.length > 0 ? firestoreZones : deliveryZones;
+
     // Añadir cada zona como un polígono
-    deliveryZones.forEach((zone) => {
+    zones.forEach((zone) => {
       if (!zone.poligono || zone.poligono.length < 3) return;
 
       const polygon = window.L.polygon(zone.poligono, {
@@ -538,7 +547,7 @@ export default function FixedMapPicker({
     setSelectedLocation({ lat, lng });
     
     // Detectar zona antes de intentar obtener dirección
-    const zoneResult = detectarZonaCliente(lat, lng);
+    const zoneResult = detectarZonaCliente(lat, lng, firestoreZones);
     console.log("Resultado de detección de zona:", zoneResult);
     
     if (zoneResult.disponible && zoneResult.zona) {

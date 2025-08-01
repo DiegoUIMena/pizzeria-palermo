@@ -14,7 +14,8 @@ import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { useAuth } from "../context/AuthContext"
 import LocationPicker from "./LocationPicker"
-import type { DeliveryZone } from "../lib/delivery-zones"
+import type { DeliveryZone } from "../../lib/delivery-zones"
+import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 import PizzaConfigModal from "./PizzaConfigModal"
 
 const Cart = () => {
@@ -31,6 +32,9 @@ const Cart = () => {
   const [isProcessing, setIsProcessing] = useState(false)
   const [orderNumber, setOrderNumber] = useState(Math.floor(Math.random() * 100000))
   const [estimatedTime, setEstimatedTime] = useState("20-25 minutos")
+  
+  // Cargar zonas de delivery desde Firestore
+  const { zones: deliveryZones, loading: loadingZones } = useDeliveryZones()
 
   // Estados para códigos de descuento
   const [discountCode, setDiscountCode] = useState("")

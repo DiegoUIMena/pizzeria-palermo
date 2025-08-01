@@ -6,6 +6,7 @@ import "./styles/map-markers.css" // Importar estilos para marcadores de mapa
 import { FirebaseProvider } from "./context/FirebaseContext"
 import { AuthProvider } from "./context/AuthContext"
 import { CartProvider } from "./context/CartContext"
+import DeliveryZonesInitializer from "./components/DeliveryZonesInitializer"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -27,7 +28,11 @@ export default function RootLayout({
       <body className={inter.className}>
         <FirebaseProvider>
           <AuthProvider>
-            <CartProvider>{children}</CartProvider>
+            <CartProvider>
+              {/* Componente para inicializar las zonas de delivery */}
+              <DeliveryZonesInitializer />
+              {children}
+            </CartProvider>
           </AuthProvider>
         </FirebaseProvider>
       </body>

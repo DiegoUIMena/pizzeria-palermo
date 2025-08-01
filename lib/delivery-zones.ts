@@ -1,3 +1,5 @@
+"use client"
+
 // 1. Definición de zonas geográficas para Los Andes, Chile
 export interface DeliveryZone {
   id: string
@@ -5,13 +7,14 @@ export interface DeliveryZone {
   tarifa: number
   disponible: boolean
   tiempoEstimado: string
-  poligono: [number, number][] // [lat, lng]
+  poligono: [number, number][] | {lat: number, lng: number}[] // Soporte para ambos formatos
   color: string // Para visualización en el mapa
   descripcion?: string
 }
 
-// Zonas de delivery para Los Andes, Chile (coordenadas reales)
-export const deliveryZones: DeliveryZone[] = [
+// Zonas de delivery por defecto para Los Andes, Chile (coordenadas reales)
+// Estas zonas se usarán solo para inicializar la base de datos si está vacía
+export const defaultDeliveryZones: DeliveryZone[] = [
   {
     id: "centro-los-andes",
     nombre: "Centro Los Andes",
@@ -134,8 +137,21 @@ export const deliveryZones: DeliveryZone[] = [
   },
 ]
 
+// Esta función será reemplazada por la versión que usa Firestore
+// Se mantiene aquí para compatibilidad y como versión fallback
+export let deliveryZones: DeliveryZone[] = [];
+
+// Función para actualizar las zonas de delivery en memoria
+export function updateDeliveryZones(zones: DeliveryZone[]): void {
+  console.log("Actualizando zonas en memoria:", zones);
+  
+  // Siempre actualizar las zonas en memoria, incluso si es un array vacío
+  deliveryZones = zones ? [...zones] : [];
+  console.log("Zonas actualizadas en memoria:", deliveryZones);
+}
+
 // 2. Algoritmo de detección de zona (Point-in-Polygon) - Ray Casting Algorithm
-export function isPointInPolygon(point: [number, number], polygon: [number, number][]): boolean {
+export function isPointInPolygon(point: [number, number], polygon: [number, number][] | {lat: number, lng: number}[]): boolean {
   // Algoritmo de punto en polígono mejorado
   if (polygon.length < 3) return false; // Un polígono necesita al menos 3 puntos
   
@@ -143,11 +159,20 @@ export function isPointInPolygon(point: [number, number], polygon: [number, numb
   
   console.log(`🔎 Verificando punto [${lat.toFixed(6)}, ${lng.toFixed(6)}] en polígono`);
   
+  // Normalizar polígono a formato [lat, lng][]
+  const normalizedPolygon: [number, number][] = polygon.map(p => {
+    if (Array.isArray(p)) {
+      return [p[0], p[1]];
+    } else {
+      return [p.lat, p.lng];
+    }
+  });
+  
   // Convertir coordenadas para mejorar precisión
   // En coordenadas geográficas, 1 grado de latitud ≈ 111 km, 1 grado de longitud varía con la latitud
   // Normalizamos para trabajar con valores más consistentes
   const scaledPoint = [lat * 1000, lng * 1000]; // Multiplicamos por 1000 para trabajar con valores más grandes
-  const scaledPolygon = polygon.map(p => [p[0] * 1000, p[1] * 1000]);
+  const scaledPolygon = normalizedPolygon.map(p => [p[0] * 1000, p[1] * 1000]);
   
   let inside = false;
   
@@ -169,9 +194,9 @@ export function isPointInPolygon(point: [number, number], polygon: [number, numb
   // Verificar si el punto está cerca del borde (margen de tolerancia)
   if (!inside) {
     // Verificar si el punto está muy cerca de algún borde del polígono
-    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-      const [lat1, lng1] = polygon[i];
-      const [lat2, lng2] = polygon[j];
+    for (let i = 0, j = normalizedPolygon.length - 1; i < normalizedPolygon.length; j = i++) {
+      const [lat1, lng1] = normalizedPolygon[i];
+      const [lat2, lng2] = normalizedPolygon[j];
       
       // Calcular la distancia del punto al segmento (en grados)
       const distance = distanceToSegment(lat, lng, lat1, lng1, lat2, lng2);
@@ -223,6 +248,7 @@ function distanceBetweenPoints(lat1: number, lng1: number, lat2: number, lng2: n
 export function detectarZonaCliente(
   lat: number,
   lng: number,
+  zonasEntrega?: DeliveryZone[]
 ): {
   zona: DeliveryZone | null
   disponible: boolean
@@ -257,8 +283,22 @@ export function detectarZonaCliente(
     [lat, lng - 0.0001], // Ligeramente al oeste
   ];
 
+  // Usamos las zonas pasadas como parámetro si existen, de lo contrario usamos un array vacío
+  const zonas = zonasEntrega && zonasEntrega.length > 0 ? zonasEntrega : [];
+  
+  // Si no hay zonas configuradas, devolvemos que no está disponible
+  if (zonas.length === 0) {
+    console.log("No hay zonas de delivery configuradas");
+    return {
+      zona: null,
+      disponible: false,
+      tarifa: 0,
+      mensaje: "No hay zonas de delivery configuradas actualmente."
+    };
+  }
+
   // Para cada zona, verificamos los puntos
-  for (const zona of deliveryZones) {
+  for (const zona of zonas) {
     console.log(`📍 Verificando zona: ${zona.nombre} (${zona.id})`);
     
     // Verificamos si alguno de los puntos está en la zona

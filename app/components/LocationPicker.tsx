@@ -9,6 +9,7 @@ import DeliveryZoneChecker from "./DeliveryZoneChecker"
 import FixedMapPicker from "./FixedMapPicker"
 import type { DeliveryZone } from "../../lib/delivery-zones"
 import { detectarZonaCliente } from "../../lib/delivery-zones"
+import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 
 interface LocationPickerProps {
   onLocationSelect: (lat: number, lng: number, address?: string) => void
@@ -28,6 +29,9 @@ export default function LocationPicker({
   const [mapKey, setMapKey] = useState<number>(Date.now()) // Estado para forzar re-renderizado
   const [locationDebug, setLocationDebug] = useState<string>("")
   const [zoneStatus, setZoneStatus] = useState<{ name: string, available: boolean } | null>(null)
+  
+  // Obtener zonas de delivery desde Firestore
+  const { zones, loading: loadingZones } = useDeliveryZones()
 
   // Efecto para inicializar el mapa automáticamente al cargar el componente
   useEffect(() => {
@@ -98,7 +102,7 @@ export default function LocationPicker({
       
       // Verificar la zona al inicializar
       const { lat, lng } = selectedLocation;
-      const result = detectarZonaCliente(lat, lng);
+      const result = detectarZonaCliente(lat, lng, zones);
       console.log("Verificando zona inicial:", result);
       
       setZoneStatus({
@@ -121,7 +125,7 @@ export default function LocationPicker({
     setLocalSelectedLocation({ lat, lng, address });
     
     // Verificar la zona de delivery inmediatamente
-    const result = detectarZonaCliente(lat, lng);
+    const result = detectarZonaCliente(lat, lng, zones);
     console.log("Resultado de detección de zona:", result);
     
     // Actualizar estado de zona
