@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { MapPin, Edit, Download, Upload, Save, AlertCircle } from "lucide-react"
-import DeliveryZoneMap from "../../components/DeliveryZoneMap"
+import DeliveryZoneMapV9 from "../../components/DeliveryZoneMapV9"
 import { type DeliveryZone } from "../../../lib/delivery-zones"
 import { useDeliveryZones } from "../../../hooks/useDeliveryZones"
 import { toast } from "@/hooks/use-toast"
@@ -398,7 +398,7 @@ export default function ZonasDeliveryPage() {
           )}
         </div>
 
-        <DeliveryZoneMap 
+        <DeliveryZoneMapV9 
           isOpen={isMapOpen} 
           onClose={() => setIsMapOpen(false)} 
           onSaveZones={handleSaveZones} 
