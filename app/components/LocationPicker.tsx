@@ -9,6 +9,7 @@ import DeliveryZoneChecker from "./DeliveryZoneChecker"
 import FixedMapPicker from "./FixedMapPicker"
 import type { DeliveryZone } from "../../lib/delivery-zones"
 import { detectarZonaCliente } from "../../lib/delivery-zones"
+import { toast } from "@/hooks/use-toast"
 import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 
 interface LocationPickerProps {
@@ -128,11 +129,19 @@ export default function LocationPicker({
     const result = detectarZonaCliente(lat, lng, zones);
     console.log("Resultado de detección de zona:", result);
     
-    // Actualizar estado de zona
-    setZoneStatus({
-      name: result.zona?.nombre || "Fuera de zona",
-      available: result.disponible
-    });
+    // Actualizar estado de zona y mostrar aviso si la zona existe pero está inactiva
+    if (result.zona) {
+      if (!result.disponible) {
+        toast({
+          title: "Zona inactiva",
+            description: `La zona "${result.zona.nombre}" actualmente no presta servicio de delivery.`,
+          variant: "destructive"
+        });
+      }
+      setZoneStatus({ name: result.zona.nombre, available: result.disponible });
+    } else {
+      setZoneStatus({ name: "Fuera de zona", available: result.disponible });
+    }
     
     setLocationDebug(`Ubicación: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
     

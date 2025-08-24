@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Navigation, ZoomIn, ZoomOut, Layers, RefreshCw } from "lucide-react";
 import { deliveryZones, detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones";
+import { toast } from "@/hooks/use-toast";
 import { useDeliveryZones } from "../../hooks/useDeliveryZones";
 
 // Declaración de tipo para Window con Leaflet
@@ -549,10 +550,21 @@ export default function FixedMapPicker({
     // Detectar zona antes de intentar obtener dirección
     const zoneResult = detectarZonaCliente(lat, lng, firestoreZones);
     console.log("Resultado de detección de zona:", zoneResult);
-    
-    if (zoneResult.disponible && zoneResult.zona) {
-      setCurrentZone(zoneResult.zona);
+
+    if (zoneResult.zona) {
+      if (zoneResult.disponible) {
+        setCurrentZone(zoneResult.zona);
+      } else {
+        // Zona encontrada pero marcada como NO disponible: informar claramente al cliente
+        setCurrentZone({ ...zoneResult.zona, disponible: false });
+        toast({
+          title: "Zona no disponible",
+          description: `La zona "${zoneResult.zona.nombre}" existe pero actualmente no está activa para delivery.`,
+          variant: "destructive"
+        });
+      }
     } else {
+      // Fuera de zonas definidas: mantenemos comportamiento previo (puede aplicar lógica especial más adelante)
       setCurrentZone(null);
     }
     
