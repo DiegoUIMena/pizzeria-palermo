@@ -1,6 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useDeliveryZones } from "../../hooks/useDeliveryZones"
+import { detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones"
+import { toast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -15,6 +18,36 @@ import { useCart } from "../context/CartContext"
 export default function PagoPage() {
   const router = useRouter()
   const { getTotal } = useCart()
+  // Guard-rail: si se llega directo aquí, validar que haya zona válida en sessionStorage (si la guardaste) o bloquear.
+  const [zone, setZone] = useState<DeliveryZone|null>(null)
+  const [zoneAvailable, setZoneAvailable] = useState(false)
+  const [blocked, setBlocked] = useState(false)
+  const { zones } = useDeliveryZones()
+
+  useEffect(() => {
+    // Intentar recuperar coordenadas previas guardadas (si Cart las guarda en localStorage/sessionStorage)
+    try {
+      const raw = sessionStorage.getItem("deliveryLocation") || localStorage.getItem("deliveryLocation")
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed?.lat && parsed?.lng) {
+          const res = detectarZonaCliente(parsed.lat, parsed.lng, zones)
+          if (res.zona && res.disponible) {
+            setZone(res.zona)
+            setZoneAvailable(true)
+          } else {
+            setBlocked(true)
+          }
+        } else {
+          setBlocked(true)
+        }
+      } else {
+        setBlocked(true)
+      }
+    } catch (e) {
+      setBlocked(true)
+    }
+  }, [zones])
   const [paymentMethod, setPaymentMethod] = useState("webpay")
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -23,6 +56,14 @@ export default function PagoPage() {
   const total = subtotal - discount
 
   const handlePayment = async () => {
+    if (blocked || !zone || !zoneAvailable) {
+      toast({
+        title: "Entrega no válida",
+        description: "Debes seleccionar una dirección dentro de una zona válida antes de pagar.",
+        variant: "destructive"
+      })
+      return
+    }
     setIsProcessing(true)
 
     // Simulación de procesamiento de pago
@@ -49,6 +90,11 @@ export default function PagoPage() {
           </Link>
 
           <h1 className="text-3xl font-bold text-gray-800 mb-8">Método de Pago</h1>
+          {blocked && (
+            <div className="mb-6 p-4 border border-red-200 bg-red-50 rounded-md text-red-700 text-sm">
+              No se detectó una zona de delivery válida. Vuelve al carrito y selecciona tu dirección.
+            </div>
+          )}
 
           <div className="grid md:grid-cols-3 gap-8">
             {/* Opciones de Pago */}
@@ -136,7 +182,7 @@ export default function PagoPage() {
                 <CardFooter className="flex justify-end border-t border-gray-200 pt-4 bg-gray-50">
                   <Button
                     onClick={handlePayment}
-                    disabled={isProcessing}
+                    disabled={isProcessing || blocked || !zone || !zoneAvailable}
                     className="bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all"
                   >
                     {isProcessing ? "Procesando..." : "Confirmar Pago"}

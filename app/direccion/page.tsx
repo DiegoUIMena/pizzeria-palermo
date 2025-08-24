@@ -3,6 +3,9 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { detectarZonaCliente, type DeliveryZone } from "../../lib/delivery-zones"
+import { useDeliveryZones } from "../../hooks/useDeliveryZones"
+import { toast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -25,6 +28,10 @@ export default function DireccionPage() {
   const [depto, setDepto] = useState("")
   const [comuna, setComuna] = useState("")
   const [referencia, setReferencia] = useState("")
+  const [selectedLocation, setSelectedLocation] = useState<{lat:number; lng:number; address?:string}|null>(null)
+  const [selectedZone, setSelectedZone] = useState<DeliveryZone|null>(null)
+  const [zoneAvailable, setZoneAvailable] = useState(false)
+  const { zones } = useDeliveryZones()
 
   // Forzar renderizado del mapa cuando se carga la página
   useEffect(() => {
@@ -39,6 +46,31 @@ export default function DireccionPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    // Validaciones de zona estrictas: debe existir zona definida y activa
+    if (!selectedLocation) {
+      toast({
+        title: "Selecciona ubicación",
+        description: "Debes elegir un punto dentro de una zona de delivery.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (!selectedZone) {
+      toast({
+        title: "Fuera de zonas",
+        description: "La ubicación no pertenece a una zona de delivery configurada.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (!zoneAvailable) {
+      toast({
+        title: "Zona inactiva",
+        description: `La zona "${selectedZone.nombre}" no está disponible actualmente.`,
+        variant: "destructive"
+      })
+      return
+    }
     setIsLoading(true)
 
     // Simulación de procesamiento
@@ -67,10 +99,11 @@ export default function DireccionPage() {
 
           {/* Mapa para selección de dirección */}
           <div className="mb-6 h-[300px] md:h-[400px] border border-gray-200 rounded-lg shadow-md overflow-hidden">
-            <LocationPicker 
+      <LocationPicker 
               key={`location-map-${mapKey}`} // Esto fuerza un re-renderizado cuando cambia mapKey
               onLocationSelect={(lat, lng, address) => {
                 console.log("Dirección seleccionada:", lat, lng, address);
+        setSelectedLocation({lat,lng,address})
                 if (address) {
                   // Intentar extraer información de la dirección para auto-completar campos
                   const parts = address.split(", ");
@@ -93,7 +126,8 @@ export default function DireccionPage() {
                 }
               }} 
               onDeliveryInfoChange={(zone, tarifa, disponible) => {
-                console.log("Información de delivery:", zone, tarifa, disponible);
+                setSelectedZone(zone)
+                setZoneAvailable(!!zone && disponible)
               }}
             />
           </div>
@@ -170,11 +204,17 @@ export default function DireccionPage() {
             <CardFooter className="flex justify-end border-t border-gray-200 pt-4 bg-gray-50">
               <Button
                 onClick={handleSubmit}
-                disabled={isLoading}
+                disabled={isLoading || !selectedZone || !zoneAvailable}
                 className="bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all"
               >
                 {isLoading ? "Procesando..." : "Continuar al Pago"}
               </Button>
+              {selectedLocation && !selectedZone && (
+                <p className="text-xs text-red-600 mt-2">La ubicación está fuera de las zonas de delivery.</p>
+              )}
+              {selectedZone && !zoneAvailable && (
+                <p className="text-xs text-red-600 mt-2">La zona seleccionada no está activa.</p>
+              )}
             </CardFooter>
           </Card>
         </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { useCart } from "../context/CartContext"
 import { Button } from "@/components/ui/button"
+import { toast } from "@/hooks/use-toast"
 import { Trash, ChevronDown, ChevronUp, Edit } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
@@ -83,7 +84,8 @@ const Cart = () => {
 
   // Cálculos de totales
   const subtotal = getTotal()
-  const deliveryCost = isDelivery && deliveryInfo.disponible ? deliveryInfo.tarifa : 0
+  // Solo se cobra delivery si la ubicación pertenece a una zona definida y disponible
+  const deliveryCost = isDelivery && deliveryInfo.zone && deliveryInfo.disponible ? deliveryInfo.tarifa : 0
 
   // Calcular descuento
   let discountAmount = 0
@@ -225,7 +227,24 @@ const Cart = () => {
   }
 
   const handleAddressSubmit = () => {
-    if (calle && numero && comuna && selectedLocation && deliveryInfo.disponible) {
+    // Debe existir una zona definida (no aceptar fallback fuera de zonas) y estar disponible
+    if (!deliveryInfo.zone) {
+      toast({
+        title: "Ubicación fuera de zonas",
+        description: "La dirección seleccionada no pertenece a nuestras zonas de delivery. Selecciona una ubicación dentro de la cobertura.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (!deliveryInfo.disponible) {
+      toast({
+        title: "Zona no disponible",
+        description: "La zona seleccionada actualmente no presta servicio. Elige otra zona activa.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (calle && numero && comuna && selectedLocation) {
       setCurrentView("payment")
     }
   }
@@ -250,6 +269,37 @@ const Cart = () => {
       }
     }
     
+    // Validaciones adicionales específicas de delivery respecto a zonas activas
+    if (isDelivery) {
+      // Si no hay info de delivery aún, bloquear
+      if (!deliveryInfo) {
+        toast({
+          title: "Validando ubicación",
+          description: "Aún no se ha verificado la zona de delivery. Intenta nuevamente en unos segundos.",
+          variant: "destructive"
+        })
+        return
+      }
+      // Si la zona existe pero está inactiva
+    if (deliveryInfo.zone && !deliveryInfo.disponible) {
+        toast({
+          title: "Zona inactiva",
+      description: `La zona "${deliveryInfo.zone.nombre}" no está activa para delivery actualmente. Elige otra ubicación dentro de una zona disponible.`,
+          variant: "destructive"
+        })
+        return
+      }
+    // Si no hay zona definida (aunque el fallback marque disponible) bloquear
+    if (!deliveryInfo.zone) {
+        toast({
+          title: "Fuera de cobertura",
+      description: "Tu ubicación no pertenece a ninguna de las zonas de delivery configuradas. Ajusta el punto dentro de la cobertura.",
+          variant: "destructive"
+        })
+        return
+      }
+    }
+
     setIsProcessing(true)
     try {
       // Crear el pedido en Firestore
@@ -692,11 +742,14 @@ const Cart = () => {
           
           <Button
             onClick={handleAddressSubmit}
-            disabled={!calle || !numero || !comuna || !selectedLocation || !deliveryInfo.disponible}
+            disabled={!calle || !numero || !comuna || !selectedLocation || !deliveryInfo.disponible || !deliveryInfo.zone}
             className="w-full bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 rounded-lg"
           >
             Continuar al Pago
           </Button>
+          {deliveryInfo.disponible && !deliveryInfo.zone && (
+            <p className="mt-2 text-xs text-red-600 text-center">Debes seleccionar una ubicación dentro de una zona válida de delivery.</p>
+          )}
         </div>
       </div>
     )

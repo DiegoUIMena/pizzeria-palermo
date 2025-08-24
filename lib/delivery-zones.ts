@@ -333,16 +333,9 @@ export function detectarZonaCliente(
 
   console.log(`❌ Punto [${lat}, ${lng}] no encontrado en ninguna zona`);
 
-  // Si está cerca de Los Andes pero no en una zona específica, 
-  // verificamos la distancia total para ofrecer servicio especial
-  if (validarDistanciaMaxima(lat, lng, 7)) { // Dentro de 7km de la pizzería
-    return {
-      zona: null,
-      disponible: true, // Ofrecemos servicio aunque no esté en una zona definida
-      tarifa: 3500, // Tarifa especial para zonas no definidas pero cercanas
-      mensaje: "Estás fuera de nuestras zonas regulares, pero podemos entregarte con una tarifa especial.",
-    };
-  }
+  // Eliminado fallback de "servicio especial" para puntos cercanos pero fuera de zonas.
+  // Política actual: solo se permite delivery dentro de zonas definidas y activas.
+  // if (validarDistanciaMaxima(lat, lng, 7)) { ... }
 
   // Si no está en ninguna zona definida y está lejos
   return {

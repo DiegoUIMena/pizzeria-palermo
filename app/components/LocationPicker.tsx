@@ -125,29 +125,44 @@ export default function LocationPicker({
     // Actualizar el estado local sin dirección inicialmente
     setLocalSelectedLocation({ lat, lng, address });
     
-    // Verificar la zona de delivery inmediatamente
+    // Verificar la zona de delivery inmediatamente (sin aceptar fallback fuera de zonas preestablecidas)
     const result = detectarZonaCliente(lat, lng, zones);
     console.log("Resultado de detección de zona:", result);
-    
-    // Actualizar estado de zona y mostrar aviso si la zona existe pero está inactiva
-    if (result.zona) {
+
+    let finalDisponible = false;
+    let finalTarifa = 0;
+    let zonaDetectada = result.zona;
+
+    if (zonaDetectada) {
       if (!result.disponible) {
         toast({
           title: "Zona inactiva",
-            description: `La zona "${result.zona.nombre}" actualmente no presta servicio de delivery.`,
+          description: `La zona "${zonaDetectada.nombre}" actualmente no presta servicio de delivery.`,
           variant: "destructive"
         });
+        finalDisponible = false;
+      } else {
+        finalDisponible = true;
+        finalTarifa = result.tarifa;
       }
-      setZoneStatus({ name: result.zona.nombre, available: result.disponible });
+      setZoneStatus({ name: zonaDetectada.nombre, available: finalDisponible });
     } else {
-      setZoneStatus({ name: "Fuera de zona", available: result.disponible });
+      // Si no pertenece a una zona definida, consideramos no disponible aunque la función devuelva disponible por fallback
+      toast({
+        title: "Fuera de zonas de delivery",
+        description: "Selecciona un punto dentro de las zonas de cobertura establecidas.",
+        variant: "destructive"
+      });
+      finalDisponible = false;
+      setZoneStatus({ name: "Fuera de zona", available: false });
+      zonaDetectada = null;
     }
     
     setLocationDebug(`Ubicación: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
     
     // Notificar cambio de zona
     if (onDeliveryInfoChange) {
-      onDeliveryInfoChange(result.zona, result.tarifa, result.disponible);
+      onDeliveryInfoChange(zonaDetectada, finalTarifa, finalDisponible);
     }
     
     // Intentar obtener la dirección si no se proporcionó
