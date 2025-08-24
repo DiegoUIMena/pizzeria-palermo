@@ -4,13 +4,14 @@ import { createContext, useContext, useReducer, type ReactNode } from "react"
 import { createOrder as createOrderInFirestore, type Order, type OrderItem } from "../../lib/orders"
 
 interface CartItem {
-  id: number
+  id: string
   name: string
   price: number
   image: string
   quantity: number
   // Agregar nuevos campos para detalles
   size?: string
+  variant?: string
   ingredients?: string[]
   premiumIngredients?: string[]
   sauces?: string[]
@@ -31,17 +32,17 @@ interface CartState {
 
 type CartAction =
   | { type: "ADD_ITEM"; payload: CartItem }
-  | { type: "UPDATE_QUANTITY"; payload: { id: number; quantity: number } }
+  | { type: "UPDATE_QUANTITY"; payload: { id: string; quantity: number } }
   | { type: "UPDATE_ITEM"; payload: CartItem }
-  | { type: "REMOVE_ITEM"; payload: number }
+  | { type: "REMOVE_ITEM"; payload: string }
   | { type: "CLEAR_CART" }
 
 const CartContext = createContext<{
   items: CartItem[]
   addItem: (item: CartItem) => void
-  updateQuantity: (id: number, quantity: number) => void
+  updateQuantity: (id: string, quantity: number) => void
   updateItem: (item: CartItem) => void
-  removeItem: (id: number) => void
+  removeItem: (id: string) => void
   clearCart: () => void
   getTotal: () => number
   createOrder: (orderData: CreateOrderData) => Promise<{id: string, orderNumber: number}>
@@ -132,7 +133,7 @@ function cartReducer(state: CartState, action: CartAction): CartState {
     case "REMOVE_ITEM":
       return {
         ...state,
-        items: state.items.filter((item) => item.id !== action.payload),
+  items: state.items.filter((item) => item.id !== action.payload),
       }
 
     case "CLEAR_CART":
@@ -150,7 +151,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "ADD_ITEM", payload: item })
   }
 
-  const updateQuantity = (id: number, quantity: number) => {
+  const updateQuantity = (id: string, quantity: number) => {
     dispatch({ type: "UPDATE_QUANTITY", payload: { id, quantity } })
   }
 
@@ -160,7 +161,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "UPDATE_ITEM", payload: item })
   }
 
-  const removeItem = (id: number) => {
+  const removeItem = (id: string) => {
     dispatch({ type: "REMOVE_ITEM", payload: id })
   }
 

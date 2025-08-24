@@ -350,7 +350,7 @@ export default function MenuPage() {
         quantity: 1,
         size: selectedSize === "familiar" ? "Familiar" : "Mediana",
       })
-    } else if (activeCategory === "Bebidas" && item.variants) {
+    } else if (activeCategory === "Bebidas" && "variants" in item && Array.isArray(item.variants)) {
       const selectedVariant = selectedSizes[item.id] || "familiar" // Reutilizamos el estado pero "familiar" = "Tradicional"
       const variantName = selectedVariant === "familiar" ? "Tradicional" : "Zero"
 
@@ -417,7 +417,7 @@ export default function MenuPage() {
                       activeCategory === "Pizzas Tradicionales" ||
                       activeCategory === "Bebidas") && (
                       <div className="bg-white/20 backdrop-blur-sm rounded-lg p-3 border-l-4 border-white">
-                        {item.variants ? (
+                        {"variants" in item && Array.isArray(item.variants) ? (
                           <div className="space-y-1">
                             <div className="flex justify-between items-center">
                               <span className="font-semibold text-white">Tradicional</span>
@@ -428,7 +428,7 @@ export default function MenuPage() {
                               <span className="text-lg font-bold text-white">${item.price.toLocaleString()}</span>
                             </div>
                           </div>
-                        ) : item.mediumPrice ? (
+                        ) : ("mediumPrice" in item && typeof item.mediumPrice === "number") ? (
                           <div className="space-y-1">
                             <div className="flex justify-between items-center">
                               <span className="font-semibold text-white">Familiar</span>
@@ -450,7 +450,7 @@ export default function MenuPage() {
 
                     {/* Selector de tamaño para pizzas y variantes para bebidas */}
                     {(activeCategory === "Pizzas Palermo" || activeCategory === "Pizzas Tradicionales") &&
-                      item.mediumPrice && (
+                      ("mediumPrice" in item && typeof item.mediumPrice === "number") && (
                         <div className="flex space-x-2">
                           <button
                             onClick={() => handleSizeChange(item.id, "familiar")}
@@ -475,7 +475,7 @@ export default function MenuPage() {
                         </div>
                       )}
 
-                    {activeCategory === "Bebidas" && item.variants && (
+                    {activeCategory === "Bebidas" && "variants" in item && Array.isArray(item.variants) && (
                       <div className="flex space-x-2">
                         <button
                           onClick={() => handleSizeChange(item.id, "familiar")}

@@ -415,7 +415,7 @@ export default function PizzaConfigModal({
       const pizzaName = `Pizza Duo ${selectedSize.name} (${pizza1Name} / ${pizza2Name})`
 
       const cartItemPayload = {
-        id: isEditing && currentConfig?.id ? currentConfig.id : Date.now(),
+  id: isEditing && currentConfig?.id ? String(currentConfig.id) : String(Date.now()),
         name: pizzaName,
         price: calculateTotal(), // Ahora incluye extras
         image: "/pizza-duo-bg.png",
@@ -474,7 +474,7 @@ export default function PizzaConfigModal({
         .filter(Boolean)
 
       const cartItemPayload = {
-        id: isEditing && currentConfig?.id ? currentConfig.id : Date.now(),
+        id: isEditing && currentConfig?.id ? String(currentConfig.id) : String(Date.now()),
         name: pizzaName,
         price: calculateTotal(),
         image: activePizzaType === "promo" ? "/pizza-promo-bg.png" : "/pizza-premium-bg.png",
