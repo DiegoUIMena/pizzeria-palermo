@@ -1,5 +1,6 @@
 "use client"
 
+
 import { 
   collection, 
   getDocs, 
@@ -65,10 +66,12 @@ export async function saveDeliveryZone(zone: DeliveryZone): Promise<void> {
   try {
     // Convertir el polígono a un formato compatible con Firestore
     // Firestore no admite arrays anidados, así que convertimos cada par [lat, lng] a un objeto {lat, lng}
-    const poligonoCompatible = zone.poligono.map(punto => ({
-      lat: punto[0],
-      lng: punto[1]
-    }));
+    const poligonoCompatible = zone.poligono.map(punto => {
+      if (Array.isArray(punto)) {
+        return { lat: punto[0], lng: punto[1] };
+      }
+      return { lat: punto.lat, lng: punto.lng };
+    });
     
     const zoneRef = doc(db, DELIVERY_ZONES_COLLECTION, zone.id)
     await setDoc(zoneRef, {
@@ -175,10 +178,10 @@ export async function saveDeliveryZones(zones: DeliveryZone[]): Promise<void> {
         // Firestore no admite arrays anidados, así que convertimos cada par [lat, lng] a un objeto {lat, lng}
         const poligonoCompatible = zone.poligono.map(punto => {
           console.log("Punto del polígono:", punto);
-          return {
-            lat: punto[0],
-            lng: punto[1]
-          };
+          if (Array.isArray(punto)) {
+            return { lat: punto[0], lng: punto[1] };
+          }
+            return { lat: punto.lat, lng: punto.lng };
         });
         
         console.log("Polígono convertido:", poligonoCompatible);
@@ -279,10 +282,12 @@ export async function initializeDeliveryZones(defaultZones: DeliveryZone[]): Pro
           const zoneRef = doc(db, DELIVERY_ZONES_COLLECTION, zone.id);
           
           // Convertir el polígono a un formato compatible con Firestore
-          const poligonoCompatible = zone.poligono.map(punto => ({
-            lat: punto[0],
-            lng: punto[1]
-          }));
+          const poligonoCompatible = zone.poligono.map(punto => {
+            if (Array.isArray(punto)) {
+              return { lat: punto[0], lng: punto[1] };
+            }
+            return { lat: punto.lat, lng: punto.lng };
+          });
           
           await setDoc(zoneRef, {
             nombre: zone.nombre,
