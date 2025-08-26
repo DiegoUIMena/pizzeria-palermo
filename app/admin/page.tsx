@@ -210,25 +210,30 @@ export default function AdminDashboard() {
                 {!loading && alertasInventario.length === 0 && (
                   <div className="text-sm text-gray-500">Sin alertas de stock.</div>
                 )}
-                {alertasInventario.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-lg"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <AlertTriangle className="h-4 w-4 text-red-500" />
-                      <div>
-                        <div className="font-medium text-gray-800 dark:text-gray-200 text-sm">{item.nombre}</div>
-                        <div className="text-xs text-red-600 dark:text-red-400">
-                          {item.stockActual} {item.unidad} restantes
+                {alertasInventario.map((item) => {
+                  const isAgotado = item.estado === 'Agotado'
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-3 rounded-lg border transition-colors ${isAgotado ? 'bg-red-100 dark:bg-red-900/50 border-red-300 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700'}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${isAgotado ? 'bg-red-600 animate-pulse' : 'bg-amber-500'}`} />
+                          <span className="font-medium text-gray-800 dark:text-gray-200 text-sm flex items-center gap-2">
+                            {item.nombre}
+                            <Badge
+                              className={`text-[10px] px-1.5 py-0 font-semibold tracking-wide ${isAgotado ? 'bg-red-600 hover:bg-red-600 text-white dark:bg-red-700' : 'bg-amber-500 hover:bg-amber-500 text-white dark:bg-amber-600'}`}
+                            >
+                              {isAgotado ? 'AGOTADO' : 'BAJO'}
+                            </Badge>
+                          </span>
                         </div>
+                        <AlertTriangle className={`h-4 w-4 ${isAgotado ? 'text-red-600' : 'text-amber-500'}`} />
                       </div>
                     </div>
-                    <Badge variant="destructive" className="text-xs">
-                      Bajo
-                    </Badge>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </CardContent>
           </Card>

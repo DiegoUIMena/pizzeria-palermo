@@ -4,13 +4,12 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { listenIngredientes, addIngrediente, updateIngrediente, deleteIngrediente, type Ingrediente as IngredienteFS, computeEstado } from '@/lib/inventory'
-import { useToast } from '@/hooks/use-toast'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertTriangle, Package, Plus, Edit, Search, Filter, TrendingDown, CheckCircle } from "lucide-react"
 
@@ -24,11 +23,10 @@ export default function AdminInventario() {
   const [showModal, setShowModal] = useState(false)
   const [editingItem, setEditingItem] = useState<IngredienteFS | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [fuente, setFuente] = useState<'ingredientes' | 'inventory'>('ingredientes')
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
-  const [showSuccess, setShowSuccess] = useState(false)
-  const { toast } = useToast()
+  const [deleteTarget, setDeleteTarget] = useState<IngredienteFS | null>(null)
+  const [showAddedModal, setShowAddedModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   // Formulario para nuevo/editar ingrediente
   const [formData, setFormData] = useState({
@@ -45,8 +43,7 @@ export default function AdminInventario() {
 
   // Suscripción en tiempo real Firestore
   useEffect(() => {
-    const unsubscribe = listenIngredientes((items, f) => {
-      setFuente(f)
+    const unsubscribe = listenIngredientes(items => {
       setIngredientes(items.map(i => ({ ...i, estado: computeEstado(i) })))
       setIsLoading(false)
     })
@@ -91,15 +88,22 @@ export default function AdminInventario() {
     await updateIngrediente(id, { stockActual: nuevoStock, estado: computeEstado({ stockActual: nuevoStock, stockMinimo: item.stockMinimo, fechaVencimiento: item.fechaVencimiento }) })
   }
 
+  const eliminarIngrediente = async (id: string) => {
+    try {
+      await deleteIngrediente(id)
+    } catch (e) {
+      console.error('Error eliminando ingrediente', e)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
+    if (saving) return
+    setSaving(true)
     try {
       if (editingItem) {
-        console.log('Actualizando ingrediente', editingItem.id, formData)
-        await updateIngrediente(editingItem.id, { ...formData, fechaVencimiento: formData.fechaVencimiento || undefined })
+        await updateIngrediente(editingItem.id, { ...formData, estado: computeEstado({ stockActual: formData.stockActual, stockMinimo: formData.stockMinimo, fechaVencimiento: formData.fechaVencimiento }) })
       } else {
-        console.log('Creando ingrediente', formData)
         await addIngrediente({
           nombre: formData.nombre,
           categoria: formData.categoria,
@@ -111,12 +115,10 @@ export default function AdminInventario() {
           proveedor: formData.proveedor,
           fechaVencimiento: formData.fechaVencimiento || undefined,
         })
-  setShowSuccess(true)
+        setShowAddedModal(true)
       }
-      toast({ title: editingItem ? 'Ingrediente actualizado' : 'Ingrediente agregado', description: formData.nombre })
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error guardando ingrediente', err)
-      toast({ title: 'Error', description: err?.message || 'No se pudo guardar', variant: 'destructive' })
     }
 
     // Reset form
@@ -133,6 +135,7 @@ export default function AdminInventario() {
     })
     setEditingItem(null)
     setShowModal(false)
+    setSaving(false)
   }
 
   const openEditModal = (ingrediente: IngredienteFS) => {
@@ -180,8 +183,6 @@ export default function AdminInventario() {
               <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Gestión de Inventario</h1>
               <p className="text-gray-600 dark:text-gray-400">Administra el stock de ingredientes y materias primas</p>
             </div>
-            <div className='flex items-center gap-3'>
-              <Badge variant='outline' className='text-xs'>Fuente: {fuente}</Badge>
             <Button
               onClick={() => {
                 setEditingItem(null)
@@ -203,7 +204,6 @@ export default function AdminInventario() {
               <Plus className="w-4 h-4 mr-2" />
               Agregar Ingrediente
             </Button>
-            </div>
           </div>
         </div>
 
@@ -304,104 +304,87 @@ export default function AdminInventario() {
           </div>
         </div>
 
-        {/* Lista de Ingredientes */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {ingredientesFiltrados.map((ingrediente) => (
-            <Card key={ingrediente.id} className="hover:shadow-md transition-shadow">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    {getEstadoIcon(ingrediente.estado)}
-                    <CardTitle className="text-lg">{ingrediente.nombre}</CardTitle>
-                  </div>
-                  <Badge className={`${getEstadoColor(ingrediente.estado)} text-white text-xs`}>
-                    {ingrediente.estado}
-                  </Badge>
-                </div>
-                <CardDescription>{ingrediente.categoria}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-600">Stock Actual:</span>
-                    <div className="flex items-center space-x-2">
-                      <Input
-                        type="number"
-                        value={ingrediente.stockActual}
-                        onChange={(e) => actualizarStock(ingrediente.id, Number.parseInt(e.target.value) || 0)}
-                        className="w-20 h-8 text-center"
-                        min="0"
-                      />
-                      <span className="text-sm text-gray-500">{ingrediente.unidad}</span>
+        {/* Lista de Ingredientes (vista compacta con detalles expandibles) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {ingredientesFiltrados.map(ing => {
+            const isOpen = expanded.has(ing.id)
+            const toggle = () => {
+              setExpanded(prev => {
+                const next = new Set(prev)
+                if (next.has(ing.id)) next.delete(ing.id); else next.add(ing.id)
+                return next
+              })
+            }
+            const pct = ing.stockMaximo > 0 ? Math.min((ing.stockActual / ing.stockMaximo) * 100, 100) : 0
+            const barColor = ing.stockActual === 0 ? 'bg-red-600' : ing.stockActual <= ing.stockMinimo ? 'bg-red-500' : ing.stockActual <= ing.stockMinimo * 2 ? 'bg-yellow-500' : 'bg-green-500'
+            return (
+              <Card key={ing.id} className="group border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-all">
+                <CardHeader className="py-3 pb-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex flex-col flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        {getEstadoIcon(ing.estado)}
+                        <CardTitle className="text-sm truncate font-semibold">{ing.nombre}</CardTitle>
+                        <Badge className={`ml-auto ${getEstadoColor(ing.estado)} text-white text-[10px] px-2 py-0.5 tracking-wide`}>{ing.estado}</Badge>
+                      </div>
+                      <div className="mt-2">
+                        <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 mb-1 font-medium">
+                          <span>{ing.stockActual}{ing.unidad && ' ' + ing.unidad}</span>
+                          <span>{Math.round(pct)}%</span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                          <div className={`h-2 ${barColor} transition-all`} style={{ width: pct + '%' }} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => openEditModal(ing)} title="Editar">
+                          <Edit className="w-3 h-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={toggle} className="text-[10px] h-6 px-2">
+                          {isOpen ? 'Ocultar' : 'Detalles'}
+                        </Button>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Mínimo:</span>
-                    <span className="font-medium">
-                      {ingrediente.stockMinimo} {ingrediente.unidad}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Máximo:</span>
-                    <span className="font-medium">
-                      {ingrediente.stockMaximo} {ingrediente.unidad}
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Precio:</span>
-                    <span className="font-medium">${ingrediente.precioUnitario.toLocaleString()}</span>
-                  </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Proveedor:</span>
-                    <span className="font-medium text-right">{ingrediente.proveedor}</span>
-                  </div>
-
-                  {ingrediente.fechaVencimiento && (
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Vencimiento:</span>
-                      <span className="font-medium">{ingrediente.fechaVencimiento}</span>
+                </CardHeader>
+                {isOpen && (
+                  <CardContent className="pt-0 pb-3">
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="space-y-1">
+                        <p className="text-gray-500 dark:text-gray-400">Categoría</p>
+                        <p className="font-medium">{ing.categoria}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-gray-500 dark:text-gray-400">Proveedor</p>
+                        <p className="font-medium truncate" title={ing.proveedor}>{ing.proveedor}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-gray-500 dark:text-gray-400">Mín / Máx</p>
+                        <p className="font-medium">{ing.stockMinimo} / {ing.stockMaximo} {ing.unidad}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-gray-500 dark:text-gray-400">Precio Unit.</p>
+                        <p className="font-medium">${ing.precioUnitario.toLocaleString()}</p>
+                      </div>
+                      {ing.fechaVencimiento && (
+                        <div className="space-y-1 col-span-2">
+                          <p className="text-gray-500 dark:text-gray-400">Vencimiento</p>
+                          <p className="font-medium">{ing.fechaVencimiento}</p>
+                        </div>
+                      )}
+                      <div className="col-span-2 pt-2 flex justify-end">
+                        <Button type="button" variant="destructive" size="sm" className="h-7 text-[11px]" onClick={() => setDeleteTarget(ing)}>
+                          Eliminar
+                        </Button>
+                      </div>
                     </div>
-                  )}
-
-                  {/* Barra de progreso del stock */}
-                  <div className="mt-4">
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span>Stock</span>
-                      <span>{Math.round((ingrediente.stockActual / ingrediente.stockMaximo) * 100)}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full ${
-                          ingrediente.stockActual <= ingrediente.stockMinimo
-                            ? "bg-red-500"
-                            : ingrediente.stockActual <= ingrediente.stockMinimo * 2
-                              ? "bg-yellow-500"
-                              : "bg-green-500"
-                        }`}
-                        style={{
-                          width: `${Math.min((ingrediente.stockActual / ingrediente.stockMaximo) * 100, 100)}%`,
-                        }}
-                      ></div>
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={() => openEditModal(ingrediente)}
-                    variant="outline"
-                    className="w-full mt-4"
-                    size="sm"
-                  >
-                    <Edit className="w-3 h-3 mr-2" />
-                    Editar
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  </CardContent>
+                )}
+              </Card>
+            )
+          })}
         </div>
 
         {ingredientesFiltrados.length === 0 && (
@@ -417,6 +400,9 @@ export default function AdminInventario() {
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>{editingItem ? "Editar Ingrediente" : "Agregar Nuevo Ingrediente"}</DialogTitle>
+              <DialogDescription className="sr-only">
+                Formulario para {editingItem ? 'editar' : 'agregar'} ingrediente en Firestore. Completa los campos requeridos y guarda los cambios.
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
@@ -531,74 +517,51 @@ export default function AdminInventario() {
               </div>
 
               <DialogFooter>
-                {editingItem && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
-                    onClick={() => {
-                      setPendingDeleteId(editingItem.id)
-                      setShowDeleteConfirm(true)
-                    }}
-                  >
-                    Eliminar
-                  </Button>
-                )}
-                <div className="ml-auto flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
-                    Cancelar
-                  </Button>
-                  <Button type="submit" className="bg-pink-600 text-white hover:bg-pink-700">
-                    {editingItem ? "Actualizar" : "Agregar"} Ingrediente
-                  </Button>
-                </div>
+                <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
+                  Cancelar
+                </Button>
+                <Button disabled={saving} type="submit" className="bg-pink-600 text-white hover:bg-pink-700 disabled:opacity-60">
+                  {saving ? 'Guardando...' : editingItem ? "Actualizar" : "Agregar"} Ingrediente
+                </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-        {/* Confirmación de eliminación */}
-        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-          <DialogContent className="max-w-md">
+
+        {/* Modal Confirmación Eliminación */}
+        <Dialog open={!!deleteTarget} onOpenChange={(open) => { if(!open) setDeleteTarget(null) }}>
+          <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Eliminar ingrediente</DialogTitle>
+              <DialogTitle>Eliminar Ingrediente</DialogTitle>
+              <DialogDescription>
+                Esta acción eliminará permanentemente el ingrediente {deleteTarget?.nombre}. No se puede deshacer.
+              </DialogDescription>
             </DialogHeader>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              ¿Seguro que deseas eliminar <span className="font-semibold">{editingItem?.nombre}</span>? Esta acción no se puede deshacer.
-            </p>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancelar</Button>
-              <Button
-                className="bg-red-600 text-white hover:bg-red-700"
-                onClick={async () => {
-                  if (pendingDeleteId) {
-                    try {
-                      await deleteIngrediente(pendingDeleteId)
-                      toast({ title: 'Ingrediente eliminado', description: editingItem?.nombre })
-                    } catch (e: any) {
-                      console.error('Error eliminando ingrediente', e)
-                      toast({ title: 'Error al eliminar', description: e?.message || 'Intenta nuevamente', variant: 'destructive' })
-                    }
-                  }
-                  setShowDeleteConfirm(false)
-                  setShowModal(false)
-                  setEditingItem(null)
-                  setPendingDeleteId(null)
-                }}
-              >
-                Eliminar
-              </Button>
+            <div className="text-sm text-gray-600 dark:text-gray-300">
+              ¿Confirmas que deseas eliminarlo?
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancelar</Button>
+              <Button variant="destructive" onClick={async () => { if(deleteTarget){ await eliminarIngrediente(deleteTarget.id); setDeleteTarget(null) } }}>Eliminar</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        {/* Modal de éxito al agregar */}
-        <Dialog open={showSuccess} onOpenChange={setShowSuccess}>
+
+        {/* Modal Éxito Agregado */}
+        <Dialog open={showAddedModal} onOpenChange={(open) => setShowAddedModal(open)}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Ingrediente agregado</DialogTitle>
+              <DialogTitle>Ingrediente Agregado</DialogTitle>
+              <DialogDescription>
+                El nuevo ingrediente se guardó correctamente en la base de datos.
+              </DialogDescription>
             </DialogHeader>
-            <p className="text-sm text-gray-600 dark:text-gray-300">Se agregó correctamente el ingrediente <span className="font-semibold">{formData.nombre || ''}</span>.</p>
-            <DialogFooter>
-              <Button onClick={() => setShowSuccess(false)}>Cerrar</Button>
+            <div className="text-sm text-gray-600 dark:text-gray-300">
+              Ahora puedes editarlo, agregar otro o cerrar esta ventana.
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="outline" onClick={() => { setShowAddedModal(false); setShowModal(true) }}>Agregar Otro</Button>
+              <Button onClick={() => setShowAddedModal(false)}>Cerrar</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

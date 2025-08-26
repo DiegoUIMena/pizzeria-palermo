@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listenToAllOrders, type Order } from '@/lib/orders'
-import { collection, getDocs, orderBy, query, limit, onSnapshot } from 'firebase/firestore'
+import { collection, getDocs, orderBy, query, limit } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
+import { listenIngredientes, type Ingrediente } from '@/lib/inventory'
 import { addDays, subDays, startOfDay, isWithinInterval, format, subWeeks, subMonths } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -20,8 +21,32 @@ interface KPIStats {
 
 export interface SalesPoint { label: string; value: number }
 export interface ProductShare { name: string; value: number }
+export interface TopProduct { nombre: string; unidades: number; porcentaje: number }
 export interface InventoryItem { id: string; nombre: string; stockActual: number; stockMinimo: number; stockMaximo?: number }
 export interface ClientesPoint { month: string; nuevos: number; total: number }
+
+interface VentasResumen {
+  ventas: number
+  ventasCrecimiento: number
+  pedidos: number
+  pedidosCrecimiento: number
+  ticket: number
+  ticketCrecimiento: number
+}
+
+interface ClientesResumen {
+  activos: number
+  activosCrecimiento: number
+  retencion: number
+  retencionCrecimiento: number
+  valorCliente: number
+  valorClienteCrecimiento: number
+}
+
+interface ClientesSegmentacion {
+  frecuencia: { label: string; porcentaje: number; count: number }[]
+  ticket: { label: string; porcentaje: number; count: number }[]
+}
 
 interface UseAdminReportsReturn {
   orders: Order[]
@@ -32,6 +57,12 @@ interface UseAdminReportsReturn {
   getProductShare: (periodo: Periodo) => ProductShare[]
   inventory: InventoryItem[]
   clientesSeries: ClientesPoint[]
+  getTopProducts: (periodo: Periodo) => TopProduct[]
+  getVentasResumen: (periodo: Periodo) => VentasResumen
+  getCriticalInventory: () => InventoryItem[]
+  getHighRotationInventory: () => (InventoryItem & { rotacion: 'Alta' | 'Media' | 'Baja' })[]
+  getClientesResumen: (periodo: Periodo) => ClientesResumen
+  getClientesSegmentacion: (periodo: Periodo) => ClientesSegmentacion
 }
 
 const toDate = (iso?: string) => (iso ? new Date(iso) : null)
@@ -52,43 +83,18 @@ export function useAdminReports(): UseAdminReportsReturn {
     return () => unsub()
   }, [])
 
+  // Listener en tiempo real para ingredientes (sustituye colección legacy 'inventory')
   useEffect(() => {
-    // Primero intentamos colección principal 'ingredientes'; si vacía, fallback a 'inventory'
-    const qMain = query(collection(db, 'ingredientes'), orderBy('nombre'), limit(500))
-    const unsubMain = onSnapshot(qMain, snap => {
-      if (!snap.size) {
-        // fallback sólo una vez a inventory
-        const qFallback = query(collection(db, 'inventory'), orderBy('nombre'), limit(500))
-        getDocs(qFallback).then(fSnap => {
-          const arr: InventoryItem[] = []
-          fSnap.forEach(d => {
-            const data: any = d.data()
-            arr.push({
-              id: d.id,
-              nombre: data.nombre || d.id,
-              stockActual: data.stockActual ?? 0,
-              stockMinimo: data.stockMinimo ?? 0,
-              stockMaximo: data.stockMaximo,
-            })
-          })
-          setInventory(arr)
-        })
-        return
-      }
-      const arr: InventoryItem[] = []
-      snap.forEach(d => {
-        const data: any = d.data()
-        arr.push({
-          id: d.id,
-          nombre: data.nombre || d.id,
-          stockActual: data.stockActual ?? 0,
-          stockMinimo: data.stockMinimo ?? 0,
-          stockMaximo: data.stockMaximo,
-        })
-      })
-      setInventory(arr)
-    }, () => {/* ignore errors */})
-    return () => unsubMain()
+    const unsub = listenIngredientes((ings: Ingrediente[]) => {
+      setInventory(ings.map(i => ({
+        id: i.id,
+        nombre: i.nombre,
+        stockActual: i.stockActual,
+        stockMinimo: i.stockMinimo,
+        stockMaximo: i.stockMaximo
+      })))
+    })
+    return () => unsub()
   }, [])
 
   // Helpers para filtrar períodos relativos
@@ -268,6 +274,171 @@ export function useAdminReports(): UseAdminReportsReturn {
     return data
   }
 
+  const getTopProducts = (periodo: Periodo): TopProduct[] => {
+    const filtered = filterOrdersByPeriodo(periodo)
+    if (!filtered.length) return []
+    const counts: Record<string, number> = {}
+    filtered.forEach(o => {
+      o.items?.forEach(item => {
+        const key = item.nombre || item.pizzaType || 'Producto'
+        counts[key] = (counts[key] || 0) + (item.cantidad || 1)
+      })
+    })
+    const entries = Object.entries(counts).sort((a,b)=>b[1]-a[1])
+    const total = entries.reduce((acc,[,v])=>acc+v,0) || 1
+    return entries.slice(0,5).map(([nombre, unidades]) => ({
+      nombre,
+      unidades,
+      porcentaje: parseFloat(((unidades/total)*100).toFixed(1))
+    }))
+  }
+
+  const getPeriodBounds = (periodo: Periodo) => {
+    const now = new Date()
+    let days: number
+    switch (periodo) {
+      case 'semana': days = 7; break
+      case 'mes': days = 30; break
+      case 'trimestre': days = 84; break // 12 semanas
+      case 'anual': days = 365; break
+    }
+    const startCurrent = subDays(startOfDay(now), days - 1)
+    const startPrev = subDays(startCurrent, days)
+    const endPrev = subDays(startCurrent, 1)
+    return { startCurrent, startPrev, endPrev, now }
+  }
+
+  const growthPct = (curr: number, prev: number) => {
+    if (!prev) return curr ? 100 : 0
+    return ((curr - prev) / prev) * 100
+  }
+
+  const getVentasResumen = (periodo: Periodo): VentasResumen => {
+    const { startCurrent, startPrev, endPrev, now } = getPeriodBounds(periodo)
+    let ventasCurr=0, ventasPrev=0, pedidosCurr=0, pedidosPrev=0
+    orders.forEach(o => {
+      const created = toDate(o.timestamps?.created)
+      if (!created) return
+      if (created >= startCurrent && created <= now) {
+        ventasCurr += o.total || 0
+        pedidosCurr++
+      } else if (created >= startPrev && created <= endPrev) {
+        ventasPrev += o.total || 0
+        pedidosPrev++
+      }
+    })
+    const ticketCurr = pedidosCurr ? ventasCurr / pedidosCurr : 0
+    const ticketPrev = pedidosPrev ? ventasPrev / pedidosPrev : 0
+    return {
+      ventas: currencyRound(ventasCurr),
+      ventasCrecimiento: parseFloat(growthPct(ventasCurr, ventasPrev).toFixed(1)),
+      pedidos: pedidosCurr,
+      pedidosCrecimiento: parseFloat(growthPct(pedidosCurr, pedidosPrev).toFixed(1)),
+      ticket: currencyRound(ticketCurr),
+      ticketCrecimiento: parseFloat(growthPct(ticketCurr, ticketPrev).toFixed(1)),
+    }
+  }
+
+  const getCriticalInventory = () => {
+    return inventory.filter(i => i.stockActual === 0 || i.stockActual <= i.stockMinimo).sort((a,b)=>a.stockActual-b.stockActual)
+  }
+
+  const getHighRotationInventory = () => {
+    // No tenemos histórico de consumo aquí; aproximamos rotación usando stockMinimo (asumiendo que mayor stockMinimo => mayor salida esperada)
+    const sorted = [...inventory].sort((a,b)=>b.stockMinimo - a.stockMinimo).slice(0,5)
+    const maxMin = sorted[0]?.stockMinimo || 1
+    return sorted.map(i => {
+      const ratio = i.stockMinimo / maxMin
+      let rotacion: 'Alta' | 'Media' | 'Baja'
+      if (ratio >= 0.66) rotacion = 'Alta'
+      else if (ratio >= 0.33) rotacion = 'Media'
+      else rotacion = 'Baja'
+      return { ...i, rotacion }
+    })
+  }
+
+  const getClientesResumen = (periodo: Periodo): ClientesResumen => {
+    const { startCurrent, startPrev, endPrev, now } = getPeriodBounds(periodo)
+    const firstOrderDate: Record<string, Date> = {}
+    orders.forEach(o => {
+      const created = toDate(o.timestamps?.created)
+      if (!created) return
+      if (!firstOrderDate[o.userId] || firstOrderDate[o.userId] > created) firstOrderDate[o.userId] = created
+    })
+    const activosCurr = new Set<string>()
+    const activosPrev = new Set<string>()
+    let ventasCurr = 0, ventasPrev = 0
+    const returningCurr = new Set<string>()
+    orders.forEach(o => {
+      const created = toDate(o.timestamps?.created)
+      if (!created) return
+      if (created >= startCurrent && created <= now) {
+        activosCurr.add(o.userId)
+        ventasCurr += o.total || 0
+        if (firstOrderDate[o.userId] && firstOrderDate[o.userId] < startCurrent) returningCurr.add(o.userId)
+      } else if (created >= startPrev && created <= endPrev) {
+        activosPrev.add(o.userId)
+        ventasPrev += o.total || 0
+      }
+    })
+    const nuevosCurr = [...activosCurr].filter(u => firstOrderDate[u] && firstOrderDate[u] >= startCurrent).length
+    const nuevosPrev = [...activosPrev].filter(u => firstOrderDate[u] && firstOrderDate[u] >= startPrev && firstOrderDate[u] <= endPrev).length
+    const returningPrev = activosPrev.size - nuevosPrev
+    const retencionCurr = activosCurr.size ? ((activosCurr.size - nuevosCurr) / activosCurr.size) * 100 : 0
+    const retencionPrev = activosPrev.size ? (returningPrev / activosPrev.size) * 100 : 0
+    const valorClienteCurr = activosCurr.size ? ventasCurr / activosCurr.size : 0
+    const valorClientePrev = activosPrev.size ? ventasPrev / activosPrev.size : 0
+    return {
+      activos: activosCurr.size,
+      activosCrecimiento: parseFloat(growthPct(activosCurr.size, activosPrev.size).toFixed(1)),
+      retencion: parseFloat(retencionCurr.toFixed(1)),
+      retencionCrecimiento: parseFloat(growthPct(retencionCurr, retencionPrev).toFixed(1)),
+      valorCliente: currencyRound(valorClienteCurr),
+      valorClienteCrecimiento: parseFloat(growthPct(valorClienteCurr, valorClientePrev).toFixed(1)),
+    }
+  }
+
+  const getClientesSegmentacion = (periodo: Periodo): ClientesSegmentacion => {
+    const { startCurrent, now } = getPeriodBounds(periodo)
+    const pedidosPorCliente: Record<string, { pedidos: number; total: number }> = {}
+    orders.forEach(o => {
+      const created = toDate(o.timestamps?.created)
+      if (!created) return
+      if (created >= startCurrent && created <= now) {
+        if (!pedidosPorCliente[o.userId]) pedidosPorCliente[o.userId] = { pedidos: 0, total: 0 }
+        pedidosPorCliente[o.userId].pedidos++
+        pedidosPorCliente[o.userId].total += o.total || 0
+      }
+    })
+    const activos = Object.keys(pedidosPorCliente)
+    const freqCounts = { frecuentes: 0, regulares: 0, ocasionales: 0 }
+    const ticketCounts = { premium: 0, medio: 0, basico: 0 }
+    activos.forEach(id => {
+      const { pedidos, total } = pedidosPorCliente[id]
+      if (pedidos >= 4) freqCounts.frecuentes++
+      else if (pedidos >= 2) freqCounts.regulares++
+      else freqCounts.ocasionales++
+      const ticketProm = total / pedidos
+      if (ticketProm >= 25000) ticketCounts.premium++
+      else if (ticketProm >= 15000) ticketCounts.medio++
+      else ticketCounts.basico++
+    })
+    const denom = activos.length || 1
+    const pct = (v: number) => parseFloat(((v / denom) * 100).toFixed(1))
+    return {
+      frecuencia: [
+        { label: 'Clientes frecuentes (4+ pedidos/periodo)', porcentaje: pct(freqCounts.frecuentes), count: freqCounts.frecuentes },
+        { label: 'Clientes regulares (2-3 pedidos/periodo)', porcentaje: pct(freqCounts.regulares), count: freqCounts.regulares },
+        { label: 'Clientes ocasionales (1 pedido/periodo)', porcentaje: pct(freqCounts.ocasionales), count: freqCounts.ocasionales },
+      ],
+      ticket: [
+        { label: 'Premium ($25,000+)', porcentaje: pct(ticketCounts.premium), count: ticketCounts.premium },
+        { label: 'Medio ($15,000-$25,000)', porcentaje: pct(ticketCounts.medio), count: ticketCounts.medio },
+        { label: 'Básico (< $15,000)', porcentaje: pct(ticketCounts.basico), count: ticketCounts.basico },
+      ]
+    }
+  }
+
   const clientesSeries: ClientesPoint[] = useMemo(() => {
     if (!orders.length) return []
     const now = new Date()
@@ -300,5 +471,5 @@ export function useAdminReports(): UseAdminReportsReturn {
     return months.map(m => ({ month: m, nuevos: byMonth[m].nuevos.size, total: byMonth[m].activos.size }))
   }, [orders])
 
-  return { orders, loading, error, kpis: computeKPI, getSalesSeries, getProductShare, inventory, clientesSeries }
+  return { orders, loading, error, kpis: computeKPI, getSalesSeries, getProductShare, inventory, clientesSeries, getTopProducts, getVentasResumen, getCriticalInventory, getHighRotationInventory, getClientesResumen, getClientesSegmentacion }
 }

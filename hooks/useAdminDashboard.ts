@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore'
+import { listenIngredientes, type Ingrediente } from '@/lib/inventory'
 import { listenToAllOrders, type Order } from '../lib/orders'
 import { db } from '../lib/firebase'
-import { listenIngredientes, type Ingrediente } from '../lib/inventory'
 
 export interface DashboardStats {
   totalPedidos: number
@@ -28,6 +28,7 @@ export interface InventarioAlerta {
   stockActual: number
   stockMinimo: number
   unidad?: string
+  estado: 'Stock Bajo' | 'Agotado'
 }
 
 interface UseAdminDashboardReturn {
@@ -85,22 +86,51 @@ export function useAdminDashboard(): UseAdminDashboardReturn {
     }
   }, [])
 
-  // Inventario en tiempo real (colección 'ingredientes' con fallback a 'inventory')
+  // Suscripción en tiempo real a ingredientes para alertas de stock bajo
   useEffect(() => {
-    const unsub = listenIngredientes((items) => {
-      // Filtrar ingredientes cuyo stockActual <= stockMinimo (incluye agotados)
-      const low = items
-        .filter(i => typeof i.stockActual === 'number' && typeof i.stockMinimo === 'number' && i.stockActual <= i.stockMinimo)
-        .map<InventarioAlerta>(i => ({
-          id: i.id,
-          nombre: i.nombre,
-          stockActual: i.stockActual,
-          stockMinimo: i.stockMinimo,
-          unidad: i.unidad
-        }))
-      setAlertasInventario(low)
-    })
-    return () => unsub()
+    let unsub: (() => void) | undefined
+    try {
+      unsub = listenIngredientes((items: Ingrediente[]) => {
+        const low: InventarioAlerta[] = items
+          .filter(i => i.stockActual <= i.stockMinimo || i.estado === 'Stock Bajo' || i.estado === 'Agotado')
+          .map(i => ({
+            id: i.id,
+            nombre: i.nombre,
+            stockActual: i.stockActual,
+            stockMinimo: i.stockMinimo,
+            unidad: i.unidad,
+            estado: (i.stockActual === 0 ? 'Agotado' : 'Stock Bajo') as ('Agotado' | 'Stock Bajo')
+          }))
+        setAlertasInventario(low)
+      })
+    } catch (e) {
+      // Fallback: intentar una sola lectura de colección legacy 'inventory'
+      ;(async () => {
+        try {
+          const invQuery = query(collection(db, 'inventory'), orderBy('nombre'), limit(100))
+            const snap = await getDocs(invQuery)
+            if (snap.empty) { setAlertasInventario([]); return }
+            const low: InventarioAlerta[] = []
+            snap.forEach(docSnap => {
+              const data: any = docSnap.data()
+              if (data && typeof data.stockActual === 'number' && typeof data.stockMinimo === 'number') {
+                if (data.stockActual <= data.stockMinimo) {
+                  low.push({
+                    id: docSnap.id,
+                    nombre: data.nombre || docSnap.id,
+                    stockActual: data.stockActual,
+                    stockMinimo: data.stockMinimo,
+                    unidad: data.unidad,
+                    estado: (data.stockActual === 0 ? 'Agotado' : 'Stock Bajo') as ('Agotado' | 'Stock Bajo')
+                  })
+                }
+              }
+            })
+            setAlertasInventario(low)
+        } catch {}
+      })()
+    }
+    return () => { if (unsub) unsub() }
   }, [])
 
   const stats: DashboardStats = useMemo(() => {

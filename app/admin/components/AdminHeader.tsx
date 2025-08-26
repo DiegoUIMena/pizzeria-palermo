@@ -11,12 +11,31 @@ import {
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun } from "lucide-react"
-import { ThemeToggleSwitch } from "@/components/theme-toggle"
 import { useTheme } from "next-themes"
+import { useEffect, useState } from 'react'
 
 export default function AdminHeader() {
   const pathname = usePathname()
-  const { theme } = useTheme()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  const cycleTheme = () => setTheme((theme === 'dark') ? 'light' : 'dark')
+  const themeIcon = () => {
+    if (!mounted) return (
+      <span className="relative w-4 h-4 inline-flex items-center justify-center">
+        <Sun className="w-4 h-4" />
+      </span>
+    )
+    return theme === 'dark' ? (
+      <span className="relative w-4 h-4 inline-flex items-center justify-center">
+        <Moon className="w-4 h-4" />
+      </span>
+    ) : (
+      <span className="relative w-4 h-4 inline-flex items-center justify-center">
+        <Sun className="w-4 h-4" />
+      </span>
+    )
+  }
 
   const navigation = [
     { name: "Dashboard", href: "/admin", icon: Home },
@@ -82,45 +101,52 @@ export default function AdminHeader() {
             </DropdownMenu>
           </div>
 
-          {/* User Menu */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon" className="rounded-full">
-                <User className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <div className="px-2 py-1.5">
-                <p className="font-medium text-gray-900 dark:text-gray-100">Administrador</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">admin@pizzeriapalermo.cl</p>
-              </div>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>
-                <div className="flex items-center w-full justify-between">
-                  <div className="flex items-center">
-                    <Moon className="mr-2 h-4 w-4" />
-                    <span>Modo Oscuro</span>
-                  </div>
-                  <ThemeToggleSwitch />
+          {/* Theme Button + User Menu (sin opciones de tema duplicadas) */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={cycleTheme}
+              className="rounded-full relative group"
+              title={mounted ? `Tema actual: ${theme || 'light'} (clic para cambiar)` : 'Cambiar tema'}
+              suppressHydrationWarning
+            >
+              {themeIcon()}
+              <span className="sr-only">Cambiar tema</span>
+              <span className="pointer-events-none select-none absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] font-medium text-gray-500 dark:text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                {mounted ? (theme || 'light') : 'light'}
+              </span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="icon" className="rounded-full">
+                  <User className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <div className="px-2 py-1.5">
+                  <p className="font-medium text-gray-900 dark:text-gray-100">Administrador</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">admin@pizzeriapalermo.cl</p>
                 </div>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <Settings className="mr-2 h-4 w-4" />
-                <span>Configuración</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/admin/debug-clientes" className="flex items-center">
-                  <Bug className="mr-2 h-4 w-4" />
-                  <span>Debug Clientes</span>
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600">
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Cerrar Sesión</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <Settings className="mr-2 h-4 w-4" />
+                  <span>Configuración</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/admin/debug-clientes" className="flex items-center">
+                    <Bug className="mr-2 h-4 w-4" />
+                    <span>Debug Clientes</span>
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-red-600">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>Cerrar Sesión</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </div>
     </header>

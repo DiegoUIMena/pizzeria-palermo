@@ -1,5 +1,5 @@
 import { db } from './firebase'
-import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, Timestamp, getDoc } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, orderBy, Timestamp } from 'firebase/firestore'
 
 export interface Ingrediente {
   id: string
@@ -17,10 +17,7 @@ export interface Ingrediente {
   updatedAt?: string
 }
 
-// Colección principal solicitada por el usuario
 export const ingredientesCollection = collection(db, 'ingredientes')
-// Colección legacy/fallback si el proyecto ya usaba 'inventory'
-export const legacyInventoryCollection = collection(db, 'inventory')
 
 export const computeEstado = (ing: { stockActual: number; stockMinimo: number; fechaVencimiento?: string }): Ingrediente['estado'] => {
   if (ing.stockActual === 0) return 'Agotado'
@@ -32,39 +29,9 @@ export const computeEstado = (ing: { stockActual: number; stockMinimo: number; f
   return 'Disponible'
 }
 
-export const listenIngredientes = (cb: (items: Ingrediente[], fuente: 'ingredientes' | 'inventory') => void): (() => void) => {
-  const qMain = query(ingredientesCollection, orderBy('nombre'))
-  let usedLegacy = false
-  const unsubMain = onSnapshot(qMain, snap => {
-    if (!snap.size && !usedLegacy) {
-      // Activar listener legacy sólo si principal está vacía (para transición)
-      usedLegacy = true
-      const qLegacy = query(legacyInventoryCollection, orderBy('nombre'))
-      const unsubLegacy = onSnapshot(qLegacy, snapLegacy => {
-        const arr: Ingrediente[] = []
-        snapLegacy.forEach(d => {
-          const data: any = d.data()
-          arr.push({
-            id: d.id,
-            nombre: data.nombre || d.id,
-            categoria: data.categoria || 'Otros',
-            stockActual: data.stockActual ?? 0,
-            stockMinimo: data.stockMinimo ?? 0,
-            stockMaximo: data.stockMaximo ?? 0,
-            unidad: data.unidad || '',
-            precioUnitario: data.precioUnitario ?? 0,
-            proveedor: data.proveedor || '',
-            fechaVencimiento: data.fechaVencimiento,
-            estado: data.estado || computeEstado(data),
-            createdAt: data.createdAt,
-            updatedAt: data.updatedAt
-          })
-        })
-        cb(arr, 'inventory')
-      })
-      // Mantener ambos unsub si luego aparece data en principal, seguir mostrando principal (preferencia)
-      return () => unsubLegacy()
-    }
+export const listenIngredientes = (cb: (items: Ingrediente[]) => void): (() => void) => {
+  const q = query(ingredientesCollection, orderBy('nombre'))
+  return onSnapshot(q, snap => {
     const arr: Ingrediente[] = []
     snap.forEach(d => {
       const data: any = d.data()
@@ -84,41 +51,40 @@ export const listenIngredientes = (cb: (items: Ingrediente[], fuente: 'ingredien
         updatedAt: data.updatedAt
       })
     })
-    cb(arr, 'ingredientes')
+    cb(arr)
   })
-  return () => unsubMain()
 }
 
-export const addIngrediente = async (data: Omit<Ingrediente,'id'|'estado'|'createdAt'|'updatedAt'>): Promise<string> => {
+export const addIngrediente = async (data: Omit<Ingrediente,'id'|'estado'|'createdAt'|'updatedAt'>) => {
   const estado = computeEstado(data)
-  const payload: any = {
-    nombre: data.nombre,
-    categoria: data.categoria,
-    stockActual: data.stockActual,
-    stockMinimo: data.stockMinimo,
-    stockMaximo: data.stockMaximo,
-    unidad: data.unidad,
-    precioUnitario: data.precioUnitario,
-    proveedor: data.proveedor,
+  const docData: any = {
+    ...data,
     estado,
     createdAt: Timestamp.now().toDate().toISOString(),
     updatedAt: Timestamp.now().toDate().toISOString()
   }
-  if (data.fechaVencimiento) payload.fechaVencimiento = data.fechaVencimiento
-  const ref = await addDoc(ingredientesCollection, payload)
-  return ref.id
+  // Eliminar campos undefined (Firestore no los acepta)
+  Object.keys(docData).forEach(k => docData[k] === undefined && delete docData[k])
+  await addDoc(ingredientesCollection, docData)
 }
 
 export const updateIngrediente = async (id: string, data: Partial<Omit<Ingrediente,'id'>>) => {
   const ref = doc(db,'ingredientes',id)
-  let current: any
-  try { const snap = await getDoc(ref); current = snap.exists() ? snap.data() : {} } catch { current = {} }
-  const merged = { ...current, ...data }
-  const estado = computeEstado({ stockActual: merged.stockActual ?? 0, stockMinimo: merged.stockMinimo ?? 0, fechaVencimiento: merged.fechaVencimiento })
-  const payload: any = { ...data, estado, updatedAt: Timestamp.now().toDate().toISOString() }
-  if (payload.fechaVencimiento === '') delete payload.fechaVencimiento
-  Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k])
-  await updateDoc(ref, payload)
+  const recalcular = (data.stockActual !== undefined || data.stockMinimo !== undefined || data.fechaVencimiento !== undefined)
+  let estado: Ingrediente['estado'] | undefined
+  if (recalcular) {
+    // Necesitamos campos base; asumimos que vienen en data o se mantienen en Firestore; para simplicidad si faltan no recalculamos.
+    if (typeof data.stockActual === 'number' && typeof data.stockMinimo === 'number') {
+      estado = computeEstado({ stockActual: data.stockActual, stockMinimo: data.stockMinimo, fechaVencimiento: data.fechaVencimiento })
+    }
+  }
+  const upd: any = {
+    ...data,
+    ...(estado ? { estado } : {}),
+    updatedAt: Timestamp.now().toDate().toISOString()
+  }
+  Object.keys(upd).forEach(k => upd[k] === undefined && delete upd[k])
+  await updateDoc(ref, upd)
 }
 
 export const deleteIngrediente = async (id: string) => {
