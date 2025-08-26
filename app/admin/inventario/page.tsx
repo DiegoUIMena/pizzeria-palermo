@@ -3,6 +3,8 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
+import { listenIngredientes, addIngrediente, updateIngrediente, deleteIngrediente, type Ingrediente as IngredienteFS, computeEstado } from '@/lib/inventory'
+import { useToast } from '@/hooks/use-toast'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,28 +14,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertTriangle, Package, Plus, Edit, Search, Filter, TrendingDown, CheckCircle } from "lucide-react"
 
-interface Ingrediente {
-  id: number
-  nombre: string
-  categoria: string
-  stockActual: number
-  stockMinimo: number
-  stockMaximo: number
-  unidad: string
-  precioUnitario: number
-  proveedor: string
-  fechaVencimiento?: string
-  estado: "Disponible" | "Stock Bajo" | "Agotado" | "Vencido"
-}
+// Se utilizará la interfaz IngredienteFS desde Firestore.
 
 export default function AdminInventario() {
-  const [ingredientes, setIngredientes] = useState<Ingrediente[]>([])
+  const [ingredientes, setIngredientes] = useState<IngredienteFS[]>([])
   const [filtroCategoria, setFiltroCategoria] = useState<string>("todas")
   const [filtroEstado, setFiltroEstado] = useState<string>("todos")
   const [busqueda, setBusqueda] = useState("")
   const [showModal, setShowModal] = useState(false)
-  const [editingItem, setEditingItem] = useState<Ingrediente | null>(null)
+  const [editingItem, setEditingItem] = useState<IngredienteFS | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [fuente, setFuente] = useState<'ingredientes' | 'inventory'>('ingredientes')
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [showSuccess, setShowSuccess] = useState(false)
+  const { toast } = useToast()
 
   // Formulario para nuevo/editar ingrediente
   const [formData, setFormData] = useState({
@@ -48,115 +43,14 @@ export default function AdminInventario() {
     fechaVencimiento: "",
   })
 
-  // Simular carga de inventario
+  // Suscripción en tiempo real Firestore
   useEffect(() => {
-    setTimeout(() => {
-      setIngredientes([
-        {
-          id: 1,
-          nombre: "Queso Mozzarella",
-          categoria: "Lácteos",
-          stockActual: 2,
-          stockMinimo: 5,
-          stockMaximo: 20,
-          unidad: "kg",
-          precioUnitario: 8500,
-          proveedor: "Lácteos del Sur",
-          fechaVencimiento: "2025-01-20",
-          estado: "Stock Bajo",
-        },
-        {
-          id: 2,
-          nombre: "Pepperoni",
-          categoria: "Carnes",
-          stockActual: 1,
-          stockMinimo: 3,
-          stockMaximo: 15,
-          unidad: "kg",
-          precioUnitario: 12000,
-          proveedor: "Carnes Premium",
-          fechaVencimiento: "2025-01-18",
-          estado: "Stock Bajo",
-        },
-        {
-          id: 3,
-          nombre: "Masa para Pizza",
-          categoria: "Harinas",
-          stockActual: 8,
-          stockMinimo: 15,
-          stockMaximo: 50,
-          unidad: "unidades",
-          precioUnitario: 800,
-          proveedor: "Panadería Central",
-          estado: "Stock Bajo",
-        },
-        {
-          id: 4,
-          nombre: "Salsa de Tomate",
-          categoria: "Salsas",
-          stockActual: 12,
-          stockMinimo: 6,
-          stockMaximo: 30,
-          unidad: "litros",
-          precioUnitario: 2500,
-          proveedor: "Conservas del Valle",
-          fechaVencimiento: "2025-03-15",
-          estado: "Disponible",
-        },
-        {
-          id: 5,
-          nombre: "Champiñones",
-          categoria: "Vegetales",
-          stockActual: 1,
-          stockMinimo: 4,
-          stockMaximo: 10,
-          unidad: "kg",
-          precioUnitario: 3200,
-          proveedor: "Verduras Frescas",
-          fechaVencimiento: "2025-01-15",
-          estado: "Stock Bajo",
-        },
-        {
-          id: 6,
-          nombre: "Aceitunas Negras",
-          categoria: "Vegetales",
-          stockActual: 0,
-          stockMinimo: 2,
-          stockMaximo: 8,
-          unidad: "kg",
-          precioUnitario: 4500,
-          proveedor: "Importadora Mediterránea",
-          estado: "Agotado",
-        },
-        {
-          id: 7,
-          nombre: "Pimientos Rojos",
-          categoria: "Vegetales",
-          stockActual: 6,
-          stockMinimo: 3,
-          stockMaximo: 12,
-          unidad: "kg",
-          precioUnitario: 2800,
-          proveedor: "Verduras Frescas",
-          fechaVencimiento: "2025-01-16",
-          estado: "Disponible",
-        },
-        {
-          id: 8,
-          nombre: "Jamón",
-          categoria: "Carnes",
-          stockActual: 4,
-          stockMinimo: 2,
-          stockMaximo: 10,
-          unidad: "kg",
-          precioUnitario: 9500,
-          proveedor: "Carnes Premium",
-          fechaVencimiento: "2025-01-22",
-          estado: "Disponible",
-        },
-      ])
+    const unsubscribe = listenIngredientes((items, f) => {
+      setFuente(f)
+      setIngredientes(items.map(i => ({ ...i, estado: computeEstado(i) })))
       setIsLoading(false)
-    }, 1000)
+    })
+    return () => unsubscribe()
   }, [])
 
   const categorias = ["Lácteos", "Carnes", "Vegetales", "Harinas", "Salsas", "Bebidas", "Otros"]
@@ -191,55 +85,38 @@ export default function AdminInventario() {
     }
   }
 
-  const actualizarStock = (id: number, nuevoStock: number) => {
-    setIngredientes((prev) =>
-      prev.map((item) => {
-        if (item.id === id) {
-          let nuevoEstado: Ingrediente["estado"] = "Disponible"
-          if (nuevoStock === 0) nuevoEstado = "Agotado"
-          else if (nuevoStock <= item.stockMinimo) nuevoEstado = "Stock Bajo"
-
-          return { ...item, stockActual: nuevoStock, estado: nuevoEstado }
-        }
-        return item
-      }),
-    )
+  const actualizarStock = async (id: string, nuevoStock: number) => {
+    const item = ingredientes.find(i => i.id === id)
+    if (!item) return
+    await updateIngrediente(id, { stockActual: nuevoStock, estado: computeEstado({ stockActual: nuevoStock, stockMinimo: item.stockMinimo, fechaVencimiento: item.fechaVencimiento }) })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (editingItem) {
-      // Editar ingrediente existente
-      setIngredientes((prev) =>
-        prev.map((item) =>
-          item.id === editingItem.id
-            ? {
-                ...item,
-                ...formData,
-                estado:
-                  formData.stockActual === 0
-                    ? "Agotado"
-                    : formData.stockActual <= formData.stockMinimo
-                      ? "Stock Bajo"
-                      : "Disponible",
-              }
-            : item,
-        ),
-      )
-    } else {
-      // Agregar nuevo ingrediente
-      const nuevoIngrediente: Ingrediente = {
-        id: Math.max(...ingredientes.map((i) => i.id)) + 1,
-        ...formData,
-        estado:
-          formData.stockActual === 0
-            ? "Agotado"
-            : formData.stockActual <= formData.stockMinimo
-              ? "Stock Bajo"
-              : "Disponible",
+    try {
+      if (editingItem) {
+        console.log('Actualizando ingrediente', editingItem.id, formData)
+        await updateIngrediente(editingItem.id, { ...formData, fechaVencimiento: formData.fechaVencimiento || undefined })
+      } else {
+        console.log('Creando ingrediente', formData)
+        await addIngrediente({
+          nombre: formData.nombre,
+          categoria: formData.categoria,
+          stockActual: formData.stockActual,
+          stockMinimo: formData.stockMinimo,
+          stockMaximo: formData.stockMaximo,
+          unidad: formData.unidad,
+          precioUnitario: formData.precioUnitario,
+          proveedor: formData.proveedor,
+          fechaVencimiento: formData.fechaVencimiento || undefined,
+        })
+  setShowSuccess(true)
       }
-      setIngredientes((prev) => [...prev, nuevoIngrediente])
+      toast({ title: editingItem ? 'Ingrediente actualizado' : 'Ingrediente agregado', description: formData.nombre })
+    } catch (err: any) {
+      console.error('Error guardando ingrediente', err)
+      toast({ title: 'Error', description: err?.message || 'No se pudo guardar', variant: 'destructive' })
     }
 
     // Reset form
@@ -258,7 +135,7 @@ export default function AdminInventario() {
     setShowModal(false)
   }
 
-  const openEditModal = (ingrediente: Ingrediente) => {
+  const openEditModal = (ingrediente: IngredienteFS) => {
     setEditingItem(ingrediente)
     setFormData({
       nombre: ingrediente.nombre,
@@ -303,6 +180,8 @@ export default function AdminInventario() {
               <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Gestión de Inventario</h1>
               <p className="text-gray-600 dark:text-gray-400">Administra el stock de ingredientes y materias primas</p>
             </div>
+            <div className='flex items-center gap-3'>
+              <Badge variant='outline' className='text-xs'>Fuente: {fuente}</Badge>
             <Button
               onClick={() => {
                 setEditingItem(null)
@@ -324,6 +203,7 @@ export default function AdminInventario() {
               <Plus className="w-4 h-4 mr-2" />
               Agregar Ingrediente
             </Button>
+            </div>
           </div>
         </div>
 
@@ -651,14 +531,75 @@ export default function AdminInventario() {
               </div>
 
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
-                  Cancelar
-                </Button>
-                <Button type="submit" className="bg-pink-600 text-white hover:bg-pink-700">
-                  {editingItem ? "Actualizar" : "Agregar"} Ingrediente
-                </Button>
+                {editingItem && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-red-500 text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                    onClick={() => {
+                      setPendingDeleteId(editingItem.id)
+                      setShowDeleteConfirm(true)
+                    }}
+                  >
+                    Eliminar
+                  </Button>
+                )}
+                <div className="ml-auto flex gap-2">
+                  <Button type="button" variant="outline" onClick={() => setShowModal(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="submit" className="bg-pink-600 text-white hover:bg-pink-700">
+                    {editingItem ? "Actualizar" : "Agregar"} Ingrediente
+                  </Button>
+                </div>
               </DialogFooter>
             </form>
+          </DialogContent>
+        </Dialog>
+        {/* Confirmación de eliminación */}
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Eliminar ingrediente</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              ¿Seguro que deseas eliminar <span className="font-semibold">{editingItem?.nombre}</span>? Esta acción no se puede deshacer.
+            </p>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancelar</Button>
+              <Button
+                className="bg-red-600 text-white hover:bg-red-700"
+                onClick={async () => {
+                  if (pendingDeleteId) {
+                    try {
+                      await deleteIngrediente(pendingDeleteId)
+                      toast({ title: 'Ingrediente eliminado', description: editingItem?.nombre })
+                    } catch (e: any) {
+                      console.error('Error eliminando ingrediente', e)
+                      toast({ title: 'Error al eliminar', description: e?.message || 'Intenta nuevamente', variant: 'destructive' })
+                    }
+                  }
+                  setShowDeleteConfirm(false)
+                  setShowModal(false)
+                  setEditingItem(null)
+                  setPendingDeleteId(null)
+                }}
+              >
+                Eliminar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {/* Modal de éxito al agregar */}
+        <Dialog open={showSuccess} onOpenChange={setShowSuccess}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Ingrediente agregado</DialogTitle>
+            </DialogHeader>
+            <p className="text-sm text-gray-600 dark:text-gray-300">Se agregó correctamente el ingrediente <span className="font-semibold">{formData.nombre || ''}</span>.</p>
+            <DialogFooter>
+              <Button onClick={() => setShowSuccess(false)}>Cerrar</Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </main>

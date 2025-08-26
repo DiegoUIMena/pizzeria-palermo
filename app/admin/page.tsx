@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { useAdminDashboard } from "../../hooks/useAdminDashboard"
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -18,100 +19,10 @@ import {
 } from "lucide-react"
 
 // Tipos para el dashboard
-interface DashboardStats {
-  totalPedidos: number
-  pedidosPendientes: number
-  pedidosEnProceso: number
-  pedidosEntregados: number
-  ventasHoy: number
-  stockBajo: number
-  clientesActivos: number
-}
-
-interface PedidoResumen {
-  id: string
-  cliente: string
-  total: number
-  estado: "Pendiente" | "En preparación" | "En camino" | "Entregado"
-  tiempo: string
-}
-
-interface InventarioAlerta {
-  id: number
-  nombre: string
-  stockActual: number
-  stockMinimo: number
-  unidad: string
-}
+// Tipos ahora provienen del hook
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalPedidos: 0,
-    pedidosPendientes: 0,
-    pedidosEnProceso: 0,
-    pedidosEntregados: 0,
-    ventasHoy: 0,
-    stockBajo: 0,
-    clientesActivos: 0,
-  })
-
-  const [pedidosRecientes, setPedidosRecientes] = useState<PedidoResumen[]>([])
-  const [alertasInventario, setAlertasInventario] = useState<InventarioAlerta[]>([])
-
-  // Simular carga de datos
-  useEffect(() => {
-    // Simular datos del dashboard
-    setStats({
-      totalPedidos: 156,
-      pedidosPendientes: 8,
-      pedidosEnProceso: 12,
-      pedidosEntregados: 136,
-      ventasHoy: 2450000,
-      stockBajo: 5,
-      clientesActivos: 89,
-    })
-
-    // Simular pedidos recientes
-    setPedidosRecientes([
-      {
-        id: "#3105",
-        cliente: "María González",
-        total: 18990,
-        estado: "Pendiente",
-        tiempo: "Hace 5 min",
-      },
-      {
-        id: "#3104",
-        cliente: "Carlos Rodríguez",
-        total: 25980,
-        estado: "En preparación",
-        tiempo: "Hace 12 min",
-      },
-      {
-        id: "#3103",
-        cliente: "Ana Silva",
-        total: 15380,
-        estado: "En camino",
-        tiempo: "Hace 18 min",
-      },
-      {
-        id: "#3102",
-        cliente: "Pedro Martínez",
-        total: 22990,
-        estado: "Entregado",
-        tiempo: "Hace 25 min",
-      },
-    ])
-
-    // Simular alertas de inventario
-    setAlertasInventario([
-      { id: 1, nombre: "Queso Mozzarella", stockActual: 2, stockMinimo: 5, unidad: "kg" },
-      { id: 2, nombre: "Pepperoni", stockActual: 1, stockMinimo: 3, unidad: "kg" },
-      { id: 3, nombre: "Masa para Pizza", stockActual: 8, stockMinimo: 15, unidad: "unidades" },
-      { id: 4, nombre: "Salsa de Tomate", stockActual: 3, stockMinimo: 6, unidad: "litros" },
-      { id: 5, nombre: "Champiñones", stockActual: 1, stockMinimo: 4, unidad: "kg" },
-    ])
-  }, [])
+  const { stats, pedidosRecientes, alertasInventario, nuevosPendientes, acknowledgeNuevos, loading, error } = useAdminDashboard()
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -145,9 +56,32 @@ export default function AdminDashboard() {
 
   return (
     <div className="container mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Panel de Administración</h1>
-        <p className="text-gray-500 dark:text-gray-400">Gestiona tu negocio desde un solo lugar</p>
+      <div className="mb-8 space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">Panel de Administración</h1>
+            <p className="text-gray-500 dark:text-gray-400">Gestiona tu negocio desde un solo lugar</p>
+          </div>
+          {nuevosPendientes > 0 && (
+            <div className="relative">
+              <Button onClick={acknowledgeNuevos} variant="destructive" className="animate-pulse flex items-center gap-2">
+                <span className="inline-flex h-3 w-3 rounded-full bg-white"></span>
+                {nuevosPendientes} nuevo{nuevosPendientes>1? 's':''} pendiente
+              </Button>
+            </div>
+          )}
+        </div>
+        {nuevosPendientes > 0 && (
+          <div className="bg-red-50 border border-red-200 dark:bg-red-900/30 dark:border-red-800 p-3 rounded-lg flex items-start gap-3">
+            <div className="mt-1">
+              <span className="inline-block h-3 w-3 rounded-full bg-red-500 animate-ping" />
+            </div>
+            <div className="text-sm text-red-700 dark:text-red-300">
+              <p className="font-medium">Hay {nuevosPendientes} pedido{nuevosPendientes>1? 's':''} nuevo(s) en estado Pendiente.</p>
+              <p className="text-xs opacity-80">Se resaltan abajo hasta que hagas clic en el botón de reconocimiento.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Estadísticas Principales */}
@@ -214,10 +148,16 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
+                {loading && (
+                  <div className="text-sm text-gray-500">Cargando pedidos...</div>
+                )}
+                {!loading && pedidosRecientes.length === 0 && (
+                  <div className="text-sm text-gray-500">Sin pedidos recientes.</div>
+                )}
                 {pedidosRecientes.map((pedido) => (
                   <div
                     key={pedido.id}
-                    className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                    className={`flex items-center justify-between p-4 rounded-lg transition-colors border ${pedido.isNuevo ? 'bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 shadow-md animate-[pulse_2s_ease-in-out_infinite]' : 'bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 border-transparent'}`}
                   >
                     <div className="flex items-center space-x-4">
                       {getStatusIcon(pedido.estado)}
@@ -226,6 +166,11 @@ export default function AdminDashboard() {
                           {pedido.id} - {pedido.cliente}
                         </div>
                         <div className="text-sm text-gray-500 dark:text-gray-400">{pedido.tiempo}</div>
+                        {pedido.isNuevo && (
+                          <div className="mt-1 inline-flex items-center gap-1 text-[10px] uppercase tracking-wide font-semibold text-red-600 dark:text-red-400">
+                            <span className="h-2 w-2 rounded-full bg-red-500 animate-ping" /> Nuevo
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center space-x-3">
@@ -259,6 +204,12 @@ export default function AdminDashboard() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
+                {loading && (
+                  <div className="text-sm text-gray-500">Verificando inventario...</div>
+                )}
+                {!loading && alertasInventario.length === 0 && (
+                  <div className="text-sm text-gray-500">Sin alertas de stock.</div>
+                )}
                 {alertasInventario.map((item) => (
                   <div
                     key={item.id}

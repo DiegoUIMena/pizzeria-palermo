@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -24,48 +24,20 @@ import VentasChart from "./components/VentasChart"
 import ProductosChart from "./components/ProductosChart"
 import InventarioChart from "./components/InventarioChart"
 import ClientesChart from "./components/ClientesChart"
+import { useAdminReports } from '@/hooks/useAdminReports'
 
 export default function AdminReportes() {
-  const [isLoading, setIsLoading] = useState(true)
   const [periodoVentas, setPeriodoVentas] = useState("semana")
   const [periodoProductos, setPeriodoProductos] = useState("mes")
   const [reporteActivo, setReporteActivo] = useState("ventas")
-
-  // Datos simulados para KPIs
-  const [kpis, setKpis] = useState({
-    ventasTotal: 0,
-    ventasCrecimiento: 0,
-    ticketPromedio: 0,
-    ticketCrecimiento: 0,
-    clientesNuevos: 0,
-    clientesCrecimiento: 0,
-    tiempoEntrega: 0,
-    tiempoEntregaCrecimiento: 0,
-  })
-
-  // Simular carga de datos
-  useEffect(() => {
-    setTimeout(() => {
-      setKpis({
-        ventasTotal: 12450000,
-        ventasCrecimiento: 12.5,
-        ticketPromedio: 15980,
-        ticketCrecimiento: 8.3,
-        clientesNuevos: 87,
-        clientesCrecimiento: 15.2,
-        tiempoEntrega: 28,
-        tiempoEntregaCrecimiento: -5.4,
-      })
-      setIsLoading(false)
-    }, 1000)
-  }, [])
+  const { kpis, getSalesSeries, getProductShare, inventory, clientesSeries, loading } = useAdminReports()
 
   const handleExportarReporte = () => {
     alert("Exportando reporte en formato CSV...")
     // Aquí iría la lógica real de exportación
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-white dark:bg-gray-900">
         <main className="container mx-auto px-4 py-8">
@@ -202,7 +174,7 @@ export default function AdminReportes() {
               <TrendingDown className="w-4 h-4" />
               <span className="hidden sm:inline">Inventario</span>
             </TabsTrigger>
-            <TabsTrigger value="clientes" className="flex items-center gap-2">
+            <TabsTrigger value="clientes" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <TrendingUp className="w-4 h-4" />
               <span className="hidden sm:inline">Clientes</span>
             </TabsTrigger>
@@ -232,7 +204,7 @@ export default function AdminReportes() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4">
-                <VentasChart periodo={periodoVentas} />
+                <VentasChart data={getSalesSeries(periodoVentas as any)} />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
                   <Card>
@@ -285,7 +257,7 @@ export default function AdminReportes() {
                 </div>
               </CardHeader>
               <CardContent className="pt-4">
-                <ProductosChart periodo={periodoProductos} />
+                <ProductosChart data={getProductShare(periodoProductos as any)} />
 
                 <div className="mt-8">
                   <h4 className="font-medium text-gray-800 mb-4">Top 5 Productos</h4>
@@ -329,58 +301,58 @@ export default function AdminReportes() {
                 <CardDescription>Consumo y rotación de ingredientes</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
-                <InventarioChart />
+                <InventarioChart data={inventory} />
+
+                {/* Derivar listas dinámicas desde inventario */}
+                {inventory.length === 0 && (
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mt-4">No hay datos de inventario disponibles.</p>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
                   <div>
-                    <h4 className="font-medium text-gray-800 mb-4">Ingredientes con Mayor Rotación</h4>
+                    <h4 className="font-medium text-gray-800 dark:text-gray-100 mb-4">Ingredientes con Mayor Rotación</h4>
                     <div className="space-y-3">
-                      {[
-                        { nombre: "Queso Mozzarella", rotacion: "Alta", consumo: "45 kg/semana" },
-                        { nombre: "Masa para Pizza", rotacion: "Alta", consumo: "320 unidades/semana" },
-                        { nombre: "Salsa de Tomate", rotacion: "Alta", consumo: "38 litros/semana" },
-                        { nombre: "Pepperoni", rotacion: "Media", consumo: "22 kg/semana" },
-                        { nombre: "Jamón", rotacion: "Media", consumo: "18 kg/semana" },
-                      ].map((item, index) => (
-                        <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                          <div>
-                            <div className="font-medium">{item.nombre}</div>
-                            <div className="text-xs text-gray-500">{item.consumo}</div>
-                          </div>
-                          <Badge
-                            className={
-                              item.rotacion === "Alta"
-                                ? "bg-green-100 text-green-800 hover:bg-green-100"
-                                : "bg-yellow-100 text-yellow-800 hover:bg-yellow-100"
-                            }
-                          >
-                            {item.rotacion}
-                          </Badge>
-                        </div>
-                      ))}
+                      {inventory
+                        .map(i => ({
+                          ...i,
+                          // Rotación estimada: porcentaje consumido (max - actual) / max
+                          ratio: i.stockMaximo ? (i.stockMaximo - i.stockActual) / i.stockMaximo : 0,
+                        }))
+                        .sort((a,b)=>b.ratio - a.ratio)
+                        .slice(0,5)
+                        .map(item => {
+                          const rotacion = item.ratio >= 0.6 ? 'Alta' : item.ratio >= 0.3 ? 'Media' : 'Baja'
+                          return (
+                            <div key={item.id} className="flex justify-between items-center p-3 rounded-lg bg-gray-50 dark:bg-gray-800/60">
+                              <div>
+                                <div className="font-medium text-gray-800 dark:text-gray-100">{item.nombre}</div>
+                                <div className="text-xs text-gray-600 dark:text-gray-400">{Math.round(item.ratio*100)}% consumo relativo</div>
+                              </div>
+                              <Badge className={rotacion==='Alta'? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : rotacion==='Media'? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100' : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100'}>
+                                {rotacion}
+                              </Badge>
+                            </div>
+                          )
+                        })}
+                      {inventory.length === 0 && <p className="text-xs text-gray-600 dark:text-gray-400">Sin datos.</p>}
                     </div>
                   </div>
 
                   <div>
-                    <h4 className="font-medium text-gray-800 mb-4">Ingredientes con Stock Crítico</h4>
+                    <h4 className="font-medium text-gray-800 dark:text-gray-100 mb-4">Ingredientes con Stock Crítico</h4>
                     <div className="space-y-3">
-                      {[
-                        { nombre: "Aceitunas Negras", stock: "0 kg", minimo: "2 kg" },
-                        { nombre: "Pepperoni", stock: "1 kg", minimo: "3 kg" },
-                        { nombre: "Champiñones", stock: "1 kg", minimo: "4 kg" },
-                        { nombre: "Queso Mozzarella", stock: "2 kg", minimo: "5 kg" },
-                        { nombre: "Masa para Pizza", stock: "8 unidades", minimo: "15 unidades" },
-                      ].map((item, index) => (
-                        <div key={index} className="flex justify-between items-center p-3 bg-red-50 rounded-lg">
+                      {inventory.filter(i => i.stockActual <= i.stockMinimo).sort((a,b)=>(a.stockActual - b.stockActual)).slice(0,8).map(item => (
+                        <div key={item.id} className="flex justify-between items-center p-3 rounded-lg bg-red-50 dark:bg-red-950/40">
                           <div>
-                            <div className="font-medium">{item.nombre}</div>
-                            <div className="text-xs text-gray-500">
-                              Stock: {item.stock} (Mín: {item.minimo})
-                            </div>
+                            <div className="font-medium text-red-800 dark:text-red-300">{item.nombre}</div>
+                            <div className="text-xs text-red-700 dark:text-red-400">Stock: {item.stockActual} (Mín: {item.stockMinimo})</div>
                           </div>
-                          <Badge variant="destructive">Crítico</Badge>
+                          <Badge variant="destructive" className="text-xs">Crítico</Badge>
                         </div>
                       ))}
+                      {inventory.filter(i => i.stockActual <= i.stockMinimo).length === 0 && (
+                        <p className="text-xs text-gray-600 dark:text-gray-400">No hay ingredientes críticos.</p>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -396,66 +368,66 @@ export default function AdminReportes() {
                 <CardDescription>Comportamiento y retención de clientes</CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
-                <ClientesChart />
+                <ClientesChart data={clientesSeries} />
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
                   <Card>
                     <CardContent className="p-4">
-                      <div className="text-sm font-medium text-gray-500 mb-1">Clientes Activos</div>
-                      <div className="text-2xl font-bold">1,245</div>
-                      <div className="text-xs text-green-600 mt-1">+15.2% vs mes anterior</div>
+                      <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Clientes Activos</div>
+                      <div className="text-2xl font-bold text-gray-800 dark:text-white">1,245</div>
+                      <div className="text-xs text-green-600 dark:text-green-400 mt-1">+15.2% vs mes anterior</div>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <div className="text-sm font-medium text-gray-500 mb-1">Tasa de Retención</div>
-                      <div className="text-2xl font-bold">68%</div>
-                      <div className="text-xs text-green-600 mt-1">+3.5% vs mes anterior</div>
+                      <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Tasa de Retención</div>
+                      <div className="text-2xl font-bold text-gray-800 dark:text-white">68%</div>
+                      <div className="text-xs text-green-600 dark:text-green-400 mt-1">+3.5% vs mes anterior</div>
                     </CardContent>
                   </Card>
                   <Card>
                     <CardContent className="p-4">
-                      <div className="text-sm font-medium text-gray-500 mb-1">Valor Cliente</div>
-                      <div className="text-2xl font-bold">$24,500</div>
-                      <div className="text-xs text-green-600 mt-1">+7.8% vs mes anterior</div>
+                      <div className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">Valor Cliente</div>
+                      <div className="text-2xl font-bold text-gray-800 dark:text-white">$24,500</div>
+                      <div className="text-xs text-green-600 dark:text-green-400 mt-1">+7.8% vs mes anterior</div>
                     </CardContent>
                   </Card>
                 </div>
 
                 <div className="mt-8">
-                  <h4 className="font-medium text-gray-800 mb-4">Segmentación de Clientes</h4>
+                  <h4 className="font-medium text-gray-800 dark:text-gray-100 mb-4">Segmentación de Clientes</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <h5 className="font-medium mb-3">Por Frecuencia</h5>
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-lg">
+                      <h5 className="font-medium text-gray-700 dark:text-gray-200 mb-3">Por Frecuencia</h5>
                       <div className="space-y-2">
-                        <div className="flex justify-between">
+                        <div className="flex justify-between text-gray-700 dark:text-gray-300">
                           <span className="text-sm">Clientes frecuentes (4+ pedidos/mes)</span>
-                          <span className="font-medium">28%</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">28%</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between text-gray-700 dark:text-gray-300">
                           <span className="text-sm">Clientes regulares (2-3 pedidos/mes)</span>
-                          <span className="font-medium">42%</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">42%</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between text-gray-700 dark:text-gray-300">
                           <span className="text-sm">Clientes ocasionales (1 pedido/mes)</span>
-                          <span className="font-medium">30%</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">30%</span>
                         </div>
                       </div>
                     </div>
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <h5 className="font-medium mb-3">Por Ticket Promedio</h5>
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800/60 rounded-lg">
+                      <h5 className="font-medium text-gray-700 dark:text-gray-200 mb-3">Por Ticket Promedio</h5>
                       <div className="space-y-2">
-                        <div className="flex justify-between">
+                        <div className="flex justify-between text-gray-700 dark:text-gray-300">
                           <span className="text-sm">Premium ($25,000+)</span>
-                          <span className="font-medium">15%</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">15%</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between text-gray-700 dark:text-gray-300">
                           <span className="text-sm">Medio ($15,000-$25,000)</span>
-                          <span className="font-medium">55%</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">55%</span>
                         </div>
-                        <div className="flex justify-between">
+                        <div className="flex justify-between text-gray-700 dark:text-gray-300">
                           <span className="text-sm">Básico (menos de $15,000)</span>
-                          <span className="font-medium">30%</span>
+                          <span className="font-medium text-gray-800 dark:text-gray-100">30%</span>
                         </div>
                       </div>
                     </div>
