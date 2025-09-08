@@ -23,12 +23,13 @@ export default function Header() {
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
 
   const categories = [
-    { name: "Pizzas Palermo", href: "/menu?category=especiales" },
-    { name: "Pizzas Tradicionales", href: "/menu?category=clasicas" },
-    { name: "🍕 Quiero armar mi pizza", href: "/armar-pizza" },
-    { name: "Promociones", href: "/#promos" },
-    { name: "Acompañamientos", href: "/menu?category=acompañamientos" },
-    { name: "Bebidas", href: "/menu?category=bebidas" },
+  { name: "🥬 Pizzas Vegetarianas", href: "/?category=vegetarianas" },
+  { name: "🥩 Pizzas con Carne", href: "/?category=carne" },
+  { name: "🐟 Pizzas del Mar", href: "/?category=delmar" },
+  { name: "🍕 Quiero armar mi pizza", href: "/?category=armar" },
+  { name: "🎁 Combos", href: "/?category=combos" },
+  { name: "🍟 Acompañamientos", href: "/?category=acompanamientos" },
+  { name: "🥤 Bebidas", href: "/?category=bebidas" },
   ]
 
   return (

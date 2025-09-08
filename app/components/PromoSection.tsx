@@ -1,12 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Plus } from "lucide-react"
 import { useCart } from "../context/CartContext"
+import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 
 const promos = [
   {
@@ -408,26 +410,7 @@ const acompanamientos = [
     image: "/placeholder.svg?height=200&width=200",
     category: "Acompañamientos",
   },
-  {
-    id: 401,
-    name: "Coca Cola Lata 350cc",
-    description: "Disfruta el sabor de tu bebida Coca Cola en lata de 350cc",
-    price: 1500,
-    originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Acompañamientos",
-    variants: ["Tradicional", "Zero"],
-  },
-  {
-    id: 402,
-    name: "Coca Cola 1.5 Litro",
-    description: "Disfruta el sabor de tu bebida Coca Cola en botella de 1.5 litros",
-    price: 2900,
-    originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Acompañamientos",
-    variants: ["Tradicional", "Zero"],
-  },
+  // bebidas moved to the `bebidas` array below
 ]
 
 const bebidas = [
@@ -454,30 +437,130 @@ const bebidas = [
 ]
 
 export default function PromoSection() {
-  const [activeCategory, setActiveCategory] = useState("Promos")
+  const initialCategoryKey = "🥬" // placeholder, will set below
+  const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const { addItem } = useCart()
   const [selectedSizes, setSelectedSizes] = useState<{ [key: number]: "familiar" | "mediana" }>({})
+  const { loading: configLoading, itemsMenu } = useFirestorePizzaConfig()
 
-  const categories = ["Promos", "Combos", "Pizzas Palermo", "Pizzas Tradicionales", "Acompañamientos"]
+  // Categories = key (internal) and label (display)
+  const categories = [
+    { key: "Pizzas Vegetarianas", label: "🥬 Pizzas Vegetarianas" },
+    { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne" },
+    { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar" },
+    { key: "Quiero armar mi pizza", label: "🍕 Quiero armar mi pizza", href: "/armar-pizza" },
+    { key: "Combos", label: "🎁 Combos" },
+    { key: "Acompañamientos", label: "🍟 Acompañamientos" },
+    { key: "Bebidas", label: "🥤 Bebidas" },
+  ]
+
+  // Inicializar activeCategory con la primera categoría (si no se setea aún)
+  useEffect(() => {
+    if (activeCategory === null && categories.length > 0) {
+      setActiveCategory(categories[0].key)
+    }
+  }, [activeCategory, categories])
+
+  // Leer query param ?category=... y mapear a keys internas
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const q = searchParams?.get("category")
+    if (!q) return
+
+    const map: Record<string, string> = {
+      vegetarianas: "Pizzas Vegetarianas",
+      carne: "Pizzas con Carne",
+      delmar: "Pizzas del Mar",
+      armar: "Quiero armar mi pizza",
+      combos: "Combos",
+      acompanamientos: "Acompañamientos",
+      bebidas: "Bebidas",
+    }
+
+    const mapped = map[q.toLowerCase()]
+    if (mapped) {
+      setActiveCategory(mapped)
+    }
+  }, [searchParams])
+
+  const pizzaCategoryKeys = [
+    "Pizzas Palermo",
+    "Pizzas Tradicionales",
+    "Pizzas Vegetarianas",
+    "Pizzas con Carne",
+    "Pizzas del Mar",
+  ]
+
+  const mapFirestoreItemToUI = (it: any) => ({
+    id: it.id || it.nombre || Math.random(),
+    name: it.nombre || it.name || "Item",
+    description: it.descripcion || it.description || "",
+    price: typeof it.precio === 'number' ? it.precio : it.price || 0,
+    mediumPrice: it.precioMediana || it.mediumPrice || null,
+    image: it.image || it.imagen || "/placeholder.svg?height=200&width=200",
+    variants: it.variants || it.variantes,
+    category: it.categoria || it.category,
+    clasificacion: it.clasificacion,
+  })
 
   const getCurrentItems = () => {
+    // If Firestore items are not available, fallback to static arrays
+    if (!itemsMenu || itemsMenu.length === 0) {
+      switch (activeCategory) {
+        case "Promos":
+          return promos
+        case "Combos":
+          return combos
+        case "Pizzas Palermo":
+          return pizzasPalermo
+        case "Pizzas Tradicionales":
+          return pizzasTradicionales
+        case "Acompañamientos":
+          return acompanamientos
+        case "Bebidas":
+          return (acompanamientos as any[]).filter(a => a.variants)
+        default:
+          return promos
+      }
+    }
+
+    // If firestore items exist, use classification filters for pizza categories
+    if (activeCategory === "Pizzas del Mar") {
+      return itemsMenu.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI)
+    }
+    if (activeCategory === "Pizzas con Carne") {
+      return itemsMenu.filter((it: any) => it.clasificacion === "carnica").map(mapFirestoreItemToUI)
+    }
+    if (activeCategory === "Pizzas Vegetarianas") {
+      return itemsMenu.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI)
+    }
+
+    // Other categories: try to match by categoria field
     switch (activeCategory) {
-      case "Promos":
-        return promos
       case "Combos":
         return combos
-      case "Pizzas Palermo":
-        return pizzasPalermo
-      case "Pizzas Tradicionales":
-        return pizzasTradicionales
+      case "Promos":
+        return promos
       case "Acompañamientos":
         return acompanamientos
+      case "Bebidas":
+        return itemsMenu
+          .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
+          .map(mapFirestoreItemToUI)
+      case "Pizzas Palermo":
+        return itemsMenu
+          .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("palermo") || (it.categoria || it.category || "").toLowerCase().includes("especial"))
+          .map(mapFirestoreItemToUI)
+      case "Pizzas Tradicionales":
+        return itemsMenu
+          .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("tradicional") || (it.categoria || it.category || "").toLowerCase().includes("clasica"))
+          .map(mapFirestoreItemToUI)
       default:
         return promos
     }
   }
 
-  const currentItems = getCurrentItems()
+  const currentItems: any[] = getCurrentItems()
 
   const handleSizeChange = (itemId: number, size: "familiar" | "mediana") => {
     setSelectedSizes((prev) => ({
@@ -487,7 +570,7 @@ export default function PromoSection() {
   }
 
   const handleAddToCart = (item: any) => {
-    if (activeCategory === "Pizzas Palermo" || activeCategory === "Pizzas Tradicionales") {
+  if (pizzaCategoryKeys.includes(activeCategory || "")) {
       const selectedSize = selectedSizes[item.id] || "familiar"
       const finalPrice = selectedSize === "mediana" && item.mediumPrice ? item.mediumPrice : item.price
 
@@ -528,66 +611,76 @@ export default function PromoSection() {
       <div className="container mx-auto px-4">
         {/* Category Tabs */}
         <div className="mb-8">
-          {/* Desktop - Botones en línea */}
-          <div className="hidden md:flex space-x-4 justify-center">
-            {categories.map((category) => (
-              <Button
-                key={category}
-                data-category={category}
-                variant={activeCategory === category ? "default" : "outline"}
-                onClick={() => setActiveCategory(category)}
-                className={`px-4 lg:px-8 py-3 font-bold rounded-full transition-all whitespace-nowrap ${
-                  activeCategory === category
-                    ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
-                    : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
-                }`}
-              >
-                {category}
-              </Button>
+          {/* Desktop - Botones en línea (ahora permiten wrap) */}
+          <div className="hidden md:flex md:flex-wrap gap-4 justify-center">
+            {categories.map((cat) => (
+              cat.href ? (
+                <Link href={cat.href} key={cat.key}>
+                  <Button
+                    variant={activeCategory === cat.key ? "default" : "outline"}
+                    className={`px-4 lg:px-8 py-3 font-bold rounded-full transition-all whitespace-nowrap ${
+                      activeCategory === cat.key
+                        ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
+                        : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
+                    }`}
+                  >
+                    {cat.label}
+                  </Button>
+                </Link>
+              ) : (
+                <Button
+                  key={cat.key}
+                  data-category={cat.key}
+                  variant={activeCategory === cat.key ? "default" : "outline"}
+                  onClick={() => setActiveCategory(cat.key)}
+                  className={`px-4 lg:px-8 py-3 font-bold rounded-full transition-all whitespace-nowrap ${
+                    activeCategory === cat.key
+                      ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
+                      : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
+                  }`}
+                >
+                  {cat.label}
+                </Button>
+              )
             ))}
 
-            {/* Botón especial para armar pizza */}
-            <Link href="/armar-pizza">
-              <Button
-                variant="outline"
-                className="relative px-4 lg:px-8 py-3 font-bold rounded-full transition-all whitespace-nowrap border-2 border-pink-500 text-pink-600 hover:bg-pink-50 hover:border-pink-600 bg-pink-50 overflow-hidden group animate-pulse-neon shadow-neon hover:shadow-neon-intense transform hover:scale-105"
-              >
-                {/* Efecto de brillo deslizante */}
-                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent group-hover:translate-x-full transition-transform duration-1000 ease-in-out"></div>
-                <span className="relative z-10">🍕 Quiero armar mi pizza</span>
-              </Button>
-            </Link>
+            {/* 'Armar pizza' está incluido en categories; no se necesita botón duplicado */}
           </div>
 
-          {/* Mobile - Grid de botones */}
+          {/* Mobile - Grid de botones (ovalados y adaptativos) */}
           <div className="md:hidden grid grid-cols-2 gap-3 px-4">
-            {categories.map((category) => (
-              <Button
-                key={category}
-                data-category={category}
-                variant={activeCategory === category ? "default" : "outline"}
-                onClick={() => setActiveCategory(category)}
-                className={`px-2 py-3 font-bold rounded-lg transition-all text-xs leading-tight ${
-                  activeCategory === category
-                    ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
-                    : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
-                }`}
-              >
-                <span className="text-center break-words">{category}</span>
-              </Button>
+            {categories.map((cat) => (
+              cat.href ? (
+                <Link href={cat.href} key={cat.key} className="col-span-1">
+                  <Button
+                    variant={activeCategory === cat.key ? "default" : "outline"}
+                    className={`px-2 py-3 font-bold rounded-full transition-all text-xs leading-tight text-center whitespace-normal break-words ${
+                      activeCategory === cat.key
+                        ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
+                        : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
+                    }`}
+                  >
+                    <span className="text-center break-words">{cat.label}</span>
+                  </Button>
+                </Link>
+              ) : (
+                <Button
+                  key={cat.key}
+                  data-category={cat.key}
+                  variant={activeCategory === cat.key ? "default" : "outline"}
+                  onClick={() => setActiveCategory(cat.key)}
+                  className={`px-2 py-3 font-bold rounded-full transition-all text-xs leading-tight text-center whitespace-normal break-words ${
+                    activeCategory === cat.key
+                      ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
+                      : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
+                  }`}
+                >
+                  <span className="text-center break-words">{cat.label}</span>
+                </Button>
+              )
             ))}
 
-            {/* Botón especial para armar pizza en móvil */}
-            <Link href="/armar-pizza" className="col-span-2">
-              <Button
-                variant="outline"
-                className="relative w-full px-2 py-3 font-bold rounded-lg transition-all text-xs leading-tight border-2 border-pink-500 text-pink-600 hover:bg-pink-50 hover:border-pink-600 bg-pink-50 overflow-hidden group animate-pulse-neon shadow-neon hover:shadow-neon-intense transform hover:scale-105"
-              >
-                {/* Efecto de brillo deslizante */}
-                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent group-hover:translate-x-full transition-transform duration-1000 ease-in-out"></div>
-                <span className="relative z-10">🍕 Quiero armar mi pizza</span>
-              </Button>
-            </Link>
+            {/* 'Armar pizza' incluido en categories; se omite botón duplicado en móvil */}
           </div>
         </div>
 
@@ -611,32 +704,32 @@ export default function PromoSection() {
                     <p className="text-sm mb-4 text-gray-600 leading-relaxed">{item.description}</p>
                     <div className="flex flex-col space-y-3">
                       {/* Mostrar precios para pizzas Palermo y Tradicionales */}
-                      {(activeCategory === "Pizzas Palermo" || activeCategory === "Pizzas Tradicionales") && (
+                      {pizzaCategoryKeys.includes(activeCategory || "") && (
                         <div className="bg-gray-100 rounded-lg p-3 border-l-4 border-pink-500">
                           {item.mediumPrice ? (
                             <div className="space-y-1">
                               <div className="flex justify-between items-center">
                                 <span className="font-semibold text-gray-800">Familiar</span>
-                                <span className="text-lg font-bold text-pink-600">${item.price.toLocaleString()}</span>
+                                <span className="text-lg font-bold text-pink-600">${(item.price ?? 0).toLocaleString()}</span>
                               </div>
                               <div className="flex justify-between items-center">
                                 <span className="font-semibold text-gray-800">Mediana</span>
                                 <span className="text-lg font-bold text-pink-600">
-                                  ${item.mediumPrice.toLocaleString()}
+                                  ${(item.mediumPrice ?? 0).toLocaleString()}
                                 </span>
                               </div>
                             </div>
                           ) : (
                             <div className="flex justify-between items-center">
                               <span className="font-semibold text-gray-800">Familiar</span>
-                              <span className="text-lg font-bold text-pink-600">${item.price.toLocaleString()}</span>
+                              <span className="text-lg font-bold text-pink-600">${(item.price ?? 0).toLocaleString()}</span>
                             </div>
                           )}
                         </div>
                       )}
 
                       {/* Selector de tamaño para pizzas Palermo y Tradicionales */}
-                      {(activeCategory === "Pizzas Palermo" || activeCategory === "Pizzas Tradicionales") &&
+                      {pizzaCategoryKeys.includes(activeCategory || "") &&
                         item.mediumPrice && (
                           <div className="flex space-x-2">
                             <button
@@ -690,13 +783,13 @@ export default function PromoSection() {
 
                       {/* Precio y botón para otras categorías */}
                       <div className="flex items-center justify-between">
-                        {activeCategory !== "Pizzas Palermo" && activeCategory !== "Pizzas Tradicionales" ? (
+                        {!pizzaCategoryKeys.includes(activeCategory || "") ? (
                           <>
                             <div className="flex flex-col">
-                              <span className="text-2xl font-bold text-pink-600">${item.price.toLocaleString()}</span>
+                              <span className="text-2xl font-bold text-pink-600">${(item.price ?? 0).toLocaleString()}</span>
                               {item.originalPrice && (
                                 <span className="text-sm line-through text-gray-400">
-                                  ${item.originalPrice.toLocaleString()}
+                                  ${(item.originalPrice ?? 0).toLocaleString()}
                                 </span>
                               )}
                             </div>

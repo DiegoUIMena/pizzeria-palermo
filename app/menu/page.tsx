@@ -1,15 +1,33 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Image from "next/image"
 import Header from "../components/Header"
 import Footer from "../components/Footer"
+import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Plus } from "lucide-react"
 import { useCart } from "../context/CartContext"
+import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 
 const menuCategories = [
+  {
+    name: "Pizzas Vegetarianas",
+    items: [],
+  },
+  {
+    name: "Pizzas con Carne",
+    items: [],
+  },
+  {
+    name: "Pizzas del Mar",
+    items: [],
+  },
+  {
+    name: "Combos",
+    items: [],
+  },
   {
     name: "Pizzas Palermo",
     items: [
@@ -327,8 +345,30 @@ const menuCategories = [
 
 export default function MenuPage() {
   const [activeCategory, setActiveCategory] = useState("Pizzas Palermo")
+  const searchParams = useSearchParams()
+
+  // Map query param values to visible category names
+  const categoryMap: Record<string, string> = {
+    vegetarianas: "Pizzas Vegetarianas",
+    carne: "Pizzas con Carne",
+    delmar: "Pizzas del Mar",
+    combos: "Combos",
+    acompañamientos: "Acompañamientos",
+    bebidas: "Bebidas",
+    especiales: "Pizzas Palermo",
+    clasicas: "Pizzas Tradicionales",
+  }
+
+  useEffect(() => {
+    if (!searchParams) return
+    const cat = searchParams.get("category")
+    if (cat && categoryMap[cat]) {
+      setActiveCategory(categoryMap[cat])
+    }
+  }, [searchParams])
   const { addItem } = useCart()
   const [selectedSizes, setSelectedSizes] = useState<{ [key: number]: "familiar" | "mediana" }>({})
+  const { loading: configLoading, itemsMenu } = useFirestorePizzaConfig()
 
   const handleSizeChange = (itemId: number, size: "familiar" | "mediana") => {
     setSelectedSizes((prev) => ({
@@ -375,6 +415,43 @@ export default function MenuPage() {
 
   const currentCategory = menuCategories.find((cat) => cat.name === activeCategory)
 
+  // Determinar qué items mostrar según la categoría activa.
+  const mapFirestoreItemToUI = (it: any) => ({
+    id: it.id || it.nombre || Math.random(),
+    name: it.nombre || it.name || "Item",
+    description: it.descripcion || it.description || "",
+    price: typeof it.precio === 'number' ? it.precio : it.price || 0,
+    mediumPrice: it.precioMediana || it.mediumPrice || null,
+    image: it.image || it.imagen || "/placeholder.svg?height=200&width=200",
+    variants: it.variants || it.variantes,
+  })
+
+  const getItemsForCategory = () => {
+    // Si no hay configuración cargada, usar los items estáticos existentes
+    if (!itemsMenu || itemsMenu.length === 0) return currentCategory?.items || []
+
+    if (activeCategory === "Pizzas del Mar") {
+      return itemsMenu.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI)
+    }
+    if (activeCategory === "Pizzas con Carne") {
+      return itemsMenu.filter((it: any) => it.clasificacion === "carnica").map(mapFirestoreItemToUI)
+    }
+    if (activeCategory === "Pizzas Vegetarianas") {
+      return itemsMenu.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI)
+    }
+
+    // Para otras categorías, intentar filtrar por campo 'categoria' en itemsMenu
+    const staticName = currentCategory?.name
+    if (staticName) {
+      const byCategoriaField = itemsMenu.filter((it: any) => it.categoria === staticName || it.categoriaMenu === staticName)
+      if (byCategoriaField.length > 0) return byCategoriaField.map(mapFirestoreItemToUI)
+    }
+
+    return currentCategory?.items || []
+  }
+
+  const itemsToRender = getItemsForCategory()
+
   return (
     <div className="min-h-screen bg-black">
       <Header />
@@ -402,7 +479,7 @@ export default function MenuPage() {
 
         {/* Menu Items */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {currentCategory?.items.map((item) => (
+          {itemsToRender.map((item) => (
             <Card key={item.id} className="bg-gradient-to-br from-pink-400 to-pink-500 border-none overflow-hidden">
               <CardContent className="p-0">
                 <div className="relative h-48">
