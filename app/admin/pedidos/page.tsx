@@ -26,8 +26,9 @@ import {
   CheckCircle2
 } from "lucide-react"
 import { useFormattedAdminOrders } from "../../../hooks/useAdminOrders"
+import { useAlarms } from "../context/AlarmsContext"
+import { db } from "@/lib/firebase"
 import { doc, updateDoc } from "firebase/firestore"
-import { db } from "../../../lib/firebase"
 
 interface Pedido {
   id: string
@@ -69,6 +70,11 @@ interface Pedido {
   montoVuelto?: number
 }
 
+// Claves para almacenamiento en localStorage (mismas que usa GlobalOrderMonitor)
+const TIEMPOS_STORAGE_KEY = 'admin_pedidos_tiempos'
+const CUENTAS_STORAGE_KEY = 'admin_pedidos_cuentas'
+const ULTIMO_UPDATE_KEY = 'admin_pedidos_ultimo_update'
+
 export default function AdminPedidos() {
   const [filtroEstado, setFiltroEstado] = useState("todos")
   const [busqueda, setBusqueda] = useState("")
@@ -76,7 +82,6 @@ export default function AdminPedidos() {
   const [cuentasRegresivas, setCuentasRegresivas] = useState<Record<string, number>>({})
   const [pedidosNuevosSinAtender, setPedidosNuevosSinAtender] = useState<Set<string>>(new Set())
   const [pedidosConPocoTiempo, setPedidosConPocoTiempo] = useState<Set<string>>(new Set())
-  const [alarmaActiva, setAlarmaActiva] = useState(false)
   
   // Estado para el modal de impresión
   const [modalImpresionAbierto, setModalImpresionAbierto] = useState(false)
@@ -84,80 +89,36 @@ export default function AdminPedidos() {
   
   // Referencias para tracking
   const pedidosNotificadosRef = useRef<Set<string>>(new Set());
-  const ultimaActualizacionFirebaseRef = useRef<Record<string, number>>({});
-  const intervaloAlarmaRef = useRef<number | null>(null);
   const whatsappWindowRef = useRef<Window | null>(null);
 
   const { pedidos, isLoading, error, actualizarEstado: actualizarEstadoOriginal } = useFormattedAdminOrders()
   
-  // Alarmas con Web Audio API (sin cargar mp3 externo)
-  const reproducirAlarmaNuevoPedido = useCallback(() => {
-    try {
-      console.log("🔊 Reproduciendo alarma de nuevo pedido...")
-      const context = new AudioContext()
-      const oscillator = context.createOscillator()
-      const gainNode = context.createGain()
-      oscillator.connect(gainNode)
-      gainNode.connect(context.destination)
-      oscillator.frequency.value = 800
-      oscillator.type = 'sine'
-      gainNode.gain.setValueAtTime(0.3, context.currentTime)
-      gainNode.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 0.3)
-      oscillator.start(context.currentTime)
-      oscillator.stop(context.currentTime + 0.3)
-      console.log("🔊 Alarma de nuevo pedido reproducida correctamente")
-    } catch (error) {
-      console.error("Error al reproducir alarma de nuevo pedido:", error)
-    }
-  }, [])
-  
-  // Función para iniciar la alarma repetitiva
-  const iniciarAlarmaRepetitiva = useCallback(() => {
-    if (intervaloAlarmaRef.current !== null) {
-      return; // La alarma ya está activa
-    }
-    
-    setAlarmaActiva(true);
-    
-    // Ejecutar la alarma inmediatamente la primera vez
-    reproducirAlarmaNuevoPedido();
-    
-    // Configurar intervalo para repetir la alarma cada 3 segundos
-    intervaloAlarmaRef.current = window.setInterval(() => {
-      reproducirAlarmaNuevoPedido();
-    }, 3000);
-  }, [reproducirAlarmaNuevoPedido]);
-  
-  // Función para detener la alarma repetitiva
-  const detenerAlarmaRepetitiva = useCallback(() => {
-    if (intervaloAlarmaRef.current !== null) {
-      clearInterval(intervaloAlarmaRef.current);
-      intervaloAlarmaRef.current = null;
-      setAlarmaActiva(false);
-    }
-  }, []);
-  
-  // Función para marcar un pedido como atendido (detiene la alarma)
+  // Usar el contexto global de alarmas
+  const { 
+    reproducirAlarmaNuevoPedido, 
+    reproducirAlarmaTiempoAgotandose, 
+    iniciarAlarmaRepetitiva, 
+    detenerAlarmaRepetitiva,
+    alarmaActiva 
+  } = useAlarms();
+  // Función para marcar un pedido como atendido (actualiza la visualización)
   const marcarPedidoAtendido = useCallback((pedidoId: string) => {
     setPedidosNuevosSinAtender(prev => {
       const nuevos = new Set(prev);
       nuevos.delete(pedidoId);
-      
-      // Si ya no hay pedidos sin atender, detener la alarma
-      if (nuevos.size === 0) {
-        detenerAlarmaRepetitiva();
-      }
-      
       return nuevos;
     });
-  }, [detenerAlarmaRepetitiva]);
-  
-  // Sobrescribir la función actualizarEstado para también marcar el pedido como atendido
-  const actualizarEstado = useCallback((pedidoId: string, nuevoEstado: Pedido['estado']) => {
-    // Llamar a la función original
-    actualizarEstadoOriginal(pedidoId, nuevoEstado);
     
-    // Marcar el pedido como atendido (detiene la alarma)
+    // Eliminar de los pedidos notificados localmente
+    pedidosNotificadosRef.current.delete(pedidoId);
+  }, []);
+  
+  // Función para actualizar estado con atención automática
+  const actualizarEstado = useCallback(async (pedidoId: string, nuevoEstado: Pedido['estado']) => {
+    // Actualizar el estado en Firebase
+    await actualizarEstadoOriginal(pedidoId, nuevoEstado);
+    
+    // Marcar el pedido como atendido (actualiza visualización)
     marcarPedidoAtendido(pedidoId);
     
     // Si el pedido está marcado como "Entregado" o "Cancelado", eliminar la cuenta regresiva
@@ -177,92 +138,6 @@ export default function AdminPedidos() {
       });
     }
   }, [actualizarEstadoOriginal, marcarPedidoAtendido]);
-
-  const reproducirAlarmaTiempoAgotandose = useCallback(() => {
-    try {
-      console.log("🔊 Reproduciendo alarma de tiempo agotándose...")
-      const context = new AudioContext()
-      
-      // Crear sonido de alarma más notorio
-      // Primer tono - más grave con volumen más alto
-      const oscillator1 = context.createOscillator()
-      const gainNode1 = context.createGain()
-      oscillator1.connect(gainNode1)
-      gainNode1.connect(context.destination)
-      oscillator1.frequency.value = 500
-      oscillator1.type = 'square'
-      gainNode1.gain.setValueAtTime(0.4, context.currentTime)
-      oscillator1.start(context.currentTime)
-      oscillator1.stop(context.currentTime + 0.5)
-      
-      // Segundo tono - más agudo, con pequeño retraso
-      const oscillator2 = context.createOscillator()
-      const gainNode2 = context.createGain()
-      oscillator2.connect(gainNode2)
-      gainNode2.connect(context.destination)
-      oscillator2.frequency.value = 700
-      oscillator2.type = 'square'
-      gainNode2.gain.setValueAtTime(0.4, context.currentTime + 0.5)
-      oscillator2.start(context.currentTime + 0.5)
-      oscillator2.stop(context.currentTime + 1.0)
-      
-      // Tercer tono - más agudo, con pequeño retraso adicional
-      const oscillator3 = context.createOscillator()
-      const gainNode3 = context.createGain()
-      oscillator3.connect(gainNode3)
-      gainNode3.connect(context.destination)
-      oscillator3.frequency.value = 900
-      oscillator3.type = 'square'
-      gainNode3.gain.setValueAtTime(0.4, context.currentTime + 1.0)
-      gainNode3.gain.exponentialRampToValueAtTime(0.01, context.currentTime + 1.5)
-      oscillator3.start(context.currentTime + 1.0)
-      oscillator3.stop(context.currentTime + 1.5)
-      
-      // Repetir la secuencia una vez más después de una pausa
-      setTimeout(() => {
-        try {
-          const context2 = new AudioContext()
-          
-          const osc1 = context2.createOscillator()
-          const gain1 = context2.createGain()
-          osc1.connect(gain1)
-          gain1.connect(context2.destination)
-          osc1.frequency.value = 500
-          osc1.type = 'square'
-          gain1.gain.setValueAtTime(0.4, context2.currentTime)
-          osc1.start(context2.currentTime)
-          osc1.stop(context2.currentTime + 0.5)
-          
-          const osc2 = context2.createOscillator()
-          const gain2 = context2.createGain()
-          osc2.connect(gain2)
-          gain2.connect(context2.destination)
-          osc2.frequency.value = 700
-          osc2.type = 'square'
-          gain2.gain.setValueAtTime(0.4, context2.currentTime + 0.5)
-          osc2.start(context2.currentTime + 0.5)
-          osc2.stop(context2.currentTime + 1.0)
-          
-          const osc3 = context2.createOscillator()
-          const gain3 = context2.createGain()
-          osc3.connect(gain3)
-          gain3.connect(context2.destination)
-          osc3.frequency.value = 900
-          osc3.type = 'square'
-          gain3.gain.setValueAtTime(0.4, context2.currentTime + 1.0)
-          gain3.gain.exponentialRampToValueAtTime(0.01, context2.currentTime + 1.5)
-          osc3.start(context2.currentTime + 1.0)
-          osc3.stop(context2.currentTime + 1.5)
-          console.log("🔊 Segunda parte de la alarma reproducida correctamente")
-        } catch (error) {
-          console.error("Error al reproducir la segunda parte de la alarma:", error)
-        }
-      }, 2000)
-      console.log("🔊 Primera parte de la alarma reproducida correctamente")
-    } catch (error) {
-      console.error("Error al reproducir la alarma:", error)
-    }
-  }, [])
 
   // Funciones auxiliares
   const getStatusIcon = (status: string) => {
@@ -330,6 +205,52 @@ export default function AdminPedidos() {
     const s = seg % 60
     return `${m}:${s.toString().padStart(2,'0')}`
   }
+  
+  // Cargar tiempos desde localStorage al inicio y mantener sincronía
+  useEffect(() => {
+    // Función para cargar datos desde localStorage
+    const cargarDesdeLocalStorage = () => {
+      try {
+        const cuentasGuardadas = localStorage.getItem(CUENTAS_STORAGE_KEY)
+        const tiemposGuardados = localStorage.getItem(TIEMPOS_STORAGE_KEY)
+        
+        if (cuentasGuardadas && tiemposGuardados) {
+          const cuentasObj = JSON.parse(cuentasGuardadas)
+          const tiemposObj = JSON.parse(tiemposGuardados)
+          
+          // Log para depuración
+          console.log("Cuentas regresivas cargadas desde localStorage:", cuentasObj)
+          
+          setCuentasRegresivas(cuentasObj)
+          setTiemposEstimados(tiemposObj)
+        }
+      } catch (error) {
+        console.error("Error al cargar tiempos desde localStorage:", error)
+      }
+    }
+    
+    // Cargar inicialmente
+    cargarDesdeLocalStorage()
+    
+    // Configurar sincronización periódica
+    const interval = setInterval(cargarDesdeLocalStorage, 1000)
+    
+    // Evento de almacenamiento para sincronizar entre pestañas
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === CUENTAS_STORAGE_KEY || e.key === TIEMPOS_STORAGE_KEY) {
+        cargarDesdeLocalStorage()
+      }
+    }
+    
+    // Agregar listener para eventos de storage
+    window.addEventListener('storage', handleStorageChange)
+    
+    // Limpiar
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('storage', handleStorageChange)
+    }
+  }, [])
 
   // Función para imprimir la comanda
   const imprimirComanda = (pedido: Pedido) => {
@@ -558,36 +479,55 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
   // Establecer tiempo estimado
   const establecerTiempoEstimado = useCallback(async (pedidoId: string, minutos: number) => {
     try {
-      console.log(`Estableciendo tiempo estimado para pedido ${pedidoId}: ${minutos} minutos`)
-      const inicio = new Date()
-      const fin = new Date(inicio.getTime() + minutos * 60000)
+      console.log(`Solicitando establecer tiempo estimado: ${pedidoId}, ${minutos} minutos`)
       
-      // Si el tiempo es menor a 3.5 minutos, mostrar advertencia
-      if (minutos < 3.5) {
-        console.warn(`⚠️ Estableciendo tiempo muy corto (${minutos} minutos) para pruebas de alarma`)
+      // Usar el método global si está disponible
+      if (typeof window !== 'undefined' && 'establecerTiempoEstimadoGlobal' in window) {
+        // @ts-ignore
+        const resultado = await window.establecerTiempoEstimadoGlobal(pedidoId, minutos)
+        
+        if (resultado) {
+          // El estado de tiemposEstimados y cuentasRegresivas se sincronizará automáticamente
+          // con los cambios en Firebase a través del efecto de sincronización
+          console.log(`✅ Tiempo estimado establecido globalmente para pedido ${pedidoId}: ${minutos} minutos`)
+          
+          // Marcar el pedido como atendido (detiene la alarma)
+          marcarPedidoAtendido(pedidoId);
+        }
+      } else {
+        console.warn('Método global para establecer tiempo no disponible. Usando método local como fallback.')
+        
+        // Código de fallback (similar al original)
+        const inicio = new Date()
+        const fin = new Date(inicio.getTime() + minutos * 60000)
+        
+        // Si el tiempo es menor a 3.5 minutos, mostrar advertencia
+        if (minutos < 3.5) {
+          console.warn(`⚠️ Estableciendo tiempo muy corto (${minutos} minutos) para pruebas de alarma`)
+        }
+        
+        setTiemposEstimados(prev => ({ ...prev, [pedidoId]: minutos }))
+        
+        // Calcular los segundos correctamente
+        const segundos = Math.round(minutos * 60)
+        setCuentasRegresivas(prev => ({ ...prev, [pedidoId]: segundos }))
+        
+        await updateDoc(doc(db,'orders',pedidoId), {
+          tiempoEstimadoMinutos: minutos,
+          tiempoEstimadoInicio: inicio.toISOString(),
+          tiempoEstimadoFin: fin.toISOString()
+        })
+        
+        // Marcar el pedido como atendido (detiene la alarma)
+        marcarPedidoAtendido(pedidoId);
+        console.log(`✅ Tiempo establecido correctamente: ${segundos} segundos`)
       }
-      
-      setTiemposEstimados(prev => ({ ...prev, [pedidoId]: minutos }))
-      
-      // Calcular los segundos correctamente
-      const segundos = Math.round(minutos * 60)
-      setCuentasRegresivas(prev => ({ ...prev, [pedidoId]: segundos }))
-      
-      await updateDoc(doc(db,'orders',pedidoId), {
-        tiempoEstimadoMinutos: minutos,
-        tiempoEstimadoInicio: inicio.toISOString(),
-        tiempoEstimadoFin: fin.toISOString()
-      })
-      
-      // Marcar el pedido como atendido (detiene la alarma)
-      marcarPedidoAtendido(pedidoId);
-      console.log(`✅ Tiempo establecido correctamente: ${segundos} segundos`)
     } catch (error) {
       console.error("Error al establecer tiempo estimado:", error)
     }
   }, [marcarPedidoAtendido])
 
-  // lógica de cuenta regresiva
+  // lógica de cuenta regresiva (solo para visualización)
   useEffect(() => {
     const iv = setInterval(() => {
       setCuentasRegresivas(prev => {
@@ -597,14 +537,8 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
         
         for (const id in next) {
           if (next[id] > 0) {
-            // Si llega exactamente a 180 segundos (3 minutos), reproducir alarma
-            if (Math.floor(next[id]) === 180) {
-              console.log(`⚠️ ¡Alarma! Quedan exactamente 3 minutos (${next[id]} segundos) para el pedido ${id}`)
-              reproducirAlarmaTiempoAgotandose()
-              nuevosPocoTiempo.add(id)
-            } 
-            // Si está por debajo de 180 segundos, mantenerlo en pedidos con poco tiempo
-            else if (next[id] < 180) {
+            // Actualizar visualización de pedidos con poco tiempo (solo visualización)
+            if (next[id] <= 180) {
               nuevosPocoTiempo.add(id)
             }
             
@@ -612,59 +546,46 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
           }
         }
         
-        // Actualizar el estado de pedidos con poco tiempo
+        // Actualizar el estado de pedidos con poco tiempo (solo para visualización)
         setPedidosConPocoTiempo(nuevosPocoTiempo)
         
         return next
       })
     }, 1000)
     return () => clearInterval(iv)
-  }, [reproducirAlarmaTiempoAgotandose])
+  }, [])
 
-  // Detectar pedidos nuevos y mantener la alarma hasta que se atiendan
+  // Sincronizar con pedidos pendientes (no activar alarmas, solo estado visual)
   useEffect(() => {
-    // Obtener pedidos pendientes
-    const pendientes = pedidos.filter(p => p.estado === "Pendiente");
+    // No hacer nada si está cargando
+    if (isLoading) return;
     
-    // Verificar si hay nuevos pedidos pendientes que no estén siendo atendidos
-    const nuevos = pendientes.filter(p => !pedidosNotificadosRef.current.has(p.documentId));
+    // Actualizar el estado visual de pedidos sin atender
+    const pedidosPendientes = pedidos.filter(p => p.estado === "Pendiente");
     
-    if (nuevos.length > 0) {
-      // Añadir los nuevos pedidos al set de pedidos sin atender
-      const nuevosIds = new Set(pedidosNuevosSinAtender);
-      nuevos.forEach(p => {
-        nuevosIds.add(p.documentId);
-        pedidosNotificadosRef.current.add(p.documentId);
-      });
-      
-      setPedidosNuevosSinAtender(nuevosIds);
-      
-      // Iniciar la alarma si no está activa
-      if (!alarmaActiva && nuevosIds.size > 0) {
-        iniciarAlarmaRepetitiva();
-      }
-    }
+    // Verificar si hay pedidos pendientes que no estemos mostrando como nuevos
+    const pendientesIds = new Set(pedidosPendientes.map(p => p.documentId));
+    const nuevosVisuales = new Set<string>();
     
-    // Si no hay pedidos sin atender, detener la alarma
-    if (pedidosNuevosSinAtender.size > 0 && pendientes.length === 0) {
-      setPedidosNuevosSinAtender(new Set());
-      detenerAlarmaRepetitiva();
-    }
-    
-    // Limpiar IDs de pedidos que ya no están pendientes
-    pedidos.forEach(p => {
-      if (p.estado !== "Pendiente" && pedidosNotificadosRef.current.has(p.documentId)) {
-        pedidosNotificadosRef.current.delete(p.documentId);
+    // Mantenemos como "nuevos visuales" solo los que siguen pendientes
+    pendientesIds.forEach(id => {
+      if (pedidosNotificadosRef.current.has(id)) {
+        nuevosVisuales.add(id);
       }
     });
-  }, [pedidos, pedidosNuevosSinAtender, alarmaActiva, iniciarAlarmaRepetitiva, detenerAlarmaRepetitiva]);
+    
+    // Actualizar estado visual si es diferente
+    if (nuevosVisuales.size !== pedidosNuevosSinAtender.size || 
+        ![...nuevosVisuales].every(id => pedidosNuevosSinAtender.has(id))) {
+      setPedidosNuevosSinAtender(nuevosVisuales);
+    }
+    
+  }, [pedidos, isLoading, pedidosNuevosSinAtender]);
 
-  // Limpiar el intervalo de alarma al desmontar el componente
+  // Limpiar recursos al desmontar el componente
   useEffect(() => {
     return () => {
-      if (intervaloAlarmaRef.current !== null) {
-        clearInterval(intervaloAlarmaRef.current);
-      }
+      // No es necesario limpiar el intervalo de alarma ya que se maneja en el contexto
     };
   }, []);
 
@@ -727,6 +648,18 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
           newCuentasRegresivas[p.documentId] = rest;
           hasChanges = true;
         }
+        
+        // Marcar como poco tiempo si corresponde
+        if (rest <= 180) {
+          setPedidosConPocoTiempo(prev => {
+            if (!prev.has(p.documentId)) {
+              const nuevos = new Set(prev);
+              nuevos.add(p.documentId);
+              return nuevos;
+            }
+            return prev;
+          });
+        }
       }
     });
     
@@ -735,30 +668,13 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
       setTiemposEstimados(newTiemposEstimados);
       setCuentasRegresivas(newCuentasRegresivas);
     }
-  }, [pedidos, tiemposEstimados, cuentasRegresivas])
+  }, [pedidos, isLoading, tiemposEstimados, cuentasRegresivas]);
 
-  // sync con firebase cada minuto
+  // Este efecto se elimina porque ahora la sincronización con Firebase se hace en el GlobalOrderMonitor
   useEffect(() => {
-    const iv = setInterval(async () => {
-      for (const id in cuentasRegresivas) {
-        const currentValue = cuentasRegresivas[id];
-        // Solo actualizar si:
-        // 1. El valor ha cambiado desde la última actualización
-        // 2. El valor es múltiplo de 60 (cada minuto)
-        // 3. El tiempo es mayor que 0
-        if (
-          currentValue > 0 && 
-          currentValue % 60 === 0 && 
-          ultimaActualizacionFirebaseRef.current[id] !== currentValue
-        ) {
-          await updateDoc(doc(db,'orders',id), { tiempoRestante: currentValue });
-          ultimaActualizacionFirebaseRef.current[id] = currentValue;
-        }
-      }
-    }, 60000);
-    
-    return () => clearInterval(iv);
-  }, [cuentasRegresivas]);
+    // La sincronización con Firebase ahora se maneja en el GlobalOrderMonitor
+    return () => {}
+  }, [])
 
   // Efecto para manejar la ventana de WhatsApp
   useEffect(() => {
@@ -980,6 +896,7 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       )}
                     </div>
                     {/* Solo mostrar cuenta regresiva si el pedido no está entregado o cancelado */}
+                    {console.log(`Pedido ${pedido.documentId}: cuentaRegresiva=${cuentasRegresivas[pedido.documentId]}, estado=${pedido.estado}`)}
                     {cuentasRegresivas[pedido.documentId] !== undefined && !["Entregado", "Cancelado"].includes(pedido.estado) && (
                       <>
                         <div className={`font-mono text-2xl font-bold text-center py-2 px-3 ${
