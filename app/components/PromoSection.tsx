@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Plus } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
+import { isItemAvailable } from '../../lib/recipes'
 
 const promos = [
   {
@@ -441,7 +442,7 @@ export default function PromoSection() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
   const { addItem } = useCart()
   const [selectedSizes, setSelectedSizes] = useState<{ [key: number]: "familiar" | "mediana" }>({})
-  const { loading: configLoading, itemsMenu } = useFirestorePizzaConfig()
+  const { loading: configLoading, itemsMenu, ingredients } = useFirestorePizzaConfig()
 
   // Categories = key (internal) and label (display)
   const categories = [
@@ -559,6 +560,11 @@ export default function PromoSection() {
         return promos
     }
   }
+
+  const ingredientsById = (ingredients || []).reduce((acc: any, ing: any) => {
+    acc[ing.id] = ing
+    return acc
+  }, {})
 
   const currentItems: any[] = getCurrentItems()
 
@@ -687,8 +693,14 @@ export default function PromoSection() {
         <h2 className="text-4xl font-bold text-gray-800 mb-12 text-center">{activeCategory}</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {currentItems.map((item) => (
-            <Card key={item.id} className="card-enhanced overflow-hidden group">
+          {currentItems.map((item) => {
+            // Determine availability if item has receta (from Firestore items may have receta field)
+            const recipe = (item.receta) ? item.receta : undefined
+            const avail = recipe ? isItemAvailable(recipe, ingredientsById, 1) : { available: true }
+            const disabled = !avail.available
+
+            return (
+            <Card key={item.id} className={`card-enhanced overflow-hidden group ${disabled ? 'opacity-60 grayscale' : ''}`}>
               <CardContent className="p-0">
                 <div className="flex flex-col h-full">
                   <div className="w-full h-48 relative flex-shrink-0 overflow-hidden">
@@ -793,22 +805,30 @@ export default function PromoSection() {
                                 </span>
                               )}
                             </div>
+                            {disabled ? (
+                              <div className="text-sm text-gray-500 font-semibold">No disponible</div>
+                            ) : (
+                              <Button
+                                size="icon"
+                                className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1"
+                                onClick={() => handleAddToCart(item)}
+                              >
+                                <Plus className="w-5 h-5" />
+                              </Button>
+                            )}
+                          </>
+                        ) : (
+                          disabled ? (
+                            <div className="text-sm text-gray-500 font-semibold ml-auto">No disponible</div>
+                          ) : (
                             <Button
                               size="icon"
-                              className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1"
+                              className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 ml-auto"
                               onClick={() => handleAddToCart(item)}
                             >
                               <Plus className="w-5 h-5" />
                             </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="icon"
-                            className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 ml-auto"
-                            onClick={() => handleAddToCart(item)}
-                          >
-                            <Plus className="w-5 h-5" />
-                          </Button>
+                          )
                         )}
                       </div>
                     </div>
@@ -816,7 +836,7 @@ export default function PromoSection() {
                 </div>
               </CardContent>
             </Card>
-          ))}
+          )})}
         </div>
       </div>
       {/* Estilos CSS para el efecto neon */}

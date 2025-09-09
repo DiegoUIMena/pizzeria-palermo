@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useCart } from "../context/CartContext"
+import { consumeOrderItems } from '../../lib/recipes'
 import { Button } from "@/components/ui/button"
 import { toast } from "@/hooks/use-toast"
 import { Trash, ChevronDown, ChevronUp, Edit } from "lucide-react"
@@ -343,6 +344,24 @@ const Cart = () => {
       // Solo agregar notas si hay referencia
       if (referencia && referencia.trim() !== '') {
         orderData.notas = referencia
+      }
+
+      // Try to consume inventory for items in the cart before creating the order
+      try {
+        const consumeRes = await consumeOrderItems(items)
+        if (!consumeRes || !consumeRes.success) {
+          console.error('Error consuming inventory before order:', consumeRes)
+          // Optionally alert the user; for now we abort order creation
+          alert('No se pudo reservar inventario para tu pedido. Intenta nuevamente más tarde.')
+          setIsProcessing(false)
+          return
+        }
+        console.log('Inventory consumption result:', consumeRes)
+      } catch (err) {
+        console.error('Exception consuming inventory:', err)
+        alert('Error al reservar inventario. Intenta nuevamente.')
+        setIsProcessing(false)
+        return
       }
 
       const orderId = await createOrder(orderData)

@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertTriangle, Package, Plus, Edit, Search, Filter, TrendingDown, CheckCircle } from "lucide-react"
+import RecipeEditor from "./RecipeEditor"
+import { useFirestorePizzaConfig } from '@/hooks/useFirestorePizzaConfig'
 
 // Se utilizará la interfaz IngredienteFS desde Firestore.
 
@@ -27,6 +29,9 @@ export default function AdminInventario() {
   const [showAddedModal, setShowAddedModal] = useState(false)
   const [saving, setSaving] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [showRecipeEditor, setShowRecipeEditor] = useState(false)
+  const [editorInitialPizza, setEditorInitialPizza] = useState<string | null>(null)
+  const { itemsMenu: pizzasFromHook = [] } = useFirestorePizzaConfig()
 
   // Formulario para nuevo/editar ingrediente
   const [formData, setFormData] = useState({
@@ -204,6 +209,11 @@ export default function AdminInventario() {
               <Plus className="w-4 h-4 mr-2" />
               Agregar Ingrediente
             </Button>
+              <div className="ml-4">
+                <Button onClick={() => setShowRecipeEditor(true)} className="bg-blue-600 text-white hover:bg-blue-700">
+                  Agregar Pizzas
+                </Button>
+              </div>
           </div>
         </div>
 
@@ -566,6 +576,43 @@ export default function AdminInventario() {
           </DialogContent>
         </Dialog>
       </main>
+      {/* Lista de pizzas y acceso a sus recetas */}
+      <div className="container mx-auto px-4 py-8">
+        <h2 className="text-2xl font-semibold mb-4">Recetas de Pizzas</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(() => {
+            const excludeNames = [
+              "Gauchitos",
+              "Salsa de Ajo",
+              "Rollitos de canela",
+              "Coca Cola Lata 350cc",
+              "Salsa Chimichurri",
+              "Coca Cola 1.5 Litro",
+              "Pesto Margarita",
+              "Salsa BBQ",
+            ].map(n => n.toLowerCase().trim())
+
+            return pizzasFromHook
+              .filter((p: any) => !excludeNames.includes((p.nombre || "").toLowerCase().trim()))
+              .map((p: any) => (
+                <div key={p.id} className="border rounded p-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">{p.nombre}</p>
+                    {p.receta && Array.isArray(p.receta) && p.receta.length > 0 ? (
+                      <p className="text-sm text-gray-500">{p.receta.length} ingredientes</p>
+                    ) : (
+                      <p className="text-sm text-gray-400">Sin receta definida</p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => { setEditorInitialPizza(p.id); setShowRecipeEditor(true) }}>Editar receta</Button>
+                  </div>
+                </div>
+              ))
+          })()}
+        </div>
+      </div>
+      <RecipeEditor open={showRecipeEditor} onOpenChange={(open) => { setShowRecipeEditor(open); if(!open) setEditorInitialPizza(null) }} initialPizzaId={editorInitialPizza} />
     </div>
   )
 }

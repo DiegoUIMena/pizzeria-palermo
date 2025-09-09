@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Textarea } from "@/components/ui/textarea"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { X, Plus, Minus, ShoppingCart } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
@@ -86,17 +86,128 @@ export default function PizzaConfigModal({
   const { loading, ingredients, itemsMenu, categories } = useFirestorePizzaConfig()
 
   // Tipar los datos de Firestore
-  type FirestoreIngredient = { id: string, nombre: string, categoria: string }
+  type FirestoreIngredient = { id: string, nombre: string, categoria: string, clase?: string }
   type FirestoreItem = { id: string, nombre: string, precio: number, precioMediana?: number, categoria: string }
 
   // Mapear ingredientes desde Firestore (memoizado)
-  const promoIngredients = useMemo(() => 
-    (ingredients as FirestoreIngredient[]).filter((i) => i.categoria === "simple").map((i, idx) => ({ id: idx + 1, name: i.nombre, category: "simple" as const }))
-  , [ingredients])
+  // Mapear ingredientes simples desde Firestore (memoizado)
+  const promoIngredients = useMemo(() => {
+    // Verificar que ingredients es un array y tiene elementos
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+      console.log("¡Advertencia! ingredients es vacío o no es un array:", ingredients);
+      return [];
+    }
+    
+    // Imprimir para depuración
+    console.log("Total de ingredientes cargados:", ingredients.length);
+    
+    // Depurar categorías y clases disponibles
+    const categoriasDisponibles = [...new Set((ingredients as FirestoreIngredient[]).map(i => i.categoria))];
+    const clasesDisponibles = [...new Set((ingredients as FirestoreIngredient[]).map(i => i.clase).filter(Boolean))];
+    console.log("Categorías de ingredientes disponibles:", categoriasDisponibles);
+    console.log("Clases de ingredientes disponibles:", clasesDisponibles);
+    
+    // Mostrar todos los ingredientes para depuración
+    console.log("Todos los ingredientes:", (ingredients as FirestoreIngredient[]).map(i => 
+      `${i.nombre} (${i.categoria}, clase: ${i.clase || 'no definida'})`
+    ));
+    
+    // Filtrar SOLO ingredientes simples usando el campo 'clase'
+    const simpleIngredients = (ingredients as FirestoreIngredient[])
+      .filter((i) => {
+        // Priorizar el campo 'clase' si existe
+        if (i.clase) {
+          const esSimplePorClase = i.clase.toLowerCase() === "simple";
+          if (esSimplePorClase) {
+            console.log(`Ingrediente simple por CLASE encontrado: ${i.nombre} (clase: ${i.clase})`);
+          }
+          return esSimplePorClase;
+        }
+        
+        // Si no hay campo clase, usar categoría como fallback
+        const esSimplePorCategoria = i.categoria === "simple";
+        if (esSimplePorCategoria) {
+          console.log(`Ingrediente simple por CATEGORIA encontrado: ${i.nombre} (categoría: ${i.categoria})`);
+        }
+        return esSimplePorCategoria;
+      })
+      .map((i, idx) => ({ 
+        id: idx + 1, 
+        name: i.nombre, 
+        category: "simple" as const 
+      }));
+    
+    console.log("Ingredientes simples encontrados:", simpleIngredients.length);
+    
+    // Si no se encontraron ingredientes simples, aplicar fallback
+    if (simpleIngredients.length === 0) {
+      console.log("No se encontraron ingredientes simples. Aplicando fallback...");
+      // Como fallback, considerar los ingredientes que NO son premium como simples
+      const fallbackSimples = (ingredients as FirestoreIngredient[])
+        .filter(i => {
+          // Verificar que no sea premium por campo clase o categoría
+          const esPremiumPorClase = i.clase && i.clase.toLowerCase() === "premium";
+          const esPremiumPorCategoria = !i.clase && i.categoria === "premium";
+          return !(esPremiumPorClase || esPremiumPorCategoria);
+        })
+        .map((i, idx) => ({ 
+          id: idx + 1, 
+          name: i.nombre, 
+          category: "simple" as const 
+        }));
+      
+      console.log("Fallback - ingredientes NO premium (tratados como simples):", fallbackSimples.length);
+      
+      return fallbackSimples;
+    }
+    
+    return simpleIngredients;
+  }, [ingredients])
   
-  const premiumIngredients = useMemo(() => 
-    (ingredients as FirestoreIngredient[]).map((i, idx) => ({ id: idx + 1, name: i.nombre, category: i.categoria as "simple" | "premium" }))
-  , [ingredients])
+  // Mapear todos los ingredientes (premium y simples) para la pizza premium
+  const premiumIngredients = useMemo(() => {
+    // Verificar que ingredients es un array y tiene elementos
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+      console.log("¡Advertencia! ingredients es vacío o no es un array:", ingredients);
+      return [];
+    }
+    
+    // Mapear todos los ingredientes preservando su categoría exacta
+    const mappedIngredients = (ingredients as FirestoreIngredient[])
+      .filter(i => i && i.nombre)
+      .map((i, idx) => {
+        // Determinar si es premium o simple, priorizando el campo clase
+        let esPremium = false;
+        let esSimple = false;
+        
+        if (i.clase) {
+          // Usar primero el campo clase si existe
+          esPremium = i.clase.toLowerCase() === "premium";
+          esSimple = i.clase.toLowerCase() === "simple";
+        } else if (i.categoria) {
+          // Si no hay campo clase, usar categoría como fallback
+          esPremium = i.categoria === "premium";
+          esSimple = i.categoria === "simple";
+        }
+        
+        // Si es premium o simple lo incluimos con su categoría respectiva
+        if (esPremium || esSimple) {
+          return { 
+            id: idx + 1, 
+            name: i.nombre, 
+            category: esPremium ? "premium" as const : "simple" as const
+          };
+        }
+        return null;
+      })
+      .filter((i): i is { id: number; name: string; category: "premium" | "simple" } => i !== null); // Eliminar los null con type guard
+    
+    console.log("Ingredientes premium y simples encontrados:", mappedIngredients.length);
+    console.log("Ingredientes premium:", mappedIngredients.filter(i => i.category === "premium").length);
+    console.log("Ingredientes simples:", mappedIngredients.filter(i => i.category === "simple").length);
+    
+    return mappedIngredients;
+  }, [ingredients])
 
   // Extras: Salsas, bebidas y agregados desde itemsMenu (memoizado)
   const promoExtras = useMemo(() => [
@@ -160,6 +271,22 @@ export default function PizzaConfigModal({
     setSelectedPizza1(null)
     setSelectedPizza2(null)
   }
+
+  // Efecto para diagnosticar el estado al abrir el modal
+  useEffect(() => {
+    if (isOpen) {
+      console.log("============= MODAL ABIERTO =============");
+      console.log("PizzaType:", activePizzaType);
+      console.log("Loading:", loading);
+      console.log("Ingredients count:", Array.isArray(ingredients) ? ingredients.length : "no es array");
+      console.log("PromoIngredients count:", promoIngredients.length);
+      console.log("PremiumIngredients count:", premiumIngredients.length);
+      console.log("=========================================");
+
+      // Si el modal se abre pero los ingredientes aún están cargando,
+      // podríamos implementar un retraso o indicador de carga aquí
+    }
+  }, [isOpen, activePizzaType, loading, ingredients, promoIngredients, premiumIngredients]);
 
   // Efecto principal: maneja la apertura del modal
   useEffect(() => {
@@ -292,15 +419,17 @@ export default function PizzaConfigModal({
     }
   }, [isOpen, isEditing, currentConfig, activePizzaType, loading, promoExtras, palermoTradicionalPizzas]) // Agregamos loading y las dependencias necesarias
 
-  // Solo permitir promo o premium
+  // Obtener los ingredientes disponibles según el tipo de pizza
   const getAvailableIngredients = (type: "promo" | "premium" | "duo") => {
     if (type === "duo") {
       return [] // DUO no tiene ingredientes seleccionables
     }
     if (type === "promo") {
+      // Solo ingredientes simples para pizza promocional
       return promoIngredients
     }
-    return premiumIngredients // Contains both simple and premium for "premium" type
+    // Para pizza premium, mostrar tanto ingredientes premium como simples
+    return premiumIngredients.filter(i => i.category === "premium" || i.category === "simple")
   }
 
   const getAvailablePizzasForSize = (size: "familiar" | "mediana") => {
@@ -415,7 +544,7 @@ export default function PizzaConfigModal({
       const pizzaName = `Pizza Duo ${selectedSize.name} (${pizza1Name} / ${pizza2Name})`
 
       const cartItemPayload = {
-  id: isEditing && currentConfig?.id ? String(currentConfig.id) : String(Date.now()),
+        id: isEditing && currentConfig?.id ? String(currentConfig.id) : String(Date.now()),
         name: pizzaName,
         price: calculateTotal(), // Ahora incluye extras
         image: "/pizza-duo-bg.png",
@@ -539,6 +668,9 @@ export default function PizzaConfigModal({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-md mx-auto h-[95vh] flex flex-col p-0 [&>button]:hidden">
+        <DialogTitle className="sr-only">
+          {isEditing ? "Editar Pizza" : "Arma tu Pizza"} {activePizzaType === "premium" ? "Premium" : activePizzaType === "duo" ? "Duo" : "Promo"}
+        </DialogTitle>
         <div className="relative h-40 bg-gradient-to-br from-pink-400 to-pink-600 flex-shrink-0">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-6xl">🍕</div>
@@ -678,45 +810,153 @@ export default function PizzaConfigModal({
                 <h3 className="font-semibold text-gray-800 mb-1">
                   {activePizzaType === "premium" ? "AGREGA INGREDIENTES" : "ESCOGE INGREDIENTES"}
                 </h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  {activePizzaType === "promo"
-                    ? "Selecciona ingredientes adicionales (incluye 2 gratis)"
-                    : "Selecciona ingredientes premium y simples (incluye 1 premium gratis)"}
-                </p>
-                <div className="space-y-3">
-                  {displayIngredients.map((ingredient) => (
-                    <div key={ingredient.id} className="flex items-center justify-between py-2">
-                      <div className="flex items-center space-x-3">
-                        <span className="text-gray-800 text-sm">{ingredient.name}</span>
-                        {ingredient.category === "premium" && (
-                          <Badge className="bg-yellow-500 text-white text-xs">Premium</Badge>
+                
+                
+                {/* Mostrar ingredientes categorías separadas para pizza premium */}
+                {activePizzaType === "premium" && (
+                  <>
+                    {/* Sección de ingredientes premium */}
+                    <div className="mb-4">
+                      
+                      <div className="space-y-3">
+                        {loading ? (
+                          <div className="py-2 text-center text-gray-500">
+                            <p>Cargando ingredientes...</p>
+                          </div>
+                        ) : displayIngredients.filter(i => i.category === "premium").length === 0 ? (
+                          <div className="py-2 text-center text-gray-500">
+                            <p>No hay ingredientes premium disponibles.</p>
+                          </div>
+                        ) : (
+                          displayIngredients
+                            .filter(i => i.category === "premium")
+                            .map((ingredient) => (
+                              <div key={ingredient.id} className="flex items-center justify-between py-2 border-b border-gray-100">
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-gray-800 text-sm">{ingredient.name}</span>
+                                  <Badge className="bg-yellow-500 text-white text-xs">Premium</Badge>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="w-7 h-7 rounded-full"
+                                    onClick={() => handleIngredientChange(ingredient.id, -1)}
+                                    disabled={(selectedIngredients[ingredient.id] || 0) === 0}
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </Button>
+                                  <span className="w-6 text-center font-medium text-sm">
+                                    {selectedIngredients[ingredient.id] || 0}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="w-7 h-7 rounded-full"
+                                    onClick={() => handleIngredientChange(ingredient.id, 1)}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))
                         )}
                       </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="w-7 h-7 rounded-full"
-                          onClick={() => handleIngredientChange(ingredient.id, -1)}
-                          disabled={(selectedIngredients[ingredient.id] || 0) === 0}
-                        >
-                          <Minus className="w-3 h-3" />
-                        </Button>
-                        <span className="w-6 text-center font-medium text-sm">
-                          {selectedIngredients[ingredient.id] || 0}
-                        </span>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="w-7 h-7 rounded-full"
-                          onClick={() => handleIngredientChange(ingredient.id, 1)}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </Button>
+                    </div>
+                    
+                    {/* Sección de ingredientes simples */}
+                    <div className="mb-4">
+                      <div className="space-y-3">
+                        {loading ? (
+                          <div className="py-2 text-center text-gray-500">
+                            <p>Cargando ingredientes...</p>
+                          </div>
+                        ) : displayIngredients.filter(i => i.category === "simple").length === 0 ? (
+                          <div className="py-2 text-center text-gray-500">
+                            <p>No hay ingredientes simples disponibles.</p>
+                          </div>
+                        ) : (
+                          displayIngredients
+                            .filter(i => i.category === "simple")
+                            .map((ingredient) => (
+                              <div key={ingredient.id} className="flex items-center justify-between py-2 border-b border-gray-100">
+                                <div className="flex items-center space-x-3">
+                                  <span className="text-gray-800 text-sm">{ingredient.name}</span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="w-7 h-7 rounded-full"
+                                    onClick={() => handleIngredientChange(ingredient.id, -1)}
+                                    disabled={(selectedIngredients[ingredient.id] || 0) === 0}
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </Button>
+                                  <span className="w-6 text-center font-medium text-sm">
+                                    {selectedIngredients[ingredient.id] || 0}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="icon"
+                                    className="w-7 h-7 rounded-full"
+                                    onClick={() => handleIngredientChange(ingredient.id, 1)}
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))
+                        )}
                       </div>
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
+                
+                {/* Mostrar todos los ingredientes (simples) para pizza promocional */}
+                {activePizzaType === "promo" && (
+                  <div className="space-y-3">
+                    {loading ? (
+                      <div className="py-4 text-center text-gray-500">
+                        <p>Cargando ingredientes...</p>
+                      </div>
+                    ) : displayIngredients.length === 0 ? (
+                      <div className="py-4 text-center text-gray-500">
+                        <p>No hay ingredientes simples disponibles.</p>
+                      </div>
+                    ) : (
+                      displayIngredients.map((ingredient) => (
+                        <div key={ingredient.id} className="flex items-center justify-between py-2 border-b border-gray-100">
+                          <div className="flex items-center space-x-3">
+                            <span className="text-gray-800 text-sm">{ingredient.name}</span>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="w-7 h-7 rounded-full"
+                              onClick={() => handleIngredientChange(ingredient.id, -1)}
+                              disabled={(selectedIngredients[ingredient.id] || 0) === 0}
+                            >
+                              <Minus className="w-3 h-3" />
+                            </Button>
+                            <span className="w-6 text-center font-medium text-sm">
+                              {selectedIngredients[ingredient.id] || 0}
+                            </span>
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="w-7 h-7 rounded-full"
+                              onClick={() => handleIngredientChange(ingredient.id, 1)}
+                            >
+                              <Plus className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

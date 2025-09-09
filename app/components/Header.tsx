@@ -26,7 +26,7 @@ export default function Header() {
   { name: "🥬 Pizzas Vegetarianas", href: "/?category=vegetarianas" },
   { name: "🥩 Pizzas con Carne", href: "/?category=carne" },
   { name: "🐟 Pizzas del Mar", href: "/?category=delmar" },
-  { name: "🍕 Quiero armar mi pizza", href: "/?category=armar" },
+  { name: "🍕 Quiero armar mi pizza", href: "/armar-pizza" },
   { name: "🎁 Combos", href: "/?category=combos" },
   { name: "🍟 Acompañamientos", href: "/?category=acompanamientos" },
   { name: "🥤 Bebidas", href: "/?category=bebidas" },
