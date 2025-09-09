@@ -221,16 +221,42 @@ export default function PizzaConfigModal({
     category: item.categoria.toLowerCase().includes("bebida") ? "bebida" : item.nombre.toLowerCase().includes("salsa") ? "salsa" : "agregado"
   })), [itemsMenu])
 
+  // Lista global de pizzas que no deben estar disponibles para DUO
+  // Lista global de pizzas que no deben estar disponibles para DUO
+  const PIZZAS_EXCLUIDAS = ["4 Estaciones", "Puerto Madryn", "Patagonia", "Entre Ríos"];
+
+  // Función para verificar si una pizza está en la lista de excluidas (insensible a acentos y mayúsculas/minúsculas)
+  const isPizzaExcluida = (pizzaName: string) => {
+    // Normalizar el texto: convertir a minúsculas y quitar acentos
+    const normalizar = (texto: string) => 
+      texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    return PIZZAS_EXCLUIDAS.some(excluida => 
+      normalizar(pizzaName) === normalizar(excluida));
+  };
+
   // Pizzas para DUO (memoizado)
-  const palermoTradicionalPizzas = useMemo(() => 
-    (itemsMenu as FirestoreItem[]).filter((i) => i.categoria.includes("Pizza"))
+  const palermoTradicionalPizzas = useMemo(() => {
+    console.log("Pizzas a excluir:", PIZZAS_EXCLUIDAS);
+    
+    const pizzasAntesDeFiltar = (itemsMenu as FirestoreItem[])
+      .filter((i) => i.categoria.includes("Pizza"))
       .map((item, idx) => ({
         id: idx + 1,
         name: item.nombre,
         familiarPrice: item.precio,
         medianaPrice: item.precioMediana ?? item.precio
-      }))
-  , [itemsMenu])
+      }));
+    
+    console.log("Pizzas antes de filtrar:", pizzasAntesDeFiltar.map(p => p.name));
+    
+    const pizzas = pizzasAntesDeFiltar
+      // Filtrar las pizzas excluidas usando la función mejorada
+      .filter(pizza => !isPizzaExcluida(pizza.name));
+    
+    console.log("Pizzas disponibles para DUO después de filtrar:", pizzas.map(p => p.name));
+    return pizzas;
+  }, [itemsMenu])
 
   const activePizzaType = isEditing && currentConfig?.pizzaType ? currentConfig.pizzaType : initialPizzaType
 
@@ -272,6 +298,55 @@ export default function PizzaConfigModal({
     setSelectedPizza2(null)
   }
 
+  // Verificar selecciones cuando cambia el tamaño
+  useEffect(() => {
+    if (!isOpen || activePizzaType !== "duo") return;
+    
+    // Obtener pizzas disponibles para el tamaño actual
+    const availablePizzas = getAvailablePizzasForSize(selectedSize.id as "familiar" | "mediana")
+      .filter(pizza => !PIZZAS_EXCLUIDAS.includes(pizza.name)); // Filtrar pizzas excluidas
+    
+    const availablePizzaIds = availablePizzas.map(p => p.id);
+    
+    console.log("Verificando selecciones al cambiar tamaño...");
+    console.log("Pizzas disponibles (excluyendo las prohibidas):", availablePizzas.map(p => p.name));
+    
+    // Verificar si las pizzas seleccionadas están en la lista de disponibles
+    if (selectedPizza1 !== null) {
+      const pizza1 = palermoTradicionalPizzas.find(p => p.id === selectedPizza1);
+      if (pizza1 && isPizzaExcluida(pizza1.name)) {
+        console.log("Reseteo: Pizza 1 seleccionada está en la lista de excluidas:", pizza1.name);
+        setSelectedPizza1(null);
+      } else if (!availablePizzaIds.includes(selectedPizza1)) {
+        console.log("Reseteo: Pizza 1 seleccionada no disponible para este tamaño");
+        setSelectedPizza1(null);
+      }
+    }
+    
+    if (selectedPizza2 !== null) {
+      const pizza2 = palermoTradicionalPizzas.find(p => p.id === selectedPizza2);
+      if (pizza2 && isPizzaExcluida(pizza2.name)) {
+        console.log("Reseteo: Pizza 2 seleccionada está en la lista de excluidas:", pizza2.name);
+        setSelectedPizza2(null);
+      } else if (!availablePizzaIds.includes(selectedPizza2)) {
+        console.log("Reseteo: Pizza 2 seleccionada no disponible para este tamaño");
+        setSelectedPizza2(null);
+      }
+    }
+    
+    // Verificar si pizza1 sigue siendo válida
+    if (selectedPizza1 && !availablePizzaIds.includes(selectedPizza1)) {
+      console.log(`Pizza 1 (ID: ${selectedPizza1}) ya no está disponible. Reseteando selección.`);
+      setSelectedPizza1(null);
+    }
+    
+    // Verificar si pizza2 sigue siendo válida
+    if (selectedPizza2 && !availablePizzaIds.includes(selectedPizza2)) {
+      console.log(`Pizza 2 (ID: ${selectedPizza2}) ya no está disponible. Reseteando selección.`);
+      setSelectedPizza2(null);
+    }
+  }, [isOpen, activePizzaType, selectedSize, selectedPizza1, selectedPizza2, PIZZAS_EXCLUIDAS, palermoTradicionalPizzas, isPizzaExcluida]);
+
   // Efecto para diagnosticar el estado al abrir el modal
   useEffect(() => {
     if (isOpen) {
@@ -281,12 +356,32 @@ export default function PizzaConfigModal({
       console.log("Ingredients count:", Array.isArray(ingredients) ? ingredients.length : "no es array");
       console.log("PromoIngredients count:", promoIngredients.length);
       console.log("PremiumIngredients count:", premiumIngredients.length);
+      
+      // Verificar explícitamente que ninguna pizza seleccionada sea una excluida
+      if (activePizzaType === "duo") {
+        if (selectedPizza1) {
+          const pizza1 = palermoTradicionalPizzas.find(p => p.id === selectedPizza1);
+          if (pizza1 && isPizzaExcluida(pizza1.name)) {
+            console.log("VERIFICACIÓN INICIAL: Pizza 1 seleccionada está en la lista de excluidas. Reseteando.");
+            setSelectedPizza1(null);
+          }
+        }
+        
+        if (selectedPizza2) {
+          const pizza2 = palermoTradicionalPizzas.find(p => p.id === selectedPizza2);
+          if (pizza2 && isPizzaExcluida(pizza2.name)) {
+            console.log("VERIFICACIÓN INICIAL: Pizza 2 seleccionada está en la lista de excluidas. Reseteando.");
+            setSelectedPizza2(null);
+          }
+        }
+      }
+      
       console.log("=========================================");
 
       // Si el modal se abre pero los ingredientes aún están cargando,
       // podríamos implementar un retraso o indicador de carga aquí
     }
-  }, [isOpen, activePizzaType, loading, ingredients, promoIngredients, premiumIngredients]);
+  }, [isOpen, activePizzaType, loading, ingredients, promoIngredients, premiumIngredients, selectedPizza1, selectedPizza2, palermoTradicionalPizzas, isPizzaExcluida]);
 
   // Efecto principal: maneja la apertura del modal
   useEffect(() => {
@@ -384,28 +479,33 @@ export default function PizzaConfigModal({
         // Set DUO pizzas if applicable
         if (activePizzaType === "duo") {
           console.log("[EDIT MODE] Processing DUO pizzas")
-          console.log("[EDIT MODE] Available pizzas:", palermoTradicionalPizzas.map(p => p.name))
+          
+          // Obtener pizzas disponibles para el tamaño seleccionado
+          const availablePizzas = getAvailablePizzasForSize(selectedSize.id as "familiar" | "mediana");
+          console.log("[EDIT MODE] Available pizzas after filtering:", availablePizzas.map(p => p.name))
           
           if (currentConfig.pizza1) {
-            const pizza1 = palermoTradicionalPizzas.find(
+            const pizza1 = availablePizzas.find(
               (p) => p.name.toLowerCase() === currentConfig.pizza1?.toLowerCase()
             )
             if (pizza1) {
               setSelectedPizza1(pizza1.id)
               console.log(`[EDIT MODE] ✓ Found pizza1: ${pizza1.name} (ID: ${pizza1.id})`)
             } else {
-              console.log(`[EDIT MODE] ✗ Pizza1 not found: ${currentConfig.pizza1}`)
+              console.log(`[EDIT MODE] ✗ Pizza1 not found or excluded: ${currentConfig.pizza1}`)
+              setSelectedPizza1(null) // Resetear si la pizza ya no está disponible
             }
           }
           if (currentConfig.pizza2) {
-            const pizza2 = palermoTradicionalPizzas.find(
+            const pizza2 = availablePizzas.find(
               (p) => p.name.toLowerCase() === currentConfig.pizza2?.toLowerCase()
             )
             if (pizza2) {
               setSelectedPizza2(pizza2.id)
               console.log(`[EDIT MODE] ✓ Found pizza2: ${pizza2.name} (ID: ${pizza2.id})`)
             } else {
-              console.log(`[EDIT MODE] ✗ Pizza2 not found: ${currentConfig.pizza2}`)
+              console.log(`[EDIT MODE] ✗ Pizza2 not found or excluded: ${currentConfig.pizza2}`)
+              setSelectedPizza2(null) // Resetear si la pizza ya no está disponible
             }
           }
         }
@@ -433,13 +533,11 @@ export default function PizzaConfigModal({
   }
 
   const getAvailablePizzasForSize = (size: "familiar" | "mediana") => {
+    // Ya no necesitamos filtrar por nombre ya que lo hacemos en palermoTradicionalPizzas
     return palermoTradicionalPizzas.filter((pizza) => {
-      // Filtrar "4 Estaciones"
-      if (pizza.name === "4 Estaciones") return false
-
-      if (size === "familiar") return true // Todas tienen familiar
-      return pizza.medianaPrice !== null // Solo las que tienen precio mediana
-    })
+      if (size === "familiar") return true; // Todas tienen familiar
+      return pizza.medianaPrice !== null; // Solo las que tienen precio mediana
+    });
   }
 
   const calculateDuoPrice = () => {
@@ -539,8 +637,8 @@ export default function PizzaConfigModal({
         return
       }
 
-      const pizza1Name = palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name
-      const pizza2Name = palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name
+      const pizza1Name = palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name || "Mitad 1"
+      const pizza2Name = palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name || "Mitad 2"
       const pizzaName = `Pizza Duo ${selectedSize.name} (${pizza1Name} / ${pizza2Name})`
 
       const cartItemPayload = {
@@ -706,7 +804,7 @@ export default function PizzaConfigModal({
               {activePizzaType === "duo" && (
                 <p className="text-gray-800 text-sm font-medium">
                   {selectedPizza1 && selectedPizza2
-                    ? `${palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name} / ${palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name}`
+                    ? `${palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name || "Mitad 1"} / ${palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name || "Mitad 2"}`
                     : "Selecciona tus dos variedades"}
                 </p>
               )}
@@ -760,10 +858,16 @@ export default function PizzaConfigModal({
                 <div className="mb-4">
                   <div className="flex justify-between text-sm text-gray-600">
                     <span>
-                      Mitad 1: {selectedPizza1 ? palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name : "Sin seleccionar"}
+                      Mitad 1: {selectedPizza1 ? 
+                        // Verificar explícitamente que la pizza no está en la lista de excluidas
+                        palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name || "Sin seleccionar" 
+                        : "Sin seleccionar"}
                     </span>
                     <span>
-                      Mitad 2: {selectedPizza2 ? palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name : "Sin seleccionar"}
+                      Mitad 2: {selectedPizza2 ? 
+                        // Verificar explícitamente que la pizza no está en la lista de excluidas
+                        palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name || "Sin seleccionar" 
+                        : "Sin seleccionar"}
                     </span>
                   </div>
                 </div>
@@ -778,11 +882,16 @@ export default function PizzaConfigModal({
                         className="w-full p-2 border border-gray-300 rounded-lg text-sm"
                       >
                         <option value="">Seleccionar pizza</option>
-                        {getAvailablePizzasForSize(selectedSize.id as "familiar" | "mediana").map((pizza) => (
-                          <option key={pizza.id} value={pizza.id}>
-                            {pizza.name}
-                          </option>
-                        ))}
+                        {/* Usar directamente palermoTradicionalPizzas que ya tiene las pizzas excluidas filtradas */}
+                        {palermoTradicionalPizzas
+                          .filter(pizza => selectedSize.id === "familiar" || pizza.medianaPrice !== null)
+                          .filter(pizza => !isPizzaExcluida(pizza.name)) // Filtro adicional para asegurar
+                          .map((pizza) => (
+                            <option key={pizza.id} value={pizza.id}>
+                              {pizza.name}
+                            </option>
+                          ))
+                        }
                       </select>
                     </div>
                     <div>
@@ -793,11 +902,16 @@ export default function PizzaConfigModal({
                         className="w-full p-2 border border-gray-300 rounded-lg text-sm"
                       >
                         <option value="">Seleccionar pizza</option>
-                        {getAvailablePizzasForSize(selectedSize.id as "familiar" | "mediana").map((pizza) => (
-                          <option key={pizza.id} value={pizza.id}>
-                            {pizza.name}
-                          </option>
-                        ))}
+                        {/* Usar directamente palermoTradicionalPizzas que ya tiene las pizzas excluidas filtradas */}
+                        {palermoTradicionalPizzas
+                          .filter(pizza => selectedSize.id === "familiar" || pizza.medianaPrice !== null)
+                          .filter(pizza => !isPizzaExcluida(pizza.name)) // Filtro adicional para asegurar
+                          .map((pizza) => (
+                            <option key={pizza.id} value={pizza.id}>
+                              {pizza.name}
+                            </option>
+                          ))
+                        }
                       </select>
                     </div>
                   </div>
