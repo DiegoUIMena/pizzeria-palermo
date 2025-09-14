@@ -46,28 +46,38 @@ export default function InventoryErrorModal({
         <DialogHeader>
           <div className="flex items-center gap-2 text-red-600">
             <AlertCircle className="h-6 w-6" />
-            <DialogTitle>No hay suficiente stock</DialogTitle>
+            <DialogTitle className="text-xl font-bold">¡Atención! Inventario insuficiente</DialogTitle>
           </div>
-          <DialogDescription>
-            No podemos procesar tu pedido porque faltan los siguientes ingredientes:
+          <DialogDescription className="text-base mt-2 font-semibold">
+            No podemos procesar tu pedido porque no hay suficiente stock de los siguientes ingredientes:
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 my-2">
+        <div className="space-y-4 my-4">
           {validationDetails.map((item, index) => (
-            <div key={index} className="p-3 bg-red-50 border border-red-200 rounded-md">
-              <h3 className="font-medium text-red-800 mb-2">{item.item}</h3>
+            <div key={index} className="p-4 bg-red-50 border-2 border-red-300 rounded-md shadow-sm">
+              <h3 className="font-bold text-red-800 mb-3 text-lg flex items-center">
+                <span className="bg-red-100 text-red-800 p-1 rounded-full mr-2 w-6 h-6 flex items-center justify-center text-sm">
+                  {index + 1}
+                </span>
+                {item.item}
+              </h3>
               
               {item.missing && item.missing.length > 0 && (
-                <div className="space-y-2 ml-2">
+                <div className="space-y-3 ml-3 bg-white p-3 rounded-md">
                   {item.missing.map((ing: any, idx: number) => (
-                    <div key={idx} className="flex justify-between text-sm">
-                      <span className="text-gray-700">
+                    <div key={idx} className="flex flex-col md:flex-row md:justify-between text-sm border-b border-gray-100 pb-2">
+                      <span className="font-medium text-gray-800 mb-1 md:mb-0">
                         {ing.ingrediente}:
                       </span>
-                      <span className="font-semibold text-red-600">
-                        Necesario: {ing.needed} {ing.unidad}, Disponible: {ing.available} {ing.unidad}
-                      </span>
+                      <div className="flex flex-col md:items-end">
+                        <span className="text-red-600">
+                          Necesario: <strong>{ing.needed} {ing.unidad}</strong>
+                        </span>
+                        <span className="text-gray-600">
+                          Disponible: {ing.available} {ing.unidad}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -76,16 +86,18 @@ export default function InventoryErrorModal({
           ))}
         </div>
         
-        <p className="text-sm text-gray-600 mt-2 mb-4">
-          Por favor, modifica tu pedido eliminando o cambiando los productos que contienen estos ingredientes.
-        </p>
+        <div className="bg-yellow-50 p-4 rounded-md border border-yellow-200 mb-4">
+          <p className="text-sm text-gray-800 font-medium">
+            Por favor, modifica tu pedido eliminando o cambiando los productos que contienen estos ingredientes.
+          </p>
+        </div>
 
-        <DialogFooter className="gap-2 sm:gap-0">
+        <DialogFooter className="gap-3 sm:gap-0">
           <Button variant="outline" onClick={onClose}>
             <X className="h-4 w-4 mr-2" />
             Cerrar
           </Button>
-          <Button onClick={onModifyCart}>
+          <Button onClick={onModifyCart} className="bg-pink-600 hover:bg-pink-700">
             Modificar pedido
           </Button>
         </DialogFooter>

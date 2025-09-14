@@ -45,7 +45,7 @@ const CartContext = createContext<{
   removeItem: (id: string) => void
   clearCart: () => void
   getTotal: () => number
-  createOrder: (orderData: CreateOrderData) => Promise<{id: string, orderNumber: number}>
+  createOrder: (orderData: CreateOrderData) => Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}>
 } | null>(null)
 
 // Tipo para los datos necesarios para crear un pedido
@@ -173,7 +173,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return state.items.reduce((total, item) => total + item.price * item.quantity, 0)
   }
 
-  const createOrder = async (orderData: CreateOrderData): Promise<{id: string, orderNumber: number}> => {
+  const createOrder = async (orderData: CreateOrderData): Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}> => {
     try {
       // Convertir CartItem[] a OrderItem[]
       const orderItems: OrderItem[] = state.items.map(item => ({
@@ -204,13 +204,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
         notas: orderData.notas
       })
 
-      // Limpiar el carrito después de crear el pedido exitosamente
-      clearCart()
+      // Limpiar el carrito solo si el pedido fue exitoso
+      if (result.success) {
+        clearCart()
+      }
 
       return result
     } catch (error) {
       console.error('Error creating order:', error)
-      throw error
+      return {
+        id: '',
+        orderNumber: 0,
+        success: false,
+        error: error instanceof Error ? error.message : 'Error desconocido al crear el pedido'
+      }
     }
   }
 

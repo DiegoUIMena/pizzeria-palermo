@@ -375,12 +375,14 @@ const Cart = () => {
           
           // Guardar los detalles de validación para el modal
           setInventoryErrorDetails(result.validationDetails)
+          
+          // Mostrar el modal de error
           setIsInventoryErrorModalOpen(true)
           
           // También mostrar toast con mensaje de error básico
           toast({
             title: "Inventario insuficiente",
-            description: `No podemos procesar tu pedido por falta de stock de algunos ingredientes.`,
+            description: `No podemos procesar tu pedido por falta de stock.`,
             variant: "destructive",
           })
           
