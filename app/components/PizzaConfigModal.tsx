@@ -766,9 +766,11 @@ export default function PizzaConfigModal({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-md mx-auto h-[95vh] flex flex-col p-0 [&>button]:hidden">
-        <DialogTitle className="sr-only">
-          {isEditing ? "Editar Pizza" : "Arma tu Pizza"} {activePizzaType === "premium" ? "Premium" : activePizzaType === "duo" ? "Duo" : "Promo"}
-        </DialogTitle>
+        <div className="p-4 border-b">
+          <DialogTitle>
+            {isEditing ? "Editar Pizza" : "Arma tu Pizza"} {activePizzaType === "premium" ? "Premium" : activePizzaType === "duo" ? "Duo" : "Promo"}
+          </DialogTitle>
+        </div>
         <div className="relative h-40 bg-gradient-to-br from-pink-400 to-pink-600 flex-shrink-0">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-6xl">🍕</div>

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useCart } from "../context/CartContext"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/hooks/use-toast"
-import { Trash, ChevronDown, ChevronUp, Edit } from "lucide-react"
+import { Trash, ChevronDown, ChevronUp, Edit, AlertCircle, X } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { Minus, Plus } from "lucide-react"
@@ -28,6 +28,7 @@ const Cart = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [inventoryErrorDetails, setInventoryErrorDetails] = useState<any[] | undefined>(undefined)
   const [isInventoryErrorModalOpen, setIsInventoryErrorModalOpen] = useState(false)
+  const [showInventoryError, setShowInventoryError] = useState(false)
 
   const { isAuthenticated, user } = useAuth()
   const [isDelivery, setIsDelivery] = useState(false)
@@ -373,11 +374,12 @@ const Cart = () => {
           
           console.error('Detalles de inventario insuficiente:', errorMessage)
           
-          // Guardar los detalles de validación para el modal
+          // Guardar los detalles de validación
           setInventoryErrorDetails(result.validationDetails)
           
-          // Mostrar el modal de error
-          setIsInventoryErrorModalOpen(true)
+          // Mostrar error en el carrito en lugar del modal
+          setShowInventoryError(true)
+          setCurrentView("cart") // Asegurarse de que el usuario vea el carrito con el mensaje
           
           // También mostrar toast con mensaje de error básico
           toast({
@@ -1027,6 +1029,55 @@ const Cart = () => {
         <h2 className="text-xl font-bold text-gray-800">Tu Carrito ({items.length})</h2>
       </div>
 
+      {/* Mensaje de error de inventario */}
+      {showInventoryError && inventoryErrorDetails && inventoryErrorDetails.length > 0 && (
+        <div className="p-4 mb-2 bg-red-50 border-b border-red-200">
+          <div className="flex items-center gap-2 text-red-600 mb-2">
+            <AlertCircle className="h-5 w-5" />
+            <h3 className="font-bold">¡Atención! Inventario insuficiente</h3>
+          </div>
+          <p className="text-sm text-red-700 mb-3">
+            No podemos procesar tu pedido porque no hay suficiente stock de los siguientes ingredientes:
+          </p>
+          
+          <div className="space-y-3 mb-3">
+            {inventoryErrorDetails.map((item, index) => (
+              <div key={index} className="p-3 bg-white border border-red-200 rounded-md shadow-sm">
+                <p className="font-medium text-red-700 mb-1">{item.item}</p>
+                
+                {item.missing && item.missing.length > 0 && (
+                  <ul className="text-sm space-y-1 ml-2">
+                    {item.missing.map((ing: any, idx: number) => (
+                      <li key={idx} className="text-gray-700">
+                        <span className="font-medium">{ing.ingrediente}:</span>{' '}
+                        necesario <span className="text-red-600 font-medium">{ing.needed} {ing.unidad}</span>,
+                        disponible <span className="text-gray-600">{ing.available} {ing.unidad}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          <div className="bg-yellow-50 p-3 rounded-md border border-yellow-200 mb-3 text-sm">
+            <p className="text-gray-700">
+              Por favor, modifica tu pedido eliminando o cambiando los productos que contienen estos ingredientes.
+            </p>
+          </div>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setShowInventoryError(false)} 
+            className="text-gray-600 border-gray-300 mr-2"
+          >
+            <X className="h-4 w-4 mr-1" />
+            Cerrar
+          </Button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {items.map((item) => {
           const extraIngredients = calculateExtraIngredients(item)
@@ -1072,7 +1123,10 @@ const Cart = () => {
                         size="sm"
                         variant="ghost"
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 h-auto"
-                        onClick={() => removeItem(item.id)}
+                        onClick={() => {
+                          removeItem(item.id)
+                          setShowInventoryError(false) // Limpiar error cuando se elimina un item
+                        }}
                         title="Eliminar pedido"
                       >
                         <Trash className="w-4 h-4" />
@@ -1278,7 +1332,10 @@ const Cart = () => {
                         size="icon"
                         variant="outline"
                         className="w-8 h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
-                        onClick={() => updateQuantity(item.id, Math.max(0, item.quantity - 1))}
+                        onClick={() => {
+                          updateQuantity(item.id, Math.max(0, item.quantity - 1))
+                          setShowInventoryError(false) // Limpiar error cuando se modifica la cantidad
+                        }}
                       >
                         <Minus className="w-3 h-3" />
                       </Button>
@@ -1287,7 +1344,10 @@ const Cart = () => {
                         size="icon"
                         variant="outline"
                         className="w-8 h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                        onClick={() => {
+                          updateQuantity(item.id, item.quantity + 1)
+                          setShowInventoryError(false) // Limpiar error cuando se modifica la cantidad
+                        }}
                       >
                         <Plus className="w-3 h-3" />
                       </Button>
@@ -1386,13 +1446,18 @@ const Cart = () => {
         />
       )}
       
-      {/* Modal de error de inventario */}
+      {/* Modal de error de inventario - mantener por compatibilidad pero no mostrarlo automáticamente */}
+      {console.log("Renderizando InventoryErrorModal con isOpen =", isInventoryErrorModalOpen, "validationDetails =", inventoryErrorDetails)}
       <InventoryErrorModal
-        isOpen={isInventoryErrorModalOpen}
-        onClose={() => setIsInventoryErrorModalOpen(false)}
+        isOpen={false} // Cambiado a false para usar nuestra implementación directamente en el carrito
+        onClose={() => {
+          setIsInventoryErrorModalOpen(false);
+          setShowInventoryError(false);
+        }}
         validationDetails={inventoryErrorDetails}
         onModifyCart={() => {
           setIsInventoryErrorModalOpen(false);
+          setShowInventoryError(false);
           setCurrentView("cart");
         }}
       />
