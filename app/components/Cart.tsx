@@ -382,9 +382,13 @@ const Cart = () => {
           setCurrentView("cart") // Asegurarse de que el usuario vea el carrito con el mensaje
           
           // También mostrar toast con mensaje de error básico
+          const hasNoRecipes = result.validationDetails.some((item: any) => item.noRecipe);
+          
           toast({
-            title: "Inventario insuficiente",
-            description: `No podemos procesar tu pedido por falta de stock.`,
+            title: hasNoRecipes ? "Productos sin receta definida" : "Inventario insuficiente",
+            description: hasNoRecipes 
+              ? "Algunos productos no tienen recetas definidas en el sistema."
+              : "No podemos procesar tu pedido por falta de stock.",
             variant: "destructive",
           })
           
@@ -1034,10 +1038,12 @@ const Cart = () => {
         <div className="p-4 mb-2 bg-red-50 border-b border-red-200">
           <div className="flex items-center gap-2 text-red-600 mb-2">
             <AlertCircle className="h-5 w-5" />
-            <h3 className="font-bold">¡Atención! Inventario insuficiente</h3>
+            <h3 className="font-bold">¡Atención! No podemos procesar tu pedido</h3>
           </div>
           <p className="text-sm text-red-700 mb-3">
-            No podemos procesar tu pedido porque no hay suficiente stock de los siguientes ingredientes:
+            {inventoryErrorDetails.some(item => item.noRecipe) 
+              ? "Hay productos sin recetas definidas o ingredientes insuficientes:"
+              : "No hay suficiente stock de los siguientes ingredientes:"}
           </p>
           
           <div className="space-y-3 mb-3">
@@ -1045,7 +1051,12 @@ const Cart = () => {
               <div key={index} className="p-3 bg-white border border-red-200 rounded-md shadow-sm">
                 <p className="font-medium text-red-700 mb-1">{item.item}</p>
                 
-                {item.missing && item.missing.length > 0 && (
+                {item.noRecipe ? (
+                  <div className="text-sm bg-yellow-50 p-2 border border-yellow-200 rounded">
+                    <p className="font-medium text-yellow-800">Este producto no tiene receta definida</p>
+                    <p className="text-gray-700">Por favor, contacta al administrador para solucionar este problema.</p>
+                  </div>
+                ) : item.missing && item.missing.length > 0 && (
                   <ul className="text-sm space-y-1 ml-2">
                     {item.missing.map((ing: any, idx: number) => (
                       <li key={idx} className="text-gray-700">

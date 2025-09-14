@@ -264,6 +264,18 @@ export async function validateInventoryForOrder(orderItems: any[]): Promise<Vali
             }))
           })
         }
+      } else {
+        // Si no hay receta definida ni ingredientes seleccionados, añadir como error
+        insufficientItems.push({
+          item: item.nombre || item.name,
+          noRecipe: true,
+          missing: [{
+            ingrediente: "Receta no definida",
+            needed: 0,
+            available: 0,
+            unidad: ""
+          }]
+        })
       }
     }
 
@@ -388,7 +400,11 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
             recipe = buildRecipeLinesFromIngredients(item, ingredientesByName)
           }
           
-          if (recipe.length === 0) continue;
+          if (recipe.length === 0) {
+            console.error(`No se encontró receta para "${itemName}" y no tiene ingredientes seleccionados.`);
+            // No se puede procesar el pedido si un producto no tiene receta
+            throw new Error(`No se puede procesar el producto "${itemName}" porque no tiene receta definida.`);
+          }
           
           // Procesar cada línea de la receta - SOLO LECTURAS
           for (const line of recipe) {
