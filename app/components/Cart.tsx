@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useCart } from "../context/CartContext"
-import { consumeOrderItems } from '../../lib/recipes'
 import { Button } from "@/components/ui/button"
 import { toast } from "@/hooks/use-toast"
 import { Trash, ChevronDown, ChevronUp, Edit } from "lucide-react"
@@ -19,6 +18,7 @@ import LocationPicker from "./LocationPicker"
 import type { DeliveryZone } from "../../lib/delivery-zones"
 import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 import PizzaConfigModal from "./PizzaConfigModal"
+import InventoryErrorModal from "./InventoryErrorModal"
 
 const Cart = () => {
   const { items, removeItem, getTotal, updateQuantity, clearCart, createOrder } = useCart()
@@ -26,6 +26,8 @@ const Cart = () => {
   const [expandedItems, setExpandedItems] = useState<{ [key: string]: boolean }>({})
   const [editingItem, setEditingItem] = useState<any>(null)
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [inventoryErrorDetails, setInventoryErrorDetails] = useState<any[] | undefined>(undefined)
+  const [isInventoryErrorModalOpen, setIsInventoryErrorModalOpen] = useState(false)
 
   const { isAuthenticated, user } = useAuth()
   const [isDelivery, setIsDelivery] = useState(false)
@@ -346,29 +348,61 @@ const Cart = () => {
         orderData.notas = referencia
       }
 
-      // Try to consume inventory for items in the cart before creating the order
-      try {
-        const consumeRes = await consumeOrderItems(items)
-        if (!consumeRes || !consumeRes.success) {
-          console.error('Error consuming inventory before order:', consumeRes)
-          // Optionally alert the user; for now we abort order creation
-          alert('No se pudo reservar inventario para tu pedido. Intenta nuevamente más tarde.')
+      // Crear el pedido (ya incluye validación de inventario)
+      const result = await createOrder(orderData)
+
+      // Verificar si la creación fue exitosa
+      if (!result.success) {
+        if (result.error === 'INVENTORY_UNAVAILABLE' && result.validationDetails) {
+          // Mostrar mensaje detallado sobre falta de inventario
+          let errorMessage = "No hay suficiente stock para procesar tu pedido:"
+          let ingredientesFaltantes = "";
+          
+          result.validationDetails.forEach((item: any) => {
+            errorMessage += `\n• ${item.item}: `
+            if (item.missing && item.missing.length > 0) {
+              item.missing.forEach((ing: any) => {
+                errorMessage += `\n  - ${ing.ingrediente}: necesario ${ing.needed} ${ing.unidad}, disponible ${ing.available} ${ing.unidad}`
+                ingredientesFaltantes += `${ing.ingrediente}, `
+              })
+            }
+          })
+          
+          // Eliminar la última coma y espacio
+          ingredientesFaltantes = ingredientesFaltantes.replace(/,\s*$/, "");
+          
+          console.error('Detalles de inventario insuficiente:', errorMessage)
+          
+          // Guardar los detalles de validación para el modal
+          setInventoryErrorDetails(result.validationDetails)
+          setIsInventoryErrorModalOpen(true)
+          
+          // También mostrar toast con mensaje de error básico
+          toast({
+            title: "Inventario insuficiente",
+            description: `No podemos procesar tu pedido por falta de stock de algunos ingredientes.`,
+            variant: "destructive",
+          })
+          
+          setIsProcessing(false)
+          return
+        } else {
+          // Otro tipo de error
+          toast({
+            title: "Error al procesar el pedido",
+            description: "Ha ocurrido un error inesperado. Por favor intenta nuevamente.",
+            variant: "destructive"
+          })
+          
           setIsProcessing(false)
           return
         }
-        console.log('Inventory consumption result:', consumeRes)
-      } catch (err) {
-        console.error('Exception consuming inventory:', err)
-        alert('Error al reservar inventario. Intenta nuevamente.')
-        setIsProcessing(false)
-        return
       }
-
-      const orderId = await createOrder(orderData)
-      console.log('Pedido creado exitosamente:', orderId)
+      
+      console.log('Pedido creado exitosamente:', result)
       
       // Usamos el número de pedido real devuelto por Firestore
-      setOrderNumber(orderId.orderNumber)
+      setOrderNumber(result.orderNumber)
       
       // Cambiamos a la vista de confirmación
       setCurrentView("confirmation")
@@ -1349,6 +1383,17 @@ const Cart = () => {
           }}
         />
       )}
+      
+      {/* Modal de error de inventario */}
+      <InventoryErrorModal
+        isOpen={isInventoryErrorModalOpen}
+        onClose={() => setIsInventoryErrorModalOpen(false)}
+        validationDetails={inventoryErrorDetails}
+        onModifyCart={() => {
+          setIsInventoryErrorModalOpen(false);
+          setCurrentView("cart");
+        }}
+      />
     </div>
   )
 }
