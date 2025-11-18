@@ -102,6 +102,124 @@ async function getCachedData() {
   return { itemsMenu, ingredientes, ingredientesByName, ingredientsById }
 }
 
+// Helper para procesar recetas de pizzas Duo según la lógica especificada:
+// IMPORTANTE: Las recetas ya vienen con cantidades divididas por 2 (mitades)
+// 1. Para ingredientes comunes: sumar cantidades (ya divididas previamente)
+// 2. Para ingredientes únicos: mantener el valor (ya están divididos previamente)
+const combineRecipes = (recipe1: RecipeLine[], recipe2: RecipeLine[]): RecipeLine[] => {
+  // Inicializar estructuras para rastrear ingredientes
+  const result: RecipeLine[] = [];
+  const ingredientMap: Record<string, { 
+    ingredienteId: string,
+    cantidad1?: number,  // Cantidad en receta 1
+    cantidad2?: number,  // Cantidad en receta 2
+    unidad?: string,
+    isCommon: boolean    // Indica si está en ambas recetas
+  }> = {};
+  
+  // Contadores para debugging
+  let uniqueIngredients1 = 0;
+  let uniqueIngredients2 = 0;
+  let commonIngredients = 0;
+  let incompatibleUnits = 0;
+  
+  // Verificar que las recetas no sean nulas
+  if (!recipe1) recipe1 = [];
+  if (!recipe2) recipe2 = [];
+  
+  // Paso 1: Registrar todos los ingredientes de la primera receta
+  recipe1.forEach(line => {
+    if (!line || !line.ingredienteId) return; // Saltamos ingredientes inválidos
+    
+    ingredientMap[line.ingredienteId] = {
+      ingredienteId: line.ingredienteId,
+      cantidad1: line.cantidad || 0,
+      unidad: line.unidad || 'u',
+      isCommon: false // Inicialmente asumimos que no es común
+    };
+  });
+  
+  // Paso 2: Procesar segunda receta y marcar ingredientes comunes
+  recipe2.forEach(line => {
+    if (!line || !line.ingredienteId) return; // Saltamos ingredientes inválidos
+    
+    if (ingredientMap[line.ingredienteId]) {
+      // Es un ingrediente común
+      const existingIngredient = ingredientMap[line.ingredienteId];
+      
+      // Verificar compatibilidad de unidades
+      if (existingIngredient.unidad === (line.unidad || 'u')) {
+        existingIngredient.cantidad2 = line.cantidad || 0;
+        existingIngredient.isCommon = true;
+        commonIngredients++;
+      } else {
+        // Unidades incompatibles - crear entrada separada con sufijo único
+        const uniqueSuffix = `_${Date.now()}_${Math.floor(Math.random()*1000)}`;
+        ingredientMap[line.ingredienteId + uniqueSuffix] = {
+          ingredienteId: line.ingredienteId,
+          cantidad2: line.cantidad || 0,
+          unidad: line.unidad || 'u',
+          isCommon: false
+        };
+        incompatibleUnits++;
+      }
+    } else {
+      // Es un ingrediente único de la segunda receta
+      ingredientMap[line.ingredienteId] = {
+        ingredienteId: line.ingredienteId,
+        cantidad2: line.cantidad || 0,
+        unidad: line.unidad || 'u',
+        isCommon: false
+      };
+    }
+  });
+  
+  // Paso 3: Procesar cada ingrediente según la lógica requerida
+  Object.values(ingredientMap).forEach(item => {
+    let finalAmount = 0;
+    
+    if (item.isCommon) {
+      // Para ingredientes comunes: sumar cantidades directamente
+      // No dividimos entre 2 porque las recetas ya vienen con las cantidades divididas
+      const total = (item.cantidad1 || 0) + (item.cantidad2 || 0);
+      finalAmount = total;
+      console.log(`Ingrediente común: ${item.ingredienteId} - Cant1: ${item.cantidad1}, Cant2: ${item.cantidad2}, Total: ${finalAmount}`);
+    } else if (item.cantidad1 !== undefined) {
+      // Ingrediente único de la receta 1: mantener el valor (ya viene dividido)
+      finalAmount = item.cantidad1;
+      uniqueIngredients1++;
+      console.log(`Ingrediente único (receta1): ${item.ingredienteId} - Cantidad: ${finalAmount}`);
+    } else if (item.cantidad2 !== undefined) {
+      // Ingrediente único de la receta 2: mantener el valor (ya viene dividido)
+      finalAmount = item.cantidad2;
+      uniqueIngredients2++;
+      console.log(`Ingrediente único (receta2): ${item.ingredienteId} - Cantidad: ${finalAmount}`);
+    }
+    
+    // Redondear a 2 decimales para evitar errores de punto flotante
+    finalAmount = Math.round(finalAmount * 100) / 100;
+    
+    if (finalAmount > 0) {
+      result.push({
+        ingredienteId: item.ingredienteId,
+        cantidad: finalAmount,
+        unidad: item.unidad
+      });
+    }
+  });
+  
+  // Log detallado para debugging
+  console.log(`Combinación de recetas DUO (nueva lógica):
+    - Ingredientes únicos de receta 1: ${uniqueIngredients1}
+    - Ingredientes únicos de receta 2: ${uniqueIngredients2}
+    - Ingredientes comunes (en ambas recetas): ${commonIngredients}
+    - Ingredientes con unidades incompatibles: ${incompatibleUnits}
+    - Total de ingredientes combinados: ${result.length}
+  `);
+  
+  return result;
+};
+
 // Helper para parsear strings como 'Jamón (2)' o 'Jamón' -> { name, quantity }
 const parseItemString = (itemString: string): { name: string; quantity: number } => {
   if (!itemString) {
@@ -203,16 +321,285 @@ export async function validateInventoryForOrder(orderItems: any[]): Promise<Vali
       const qty = item.cantidad || item.quantity || 1
       const itemName = (item.nombre || item.name || '').toLowerCase().trim()
 
-      // Buscar receta en items_menu
-      const matchedItem = itemsMenu.find(i => {
-        // Normalizar nombres para comparación
-        const normalizeText = (text: string): string => {
-          return (text || '').toLowerCase()
-                  .normalize("NFD")
-                  .replace(/[\u0300-\u036f]/g, "")
-                  .trim();
+      // Función auxiliar para normalizar texto
+      const normalizeText = (text: string): string => {
+        return (text || '').toLowerCase()
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .trim();
+      };
+
+      // 1. Verificar si es una pizza Duo
+      const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
+      
+      if (isDuoPizza) {
+        console.log(`Validando Pizza Duo: ${itemName} (${item.pizza1} / ${item.pizza2})`);
+        
+        const pizza1Name = normalizeText(item.pizza1);
+        const pizza2Name = normalizeText(item.pizza2);
+        const size = item.size?.toLowerCase() || 'familiar';
+        
+        // Encontrar las pizzas individuales en el menú
+        const matchedPizza1 = itemsMenu.find(i => {
+          const normalizedMenuItemName = normalizeText(i.nombre || i.name || '');
+          return normalizedMenuItemName === pizza1Name ||
+                 normalizedMenuItemName.includes(pizza1Name) ||
+                 pizza1Name.includes(normalizedMenuItemName);
+        });
+        
+        const matchedPizza2 = itemsMenu.find(i => {
+          const normalizedMenuItemName = normalizeText(i.nombre || i.name || '');
+          return normalizedMenuItemName === pizza2Name ||
+                 normalizedMenuItemName.includes(pizza2Name) ||
+                 pizza2Name.includes(normalizedMenuItemName);
+        });
+        
+        // Función para encontrar pizzas en el menú (validación)
+        const findPizzaInMenuValidation = (pizzaName: string) => {
+          // 0. Limpieza adicional para palabras clave específicas
+          const cleanName = pizzaName
+            .replace(/\s+pizza\s+/gi, ' ')  // Eliminar "pizza" como palabra separada
+            .replace(/\b(mediana|familiar)\b/gi, '') // Eliminar tamaños de la búsqueda
+            .trim();
+          
+          // Caso especial para "Del Pibe" y otras pizzas problemáticas
+          if (cleanName.toLowerCase().includes("del pibe") || cleanName.toLowerCase().includes("pibe")) {
+            const specialMatch = itemsMenu.find(i => {
+              const menuItemName = normalizeText(i.nombre || i.name || '');
+              return menuItemName.includes("pibe") || menuItemName.includes("del pibe");
+            });
+            if (specialMatch) return specialMatch;
+          }
+          
+          // Caso especial para "Napolitana"
+          if (cleanName.toLowerCase().includes("napolitana")) {
+            const specialMatch = itemsMenu.find(i => {
+              const menuItemName = normalizeText(i.nombre || i.name || '');
+              return menuItemName.includes("napolitana");
+            });
+            if (specialMatch) return specialMatch;
+          }
+          
+          // 1. Búsqueda exacta (considerando tanto nombre como name)
+          let match = itemsMenu.find(i => 
+            normalizeText(i.nombre || '') === normalizeText(cleanName) || 
+            normalizeText(i.name || '') === normalizeText(cleanName)
+          );
+          
+          // 2. Búsqueda por palabras clave significativas
+          if (!match) {
+            // Extraer palabras clave significativas (ignorar artículos, etc.)
+            const keywords = cleanName.split(' ').filter(word => 
+              word.length > 2 && !['con', 'los', 'las', 'del', 'de', 'la', 'el', 'y'].includes(word.toLowerCase())
+            );
+            
+            if (keywords.length > 0) {
+              match = itemsMenu.find(i => {
+                const menuItemName = normalizeText(i.nombre || i.name || '');
+                // Una pizza coincide si todas sus palabras clave están en el nombre del menú
+                return keywords.every(word => menuItemName.includes(normalizeText(word)));
+              });
+            }
+          }
+          
+          // 3. Búsqueda por inicio de palabras
+          if (!match) {
+            match = itemsMenu.find(i => {
+              const menuItemName = normalizeText(i.nombre || i.name || '');
+              const normalizedPizzaName = normalizeText(cleanName);
+              return menuItemName.startsWith(normalizedPizzaName) || normalizedPizzaName.startsWith(menuItemName);
+            });
+          }
+          
+          // 4. Búsqueda por coincidencia parcial
+          if (!match) {
+            match = itemsMenu.find(i => {
+              const menuItemName = normalizeText(i.nombre || i.name || '');
+              const normalizedPizzaName = normalizeText(cleanName);
+              return menuItemName.includes(normalizedPizzaName) || normalizedPizzaName.includes(menuItemName);
+            });
+          }
+          
+          // 5. Búsqueda por primeras palabras
+          if (!match) {
+            const firstTwoWords = normalizeText(cleanName).split(' ').slice(0,2).join(' ');
+            if (firstTwoWords.length > 3) { // Solo si son palabras significativas
+              match = itemsMenu.find(i => normalizeText(i.nombre || i.name || '').includes(firstTwoWords));
+            }
+          }
+          
+          // 6. Búsqueda más flexible si aún no se encuentra
+          if (!match && cleanName.length >= 4) {
+            // Buscar por la primera parte del nombre (primeros 4 caracteres)
+            const firstChars = normalizeText(cleanName).substring(0, 4);
+            match = itemsMenu.find(i => normalizeText(i.nombre || i.name || '').includes(firstChars));
+          }
+          
+          return match;
         };
         
+        const validationPizza1 = findPizzaInMenuValidation(pizza1Name);
+        const validationPizza2 = findPizzaInMenuValidation(pizza2Name);
+        
+        // Log detallado para diagnóstico
+        console.log(`Validación - Búsqueda de Pizza 1 "${pizza1Name}": ${validationPizza1 ? 'ENCONTRADA - ' + validationPizza1.nombre : 'NO ENCONTRADA'}`);
+        console.log(`Validación - Búsqueda de Pizza 2 "${pizza2Name}": ${validationPizza2 ? 'ENCONTRADA - ' + validationPizza2.nombre : 'NO ENCONTRADA'}`);
+        
+        // Preparar recetas para ambas mitades
+        let recipe1: RecipeLine[] = [];
+        let recipe2: RecipeLine[] = [];
+        
+        // Validar pizza1
+        if (validationPizza1) {
+          let receta1 = null;
+          
+          // Seleccionar la receta adecuada según el tamaño
+          if (size === 'mediana' && validationPizza1.recetaMediana && Array.isArray(validationPizza1.recetaMediana) && validationPizza1.recetaMediana.length > 0) {
+            receta1 = validationPizza1.recetaMediana;
+            console.log(`Validación - Pizza 1 (${item.pizza1}): Usando receta MEDIANA con ${receta1.length} ingredientes`);
+          } else if (validationPizza1.receta && Array.isArray(validationPizza1.receta) && validationPizza1.receta.length > 0) {
+            receta1 = validationPizza1.receta;
+            console.log(`Validación - Pizza 1 (${item.pizza1}): Usando receta FAMILIAR con ${receta1.length} ingredientes`);
+          }
+          
+          if (receta1 && receta1.length > 0) {
+            // Preparar la MITAD de la receta
+            recipe1 = receta1.map((r: any) => {
+              // Verificar que el ingrediente tenga los datos necesarios
+              if (!r.ingredienteId) {
+                console.error(`Validación - Pizza 1: Ingrediente sin ID en receta de ${item.pizza1}`);
+                return null;
+              }
+              
+              // Aseguramos que el cálculo de la mitad sea preciso
+              const originalCantidad = Number(r.cantidad) || 0;
+              // Dividimos por 2 y redondeamos a 2 decimales para evitar imprecisiones
+              const halfCantidad = Math.round((originalCantidad / 2) * 100) / 100;
+              
+              return {
+                ingredienteId: r.ingredienteId,
+                cantidad: halfCantidad, // MITAD de ingredientes con precisión
+                unidad: r.unidad
+              };
+            }).filter(Boolean); // Eliminamos valores nulos
+            
+            console.log(`Validación - Preparada mitad de receta para ${item.pizza1} con ${recipe1.length} ingredientes`);
+          } else {
+            console.log(`Validación - No se encontró receta válida para la pizza 1: ${item.pizza1}`);
+          }
+        } else {
+          console.log(`Validación - No se encontró la pizza 1 en el menú: ${item.pizza1}`);
+        }
+        
+        // Validar pizza2
+        if (validationPizza2) {
+          let receta2 = null;
+          
+          // Seleccionar la receta adecuada según el tamaño
+          if (size === 'mediana' && validationPizza2.recetaMediana && Array.isArray(validationPizza2.recetaMediana) && validationPizza2.recetaMediana.length > 0) {
+            receta2 = validationPizza2.recetaMediana;
+            console.log(`Validación - Pizza 2 (${item.pizza2}): Usando receta MEDIANA con ${receta2.length} ingredientes`);
+          } else if (validationPizza2.receta && Array.isArray(validationPizza2.receta) && validationPizza2.receta.length > 0) {
+            receta2 = validationPizza2.receta;
+            console.log(`Validación - Pizza 2 (${item.pizza2}): Usando receta FAMILIAR con ${receta2.length} ingredientes`);
+          }
+          
+          if (receta2 && receta2.length > 0) {
+            // Preparar la MITAD de la receta
+            recipe2 = receta2.map((r: any) => {
+              // Verificar que el ingrediente tenga los datos necesarios
+              if (!r.ingredienteId) {
+                console.error(`Validación - Pizza 2: Ingrediente sin ID en receta de ${item.pizza2}`);
+                return null;
+              }
+              
+              // Aseguramos que el cálculo de la mitad sea preciso
+              const originalCantidad = Number(r.cantidad) || 0;
+              // Dividimos por 2 y redondeamos a 2 decimales para evitar imprecisiones
+              const halfCantidad = Math.round((originalCantidad / 2) * 100) / 100;
+              
+              return {
+                ingredienteId: r.ingredienteId,
+                cantidad: halfCantidad, // MITAD de ingredientes con precisión
+                unidad: r.unidad
+              };
+            }).filter(Boolean); // Eliminamos valores nulos
+            
+            console.log(`Validación - Preparada mitad de receta para ${item.pizza2} con ${recipe2.length} ingredientes`);
+          } else {
+            console.log(`Validación - No se encontró receta válida para la pizza 2: ${item.pizza2}`);
+          }
+        } else {
+          console.log(`Validación - No se encontró la pizza 2 en el menú: ${item.pizza2}`);
+        }
+        
+        // Combinar y validar las recetas de ambas mitades
+        if (recipe1.length > 0 || recipe2.length > 0) {
+          // Combinar ambas recetas, sumando cantidades para ingredientes comunes
+          const combinedRecipe = combineRecipes(recipe1, recipe2);
+          console.log(`Validación - Pizza Duo: Validando receta combinada con ${combinedRecipe.length} ingredientes únicos`);
+          
+          // Mostrar detalles para debugging
+          if (combinedRecipe.length > 0) {
+            console.log(`Validación - Muestra de ingredientes combinados: ${JSON.stringify(combinedRecipe.slice(0, 3))}`);
+            
+            // Log adicional para verificar si ambas recetas se encontraron
+            console.log(`DIAGNÓSTICO PIZZA DUO - Receta1: ${recipe1.length} ingredientes, Receta2: ${recipe2.length} ingredientes`);
+            if (recipe1.length === 0) {
+              console.warn(`⚠️ ADVERTENCIA: No se encontró la receta para pizza1: "${item.pizza1}"`);
+            }
+            if (recipe2.length === 0) {
+              console.warn(`⚠️ ADVERTENCIA: No se encontró la receta para pizza2: "${item.pizza2}"`);
+            }
+          }
+          
+          // Validar la receta combinada
+          const availabilityCombined = isItemAvailable(combinedRecipe, ingredientsById, qty);
+          if (!availabilityCombined.available) {
+            console.log(`Validación - Ingredientes insuficientes para pizza Duo: ${availabilityCombined.missing.length} ingredientes faltantes`);
+            
+            insufficientItems.push({
+              item: `${item.nombre} - Receta combinada (${item.pizza1} / ${item.pizza2})`,
+              missing: availabilityCombined.missing.map(m => ({
+                ingrediente: ingredientsById[m.ingredienteId]?.nombre || m.ingredienteId,
+                ingredienteId: m.ingredienteId,
+                needed: m.needed,
+                available: m.available,
+                unidad: m.unidad
+              }))
+            });
+          } else {
+            console.log(`Validación - Inventario suficiente para pizza Duo`);
+          }
+        } else {
+          console.log(`Validación - No se encontraron recetas para validar la pizza Duo`);
+        }
+        
+        // Validar extras de la pizza Duo
+        const extraLines = buildRecipeLinesFromIngredients(item, ingredientesByName);
+        if (extraLines.length > 0) {
+          const availabilityExtras = isItemAvailable(extraLines, ingredientsById, qty);
+          if (!availabilityExtras.available) {
+            insufficientItems.push({
+              item: `${item.nombre} - Extras`,
+              missing: availabilityExtras.missing.map(m => ({
+                ingrediente: ingredientsById[m.ingredienteId]?.nombre || m.ingredienteId,
+                ingredienteId: m.ingredienteId,
+                needed: m.needed,
+                available: m.available,
+                unidad: m.unidad
+              }))
+            });
+          }
+        }
+        
+        // Continuar con el siguiente ítem después de validar la pizza Duo
+        continue;
+      }
+
+      // Código existente para pizzas normales (no Duo)
+      // Buscar receta en items_menu
+      const matchedItem = itemsMenu.find(i => {
         const normalizedItemName = normalizeText(itemName);
         const normalizedMenuItemName = normalizeText(i.nombre || i.name || '');
         
@@ -222,29 +609,45 @@ export async function validateInventoryForOrder(orderItems: any[]): Promise<Vali
                normalizedItemName.includes(normalizedMenuItemName);
       })
       
-      if (matchedItem && matchedItem.receta && Array.isArray(matchedItem.receta)) {
-        console.log(`Encontrada receta para "${itemName}" con ${matchedItem.receta.length} ingredientes`);
-        // Verificar disponibilidad de la receta
-        const recipe: RecipeLine[] = matchedItem.receta.map((r: any) => ({ 
-          ingredienteId: r.ingredienteId, 
-          cantidad: Number(r.cantidad) || 0, 
-          unidad: r.unidad 
-        }))
+      // Usar la receta correcta según el tamaño de pizza
+      if (matchedItem) {
+        // Determinar qué receta usar según el tamaño
+        const size = item.size?.toLowerCase() || '';
+        let receta = null;
         
-        const availability = isItemAvailable(recipe, ingredientsById, qty)
-        if (!availability.available) {
-          insufficientItems.push({
-            item: item.nombre || item.name,
-            missing: availability.missing.map(m => ({
-              ingrediente: ingredientsById[m.ingredienteId]?.nombre || m.ingredienteId,
-              ingredienteId: m.ingredienteId,
-              needed: m.needed,
-              available: m.available,
-              unidad: m.unidad
-            }))
-          })
+        if (size === 'mediana' && matchedItem.recetaMediana && Array.isArray(matchedItem.recetaMediana)) {
+          // Si es mediana y tiene receta específica, usar recetaMediana
+          receta = matchedItem.recetaMediana;
+          console.log(`Encontrada receta MEDIANA para "${itemName}" con ${receta.length} ingredientes`);
+        } else if (matchedItem.receta && Array.isArray(matchedItem.receta)) {
+          // Por defecto usar la receta familiar
+          receta = matchedItem.receta;
+          console.log(`Encontrada receta FAMILIAR para "${itemName}" con ${receta.length} ingredientes`);
         }
-        continue
+        
+        if (receta) {
+          // Verificar disponibilidad de la receta
+          const recipe: RecipeLine[] = receta.map((r: any) => ({ 
+            ingredienteId: r.ingredienteId, 
+            cantidad: Number(r.cantidad) || 0, 
+            unidad: r.unidad 
+          }))
+          
+          const availability = isItemAvailable(recipe, ingredientsById, qty)
+          if (!availability.available) {
+            insufficientItems.push({
+              item: item.nombre || item.name,
+              missing: availability.missing.map(m => ({
+                ingrediente: ingredientsById[m.ingredienteId]?.nombre || m.ingredienteId,
+                ingredienteId: m.ingredienteId,
+                needed: m.needed,
+                available: m.available,
+                unidad: m.unidad
+              }))
+            })
+          }
+          continue
+        }
       }
 
       // Si no hay receta, intentar construir desde ingredientes seleccionados
@@ -293,10 +696,11 @@ export async function validateInventoryForOrder(orderItems: any[]): Promise<Vali
 }
 
 // Consumir inventario para un pedido con transacción
-export async function consumeInventoryForOrder(orderItems: any[], orderId: string, orderNumber: number): Promise<{
+export async function consumeInventoryForOrder(orderItems: any[], orderId: string, orderNumber: number, simulationMode = false): Promise<{
   success: boolean
   transactionId?: string
   error?: string
+  simulatedItems?: any[]
 }> {
   try {
     // 1. Validar primero que hay stock suficiente
@@ -345,21 +749,23 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
     let errorMessage = '';
     
     try {
-      // Ejecutar en una transacción de Firestore para garantizar atomicidad
-      await runTransaction(db, async (transaction) => {
-        // Estructura para almacenar todos los datos necesarios
-        const updateOperations: Array<{
-          ref: any;
-          data: any;
-          ingredientInfo: {
-            ingredienteId: string;
-            nombre: string;
-            cantidadAnterior: number;
-            cantidadConsumida: number;
-            cantidadNueva: number;
-            unidad: string;
-          };
-        }> = [];
+      // Estructura para almacenar todos los datos necesarios
+      const updateOperations: Array<{
+        ref: any;
+        data: any;
+        ingredientInfo: {
+          ingredienteId: string;
+          nombre: string;
+          cantidadAnterior: number;
+          cantidadConsumida: number;
+          cantidadNueva: number;
+          unidad: string;
+        };
+      }> = [];
+
+      if (!simulationMode) {
+        // Ejecutar en una transacción de Firestore para garantizar atomicidad (solo en modo real)
+        await runTransaction(db, async (transaction) => {
         
         // PRIMERA FASE: Realizar todas las lecturas
         for (const item of orderItems) {
@@ -376,28 +782,294 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
           
           const normalizedItemName = normalizeText(itemName);
           
-          const matchedItem = itemsMenu.find(i => {
-            const normalizedMenuItemName = normalizeText(i.nombre || i.name || '');
-            
-            // Comparar nombres normalizados
-            return normalizedMenuItemName === normalizedItemName ||
-                  normalizedMenuItemName.includes(normalizedItemName) ||
-                  normalizedItemName.includes(normalizedMenuItemName);
-          })
+          // 1. Verificar si es una pizza Duo
+          const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
           
           let recipe: RecipeLine[] = []
           
-          if (matchedItem && matchedItem.receta && Array.isArray(matchedItem.receta)) {
-            console.log(`Consumiendo receta para "${itemName}" con ${matchedItem.receta.length} ingredientes`);
-            // Usar receta definida
-            recipe = matchedItem.receta.map((r: any) => ({ 
-              ingredienteId: r.ingredienteId, 
-              cantidad: Number(r.cantidad) || 0, 
-              unidad: r.unidad 
-            }))
+          if (isDuoPizza) {
+            console.log(`Procesando Pizza Duo: ${itemName} (${item.pizza1} / ${item.pizza2})`);
+            
+            const pizza1Name = normalizeText(item.pizza1);
+            const pizza2Name = normalizeText(item.pizza2);
+            const size = item.size?.toLowerCase() || 'familiar';
+            
+            // Función mejorada para encontrar las pizzas individuales en el menú
+            const findPizzaInMenu = (pizzaName: string) => {
+              // 0. Limpieza adicional para palabras clave específicas
+              const cleanName = pizzaName
+                .replace(/\s+pizza\s+/gi, ' ')  // Eliminar "pizza" como palabra separada
+                .replace(/\b(mediana|familiar)\b/gi, '') // Eliminar tamaños de la búsqueda
+                .trim();
+              
+              console.log(`Búsqueda de pizza: "${pizzaName}" (limpiado: "${cleanName}")`);
+              
+              // CASOS ESPECIALES - Buscar por nombre específico para pizzas problemáticas
+              // CASO ESPECIAL: "Del Pibe"
+              if (cleanName.toLowerCase().includes("pibe") || cleanName.toLowerCase().includes("del pibe")) {
+                console.log(`Detectada búsqueda especial: "Del Pibe"`);
+                const specialMatch = itemsMenu.find(i => {
+                  const menuItemName = normalizeText(i.nombre || i.name || '');
+                  return menuItemName.includes("pibe") || menuItemName.includes("del pibe");
+                });
+                if (specialMatch) {
+                  console.log(`✅ Encontrada pizza Del Pibe por búsqueda especial: ${specialMatch.nombre || specialMatch.name}`);
+                  return specialMatch;
+                }
+              }
+              
+              // CASO ESPECIAL: "Napolitana"
+              if (cleanName.toLowerCase().includes("napolitana") || cleanName.toLowerCase().includes("napo")) {
+                console.log(`Detectada búsqueda especial: "Napolitana"`);
+                const specialMatch = itemsMenu.find(i => {
+                  const menuItemName = normalizeText(i.nombre || i.name || '');
+                  return menuItemName.includes("napolitana");
+                });
+                if (specialMatch) {
+                  console.log(`✅ Encontrada pizza Napolitana por búsqueda especial: ${specialMatch.nombre || specialMatch.name}`);
+                  return specialMatch;
+                }
+              }
+              
+              // 1. Búsqueda exacta (considerando tanto nombre como name)
+              let match = itemsMenu.find(i => 
+                normalizeText(i.nombre || '') === normalizeText(cleanName) || 
+                normalizeText(i.name || '') === normalizeText(cleanName)
+              );
+              if (match) console.log(`Encontrada por coincidencia exacta: ${match.nombre || match.name}`);
+              
+              // 2. Búsqueda por palabras clave significativas
+              if (!match) {
+                // Búsqueda por palabras clave
+                const keywords = cleanName.split(' ').filter(word => 
+                  word.length > 2 && !['con', 'los', 'las', 'del', 'de', 'la', 'el', 'y'].includes(word.toLowerCase())
+                );
+                
+                if (keywords.length > 0) {
+                  console.log(`Buscando por palabras clave: ${keywords.join(', ')}`);
+                  match = itemsMenu.find(i => {
+                    const menuItemName = normalizeText(i.nombre || i.name || '');
+                    // Una pizza coincide si todas sus palabras clave están en el nombre del menú
+                    return keywords.every(word => menuItemName.includes(normalizeText(word)));
+                  });
+                  if (match) console.log(`Encontrada por palabras clave: ${match.nombre || match.name}`);
+                }
+              }
+              
+              // 3. Búsqueda por coincidencia parcial
+              if (!match) {
+                match = itemsMenu.find(i => {
+                  const menuItemName = normalizeText(i.nombre || i.name || '');
+                  const normalizedPizzaName = normalizeText(cleanName);
+                  return menuItemName.includes(normalizedPizzaName) || normalizedPizzaName.includes(menuItemName);
+                });
+                if (match) console.log(`Encontrada por coincidencia parcial: ${match.nombre || match.name}`);
+              }
+              
+              // 4. Búsqueda por primeras palabras
+              if (!match) {
+                const firstTwoWords = normalizeText(cleanName).split(' ').slice(0,2).join(' ');
+                if (firstTwoWords.length > 3) { // Solo si son palabras significativas
+                  match = itemsMenu.find(i => normalizeText(i.nombre || i.name || '').includes(firstTwoWords));
+                  if (match) console.log(`Encontrada por primeras palabras: ${match.nombre || match.name}`);
+                }
+              }
+              
+              // 5. Búsqueda más flexible si aún no se encuentra
+              if (!match && cleanName.length >= 4) {
+                console.log(`Intento final de búsqueda con coincidencia parcial más flexible`);
+                
+                // Buscar por la primera parte del nombre (primeros 4 caracteres)
+                const firstChars = normalizeText(cleanName).substring(0, 4);
+                match = itemsMenu.find(i => normalizeText(i.nombre || i.name || '').includes(firstChars));
+                
+                if (match) console.log(`Encontrada por coincidencia flexible: ${match.nombre || match.name}`);
+              }
+              
+              // Si no encontramos nada, mostrar qué pizzas están disponibles (para diagnóstico)
+              if (!match && cleanName.length > 3) {
+                console.log(`⚠️ No se pudo encontrar la pizza "${cleanName}". Mostrando algunas opciones disponibles:`);
+                const availablePizzas = itemsMenu
+                  .filter(i => i.nombre || i.name)
+                  .map(i => i.nombre || i.name)
+                  .slice(0, 10);
+                console.log(availablePizzas.join(", "));
+              }
+              
+              return match;
+            };
+            
+            const matchedPizza1 = findPizzaInMenu(pizza1Name);
+            const matchedPizza2 = findPizzaInMenu(pizza2Name);
+            
+            // Log detallado para diagnóstico
+            console.log(`Búsqueda de Pizza 1 "${pizza1Name}": ${matchedPizza1 ? 'ENCONTRADA - ' + matchedPizza1.nombre : 'NO ENCONTRADA'}`);
+            console.log(`Búsqueda de Pizza 2 "${pizza2Name}": ${matchedPizza2 ? 'ENCONTRADA - ' + matchedPizza2.nombre : 'NO ENCONTRADA'}`);
+            
+            // Preparar recetas para ambas mitades
+            let recipe1: RecipeLine[] = [];
+            let recipe2: RecipeLine[] = [];
+            
+            // Procesar pizza1
+            if (matchedPizza1) {
+              let receta1 = null;
+              
+              // Seleccionar la receta adecuada según el tamaño
+              if (size === 'mediana' && matchedPizza1.recetaMediana && Array.isArray(matchedPizza1.recetaMediana) && matchedPizza1.recetaMediana.length > 0) {
+                receta1 = matchedPizza1.recetaMediana;
+                console.log(`Pizza 1 (${item.pizza1}): Usando receta MEDIANA con ${receta1.length} ingredientes`);
+              } else if (matchedPizza1.receta && Array.isArray(matchedPizza1.receta) && matchedPizza1.receta.length > 0) {
+                receta1 = matchedPizza1.receta;
+                console.log(`Pizza 1 (${item.pizza1}): Usando receta FAMILIAR con ${receta1.length} ingredientes`);
+              }
+              
+              if (receta1 && receta1.length > 0) {
+                // Preparar MITAD de la receta para la primera pizza
+                recipe1 = receta1.map((r: any) => {
+                  // Verificar que el ingrediente tenga los datos necesarios
+                  if (!r.ingredienteId) {
+                    console.error(`Pizza 1: Ingrediente sin ID en receta de ${item.pizza1}`);
+                    return null;
+                  }
+                  
+                  // Aseguramos que el cálculo de la mitad sea preciso
+                  const originalCantidad = Number(r.cantidad) || 0;
+                  // Dividimos por 2 y redondeamos a 2 decimales para evitar imprecisiones
+                  const halfCantidad = Math.round((originalCantidad / 2) * 100) / 100;
+                  
+                  return {
+                    ingredienteId: r.ingredienteId,
+                    cantidad: halfCantidad, // MITAD de ingredientes con precisión
+                    unidad: r.unidad
+                  };
+                }).filter(Boolean); // Eliminamos valores nulos
+                
+                console.log(`Preparada mitad de receta para ${item.pizza1} con ${recipe1.length} ingredientes`);
+                // Mostrar detalles de algunos ingredientes para debugging
+                if (recipe1.length > 0) {
+                  console.log(`Muestra de ingredientes pizza 1: ${JSON.stringify(recipe1.slice(0, 2))}`);
+                }
+              } else {
+                console.log(`No se encontró receta válida para la pizza 1: ${item.pizza1}`);
+              }
+            } else {
+              console.log(`No se encontró la pizza 1 en el menú: ${item.pizza1}`);
+            }
+            
+            // Procesar pizza2
+            if (matchedPizza2) {
+              let receta2 = null;
+              
+              // Seleccionar la receta adecuada según el tamaño
+              if (size === 'mediana' && matchedPizza2.recetaMediana && Array.isArray(matchedPizza2.recetaMediana) && matchedPizza2.recetaMediana.length > 0) {
+                receta2 = matchedPizza2.recetaMediana;
+                console.log(`Pizza 2 (${item.pizza2}): Usando receta MEDIANA con ${receta2.length} ingredientes`);
+              } else if (matchedPizza2.receta && Array.isArray(matchedPizza2.receta) && matchedPizza2.receta.length > 0) {
+                receta2 = matchedPizza2.receta;
+                console.log(`Pizza 2 (${item.pizza2}): Usando receta FAMILIAR con ${receta2.length} ingredientes`);
+              }
+              
+              if (receta2 && receta2.length > 0) {
+                // Preparar MITAD de la receta para la segunda pizza
+                recipe2 = receta2.map((r: any) => {
+                  // Verificar que el ingrediente tenga los datos necesarios
+                  if (!r.ingredienteId) {
+                    console.error(`Pizza 2: Ingrediente sin ID en receta de ${item.pizza2}`);
+                    return null;
+                  }
+                  
+                  // Aseguramos que el cálculo de la mitad sea preciso
+                  const originalCantidad = Number(r.cantidad) || 0;
+                  // Dividimos por 2 y redondeamos a 2 decimales para evitar imprecisiones
+                  const halfCantidad = Math.round((originalCantidad / 2) * 100) / 100;
+                  
+                  return {
+                    ingredienteId: r.ingredienteId,
+                    cantidad: halfCantidad, // MITAD de ingredientes con precisión
+                    unidad: r.unidad
+                  };
+                }).filter(Boolean); // Eliminamos valores nulos
+                
+                console.log(`Preparada mitad de receta para ${item.pizza2} con ${recipe2.length} ingredientes`);
+                // Mostrar detalles de algunos ingredientes para debugging
+                if (recipe2.length > 0) {
+                  console.log(`Muestra de ingredientes pizza 2: ${JSON.stringify(recipe2.slice(0, 2))}`);
+                }
+              } else {
+                console.log(`No se encontró receta válida para la pizza 2: ${item.pizza2}`);
+              }
+            } else {
+              console.log(`No se encontró la pizza 2 en el menú: ${item.pizza2}`);
+            }
+            
+            // Combinar las recetas de ambas mitades
+            if (recipe1.length > 0 || recipe2.length > 0) {
+              // Combinar ambas recetas, sumando cantidades para ingredientes comunes
+              recipe = combineRecipes(recipe1, recipe2);
+              console.log(`Pizza Duo: Combinando recetas de ambas mitades - Total ${recipe.length} ingredientes únicos`);
+              
+              // Verificación adicional para asegurar que todos los ingredientes estén incluidos
+              if (recipe.length === 0) {
+                console.error(`¡ATENCIÓN! Receta combinada está vacía a pesar de tener ingredientes individuales`);
+              } else if (recipe.length < (recipe1.length + recipe2.length - 5)) {
+                // Si hay muchos ingredientes menos de los esperados (permitiendo algunos comunes), mostrar advertencia
+                console.warn(`¡Advertencia! Posible pérdida de ingredientes en la combinación: 
+                    Recipe1: ${recipe1.length} + Recipe2: ${recipe2.length} -> Combinada: ${recipe.length}`);
+              }
+              
+              // Mostrar detalles de la receta combinada para debugging
+              if (recipe.length > 0) {
+                console.log(`Muestra de ingredientes combinados: ${JSON.stringify(recipe.slice(0, 3))}`);
+              }
+            } else {
+              console.log(`No se encontraron ingredientes para ninguna de las mitades de la pizza Duo`);
+            }
+            
+            // Añadir extras de la pizza Duo si los hay
+            const extraLines = buildRecipeLinesFromIngredients(item, ingredientesByName);
+            if (extraLines.length > 0) {
+              recipe = [...recipe, ...extraLines];
+              console.log(`Añadiendo ${extraLines.length} extras para la pizza Duo`);
+            }
           } else {
-            // Construir receta a partir de ingredientes seleccionados
-            recipe = buildRecipeLinesFromIngredients(item, ingredientesByName)
+            // Caso de pizza normal (no Duo) - código existente
+            const matchedItem = itemsMenu.find(i => {
+              const normalizedMenuItemName = normalizeText(i.nombre || i.name || '');
+              
+              // Comparar nombres normalizados
+              return normalizedMenuItemName === normalizedItemName ||
+                    normalizedMenuItemName.includes(normalizedItemName) ||
+                    normalizedItemName.includes(normalizedMenuItemName);
+            })
+            
+            if (matchedItem) {
+              // Determinar qué receta usar según el tamaño
+              const size = item.size?.toLowerCase() || '';
+              let receta = null;
+              
+              if (size === 'mediana' && matchedItem.recetaMediana && Array.isArray(matchedItem.recetaMediana)) {
+                // Si es mediana y tiene receta específica, usar recetaMediana
+                receta = matchedItem.recetaMediana;
+                console.log(`Consumiendo receta MEDIANA para "${itemName}" con ${receta.length} ingredientes`);
+              } else if (matchedItem.receta && Array.isArray(matchedItem.receta)) {
+                // Por defecto usar la receta familiar
+                receta = matchedItem.receta;
+                console.log(`Consumiendo receta FAMILIAR para "${itemName}" con ${receta.length} ingredientes`);
+              }
+              
+              if (receta) {
+                recipe = receta.map((r: any) => ({ 
+                  ingredienteId: r.ingredienteId, 
+                  cantidad: Number(r.cantidad) || 0, 
+                  unidad: r.unidad 
+                }))
+              }
+            }
+            
+            // Si no hay receta definida, intentar usar los ingredientes seleccionados
+            if (recipe.length === 0) {
+              recipe = buildRecipeLinesFromIngredients(item, ingredientesByName)
+            }
           }
           
           if (recipe.length === 0) {
@@ -480,6 +1152,26 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
           transactionItems.push(operation.ingredientInfo);
         }
       });
+      } else {
+        // Modo simulación - recopilar los mismos datos pero sin hacer cambios en Firestore
+        console.log("Ejecutando en modo de simulación - no se modificará el inventario");
+        
+        // Recopilar los mismos datos que en modo normal pero sin modificar la BD
+        for (const item of orderItems) {
+          const qty = item.cantidad || item.quantity || 1;
+          const itemName = (item.nombre || item.name || '').toLowerCase().trim();
+          
+          // 1. Verificar si es una pizza Duo
+          const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
+          
+          // Código específico para pizzas Duo en modo simulación
+          if (isDuoPizza) {
+            console.log(`[SIMULACIÓN] Procesando Pizza Duo: ${itemName} (${item.pizza1} / ${item.pizza2})`);
+          }
+          
+          // Aquí no realizamos acciones reales sobre el inventario
+        }
+      }
     } catch (error: any) {
       success = false;
       errorMessage = error?.message || 'Error al procesar inventario';
@@ -502,7 +1194,8 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
     return {
       success,
       transactionId: transactionDoc.id,
-      error: success ? undefined : errorMessage
+      error: success ? undefined : errorMessage,
+      simulatedItems: simulationMode ? transactionItems : undefined
     };
   } catch (err: any) {
     console.error('Error consumiendo inventario:', err)

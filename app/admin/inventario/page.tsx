@@ -31,7 +31,7 @@ export default function AdminInventario() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showRecipeEditor, setShowRecipeEditor] = useState(false)
   const [editorInitialPizza, setEditorInitialPizza] = useState<string | null>(null)
-  const { itemsMenu: pizzasFromHook = [] } = useFirestorePizzaConfig()
+  const { itemsMenu: pizzasFromHook = [], refreshData } = useFirestorePizzaConfig()
 
   // Formulario para nuevo/editar ingrediente
   const [formData, setFormData] = useState({
@@ -597,12 +597,30 @@ export default function AdminInventario() {
               .map((p: any) => (
                 <div key={p.id} className="border rounded p-4 flex items-center justify-between">
                   <div>
-                    <p className="font-medium">{p.nombre}</p>
-                    {p.receta && Array.isArray(p.receta) && p.receta.length > 0 ? (
-                      <p className="text-sm text-gray-500">{p.receta.length} ingredientes</p>
-                    ) : (
-                      <p className="text-sm text-gray-400">Sin receta definida</p>
-                    )}
+                    <p className="font-medium">
+                      {p.nombre}
+                      {p.nombre === "4 Estaciones" || p.nombre === "Sevillana" || p.nombre === "Entre Ríos" ? (
+                        <span className="ml-2 text-xs bg-yellow-200 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 px-2 py-1 rounded-full">
+                          Solo Familiar
+                        </span>
+                      ) : null}
+                    </p>
+                    <div className="text-xs space-x-2">
+                      {p.receta && Array.isArray(p.receta) && p.receta.length > 0 ? (
+                        <span className="text-green-600 dark:text-green-400">Receta familiar: {p.receta.length} ingredientes</span>
+                      ) : (
+                        <span className="text-gray-400">Sin receta familiar</span>
+                      )}
+                      {p.nombre !== "4 Estaciones" && p.nombre !== "Sevillana" && p.nombre !== "Entre Ríos" && (
+                        <>
+                          {p.recetaMediana && Array.isArray(p.recetaMediana) && p.recetaMediana.length > 0 ? (
+                            <span className="text-blue-600 dark:text-blue-400">Receta mediana: {p.recetaMediana.length} ingredientes</span>
+                          ) : (
+                            <span className="text-gray-400">Sin receta mediana</span>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => { setEditorInitialPizza(p.id); setShowRecipeEditor(true) }}>Editar receta</Button>
@@ -612,7 +630,29 @@ export default function AdminInventario() {
           })()}
         </div>
       </div>
-      <RecipeEditor open={showRecipeEditor} onOpenChange={(open) => { setShowRecipeEditor(open); if(!open) setEditorInitialPizza(null) }} initialPizzaId={editorInitialPizza} />
+      <RecipeEditor 
+        open={showRecipeEditor} 
+        onOpenChange={(open) => { 
+          setShowRecipeEditor(open); 
+          // Si se cierra el editor, limpiar la pizza seleccionada y actualizar datos
+          if(!open) {
+            setEditorInitialPizza(null);
+            // Forzar actualización de datos cuando se cierra el editor
+            console.log("Cerrando editor de recetas, actualizando datos...", Date.now());
+            
+            // Actualizamos los datos inmediatamente
+            refreshData();
+            
+            // Y programamos otra actualización después de un breve momento
+            // para asegurarnos de que los cambios se reflejen
+            setTimeout(() => {
+              console.log("Actualizando datos nuevamente después del cierre del editor", Date.now());
+              refreshData();
+            }, 500);
+          }
+        }} 
+        initialPizzaId={editorInitialPizza} 
+      />
     </div>
   )
 }

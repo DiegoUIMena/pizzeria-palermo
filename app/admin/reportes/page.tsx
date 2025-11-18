@@ -25,12 +25,13 @@ import ProductosChart from "./components/ProductosChart"
 import InventarioChart from "./components/InventarioChart"
 import ClientesChart from "./components/ClientesChart"
 import { useAdminReports } from '@/hooks/useAdminReports'
+import GeneralSalesReport from './components/GeneralSalesReport'
 
 export default function AdminReportes() {
   const [periodoVentas, setPeriodoVentas] = useState("semana")
   const [periodoProductos, setPeriodoProductos] = useState("mes")
   const [reporteActivo, setReporteActivo] = useState("ventas")
-  const { kpis, getSalesSeries, getProductShare, inventory, clientesSeries, loading, getTopProducts, getVentasResumen, getCriticalInventory, getHighRotationInventory, getClientesResumen, getClientesSegmentacion } = useAdminReports()
+  const { orders, kpis, getSalesSeries, getProductShare, inventory, clientesSeries, loading, getTopProducts, getVentasResumen, getCriticalInventory, getHighRotationInventory, getClientesResumen, getClientesSegmentacion } = useAdminReports()
   const ventasResumen = getVentasResumen(periodoVentas as any)
   const topProductos = getTopProducts(periodoProductos as any)
   const criticos = getCriticalInventory()
@@ -237,6 +238,8 @@ export default function AdminReportes() {
                 </div>
               </CardContent>
             </Card>
+            {/* Reportes de Ventas Generales (gráfico de líneas, comparativas y subida de datos) */}
+            <GeneralSalesReport getSalesSeries={getSalesSeries} orders={orders} />
           </TabsContent>
 
           {/* Reporte de Productos */}

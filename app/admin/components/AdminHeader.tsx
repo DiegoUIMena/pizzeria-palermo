@@ -1,5 +1,6 @@
 "use client"
 
+import React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -10,7 +11,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun } from "lucide-react"
+import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, AlertTriangle } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from 'react'
 
@@ -40,7 +41,16 @@ export default function AdminHeader() {
   const navigation = [
     { name: "Dashboard", href: "/admin", icon: Home },
     { name: "Pedidos", href: "/admin/pedidos", icon: ShoppingCart },
-    { name: "Inventario", href: "/admin/inventario", icon: Package },
+    { 
+      name: "Inventario", 
+      href: "/admin/inventario", 
+      icon: Package,
+      submenu: [
+        { name: "Gestión", href: "/admin/inventario", icon: Package },
+        { name: "Alertas", href: "/admin/inventario/alertas", icon: AlertTriangle },
+        { name: "Diagnóstico Duo", href: "/admin/diagnostico-duo", icon: Bug },
+      ]
+    },
     { name: "Zonas Delivery", href: "/admin/zonas-delivery", icon: MapPin },
     { name: "Reportes", href: "/admin/reportes", icon: BarChart3 },
   ]
@@ -58,7 +68,50 @@ export default function AdminHeader() {
           <nav className="hidden md:flex space-x-1">
             {navigation.map((item) => {
               const Icon = item.icon
-              const isActive = pathname === item.href
+              const isActive = pathname === item.href || 
+                (item.submenu && item.submenu.some(subitem => pathname === subitem.href))
+              
+              // Si tiene submenú, mostrar como dropdown
+              if (item.submenu) {
+                return (
+                  <DropdownMenu key={item.name}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant={isActive ? "default" : "ghost"}
+                        className={`flex items-center space-x-2 ${
+                          isActive
+                            ? "bg-pink-600 text-white hover:bg-pink-700"
+                            : "text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{item.name}</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      {item.submenu.map((subitem) => {
+                        const SubIcon = subitem.icon
+                        const isSubActive = pathname === subitem.href
+                        return (
+                          <DropdownMenuItem key={subitem.name} asChild>
+                            <Link 
+                              href={subitem.href} 
+                              className={`flex items-center w-full ${
+                                isSubActive ? "bg-gray-100 dark:bg-gray-800" : ""
+                              }`}
+                            >
+                              <SubIcon className="mr-2 h-4 w-4" />
+                              <span>{subitem.name}</span>
+                            </Link>
+                          </DropdownMenuItem>
+                        )
+                      })}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )
+              }
+              
+              // Si no tiene submenú, mostrar normal
               return (
                 <Link key={item.name} href={item.href}>
                   <Button
@@ -88,6 +141,31 @@ export default function AdminHeader() {
               <DropdownMenuContent align="end" className="w-56">
                 {navigation.map((item) => {
                   const Icon = item.icon
+                  
+                  // Si tiene submenu, renderizar los items del submenu
+                  if (item.submenu) {
+                    return (
+                      <React.Fragment key={item.name}>
+                        <DropdownMenuItem disabled className="font-semibold">
+                          <Icon className="mr-2 h-4 w-4" />
+                          <span>{item.name}</span>
+                        </DropdownMenuItem>
+                        {item.submenu.map((subitem) => {
+                          const SubIcon = subitem.icon
+                          return (
+                            <DropdownMenuItem key={subitem.name} asChild className="pl-6">
+                              <Link href={subitem.href} className="flex items-center">
+                                <SubIcon className="mr-2 h-4 w-4" />
+                                <span>{subitem.name}</span>
+                              </Link>
+                            </DropdownMenuItem>
+                          )
+                        })}
+                      </React.Fragment>
+                    )
+                  }
+                  
+                  // Si no tiene submenu, renderizar como normal
                   return (
                     <DropdownMenuItem key={item.name} asChild>
                       <Link href={item.href} className="flex items-center">

@@ -1,7 +1,8 @@
 import { 
   collection, 
   addDoc, 
-  getDocs, 
+  getDocs,
+  getDoc, 
   doc, 
   updateDoc, 
   query, 
@@ -12,6 +13,8 @@ import {
   Timestamp 
 } from 'firebase/firestore'
 import { db } from './firebase'
+import { validateInventoryForOrder, consumeInventoryForOrder } from './inventory-service'
+import { revertInventoryConsumption } from './inventory-reversal'
 
 // Tipos para los pedidos
 export interface OrderItem {
@@ -85,6 +88,18 @@ export interface Order {
   
   // Notas
   notas?: string
+  
+  // Control de inventario
+  inventoryProcessed?: boolean
+  inventorySuccess?: boolean
+  inventoryIssue?: boolean
+  inventoryError?: string
+  inventoryStatus?: 'pending' | 'processed' | 'failed' | 'reverted' | 'cancelled_before_processing'
+  inventoryCancellationNote?: string
+  inventoryReverted?: boolean
+  inventoryReversionSuccess?: boolean
+  inventoryReversionIssue?: boolean
+  inventoryReversionError?: string
 }
 
 // Función para generar número de pedido único
@@ -93,8 +108,20 @@ const generateOrderNumber = (): number => {
 }
 
 // Función para crear un nuevo pedido
-export const createOrder = async (orderData: Omit<Order, 'id' | 'orderNumber' | 'fechaCreacion' | 'timestamps' | 'estado'>): Promise<{id: string, orderNumber: number}> => {
+export const createOrder = async (orderData: Omit<Order, 'id' | 'orderNumber' | 'fechaCreacion' | 'timestamps' | 'estado'>): Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}> => {
   try {
+    // Validar disponibilidad de inventario
+    const validation = await validateInventoryForOrder(orderData.items)
+    if (!validation.success) {
+      return {
+        id: '',
+        orderNumber: 0,
+        success: false,
+        error: 'INVENTORY_UNAVAILABLE',
+        validationDetails: validation.insufficientItems
+      }
+    }
+
     const now = new Date()
     const orderNumber = generateOrderNumber()
     
@@ -194,12 +221,32 @@ export const createOrder = async (orderData: Omit<Order, 'id' | 'orderNumber' | 
     console.log('Pedido a crear:', cleanedOrder)
     console.log('Datos del cliente:', cleanedOrder.cliente)
     
+    console.log('Creando pedido sin procesar inventario automáticamente...')
     const docRef = await addDoc(collection(db, 'orders'), cleanedOrder)
     console.log('Pedido creado con ID:', docRef.id)
-    return {id: docRef.id, orderNumber}
+    
+    // Ya no consumimos inventario automáticamente al crear el pedido
+    // Solo marcamos el pedido como pendiente de procesar inventario
+    await updateDoc(docRef, {
+      inventoryProcessed: false,
+      inventoryStatus: 'pending' // Estado explícito para facilitar seguimiento
+    })
+    console.log('Pedido creado con ID', docRef.id, 'sin consumir inventario. Se procesará cuando el administrador confirme el pedido.')
+    
+    return {
+      id: docRef.id, 
+      orderNumber,
+      success: true
+    }
   } catch (error) {
     console.error('Error al crear pedido:', error)
-    throw error
+    return {
+      id: '',
+      orderNumber: 0,
+      success: false,
+      error: 'UNEXPECTED_ERROR',
+      validationDetails: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
@@ -255,10 +302,34 @@ export const getAllOrders = async (): Promise<Order[]> => {
 }
 
 // Función para actualizar el estado de un pedido
+/**
+ * Actualiza el estado de un pedido y procesa el inventario según corresponda.
+ * 
+ * REGLAS IMPORTANTES SOBRE EL INVENTARIO:
+ * - El inventario se consume SOLO cuando el pedido pasa de "Pendiente" a "En preparación"
+ * - Si un pedido se cancela DESPUÉS de estar en preparación, NO se revierte el consumo de inventario
+ *   ya que los insumos ya fueron utilizados para preparar la comida
+ * - Si un pedido se cancela ANTES de estar en preparación, no hay cambios en el inventario
+ * 
+ * Ver más detalles en inventory-policy.md
+ */
 export const updateOrderStatus = async (orderId: string, newStatus: Order['estado']): Promise<void> => {
   try {
     const orderRef = doc(db, 'orders', orderId)
     const now = new Date()
+    
+    // Primero obtenemos el pedido para verificar si ya se procesó el inventario
+    // Usar getDoc directamente con el documento de referencia es más eficiente
+    const orderDoc = await getDoc(orderRef)
+    
+    if (!orderDoc.exists()) {
+      throw new Error('Pedido no encontrado');
+    }
+    
+    const orderData = orderDoc.data() as Order;
+    // Usar una verificación explícita porque inventoryProcessed podría ser undefined
+    const inventoryProcessed = Boolean(orderData.inventoryProcessed);
+    const previousStatus = orderData.estado;
     
     const updateData: any = {
       estado: newStatus
@@ -268,6 +339,41 @@ export const updateOrderStatus = async (orderId: string, newStatus: Order['estad
     switch (newStatus) {
       case "En preparación":
         updateData['timestamps.preparing'] = now.toISOString()
+        
+        // Si cambiamos a "En preparación", consumimos el inventario
+        // Solo si no se ha procesado antes y estamos cambiando desde "Pendiente"
+        if (!inventoryProcessed && previousStatus === "Pendiente") {
+          console.log('Procesando inventario para pedido confirmado:', orderId);
+          try {
+            const inventoryResult = await consumeInventoryForOrder(
+              orderData.items,
+              orderId,
+              orderData.orderNumber
+            );
+            
+            // Marcar como procesado y actualizar resultado
+            updateData.inventoryProcessed = true;
+            updateData.inventorySuccess = inventoryResult.success;
+            updateData.inventoryStatus = inventoryResult.success ? 'processed' : 'failed';
+            
+            if (!inventoryResult.success) {
+              console.error('Error consumiendo inventario:', inventoryResult.error);
+              updateData.inventoryIssue = true;
+              updateData.inventoryError = inventoryResult.error;
+            } else {
+              console.log('Inventario procesado correctamente para el pedido:', orderId);
+            }
+          } catch (inventoryError) {
+            console.error('Error procesando inventario:', inventoryError);
+            updateData.inventoryIssue = true;
+            updateData.inventoryError = inventoryError instanceof Error ? 
+              inventoryError.message : 'Error desconocido procesando inventario';
+          }
+        } else if (inventoryProcessed) {
+          console.log('El inventario ya fue procesado previamente para el pedido:', orderId);
+        } else {
+          console.log('El pedido no estaba en estado "Pendiente", no se procesa inventario:', orderId, 'Estado previo:', previousStatus);
+        }
         break
       case "Pedido Listo":
         updateData['timestamps.ready'] = now.toISOString()
@@ -283,6 +389,24 @@ export const updateOrderStatus = async (orderId: string, newStatus: Order['estad
       case "Cancelado":
         // Para pedidos cancelados, eliminar la información de tiempo restante
         updateData['tiempoRestante'] = null
+        
+        // IMPORTANTE: Si el pedido se cancela ANTES de ser confirmado ("En preparación"),
+        // no hay nada que revertir porque el inventario nunca se consumió.
+        // Si el pedido se cancela DESPUÉS de ser confirmado, NO debemos revertir el inventario,
+        // porque los insumos ya fueron utilizados para preparar la pizza.
+        
+        // Verificamos si el pedido está en estado "Pendiente"
+        if (previousStatus === "Pendiente") {
+          // Si está en Pendiente y se cancela, marcamos explícitamente que no se procesó inventario
+          console.log('Cancelando pedido pendiente. No se realizó consumo de inventario:', orderId);
+          updateData.inventoryProcessed = false;
+          updateData.inventoryStatus = 'cancelled_before_processing';
+        } else {
+          // Si el pedido ya estaba en preparación o más allá, ya se consumió el inventario
+          // y NO debemos revertirlo porque los insumos ya se utilizaron
+          console.log('Cancelando pedido que ya estaba en preparación o entrega. Inventario YA CONSUMIDO se mantiene:', orderId);
+          updateData.inventoryCancellationNote = 'Pedido cancelado después de preparación, inventario no se revierte';
+        }
         break
     }
     

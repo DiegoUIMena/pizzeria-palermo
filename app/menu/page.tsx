@@ -4,12 +4,13 @@ import { useState, useEffect } from "react"
 import Image from "next/image"
 import Header from "../components/Header"
 import Footer from "../components/Footer"
-import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Plus } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
+import { Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 
 const menuCategories = [
   {
@@ -343,7 +344,8 @@ const menuCategories = [
   },
 ]
 
-export default function MenuPage() {
+// Component that uses useSearchParams
+function MenuContent() {
   const [activeCategory, setActiveCategory] = useState("Pizzas Palermo")
   const searchParams = useSearchParams()
 
@@ -612,5 +614,14 @@ export default function MenuPage() {
 
       <Footer />
     </div>
+  )
+}
+
+// Export the page with Suspense
+export default function MenuPage() {
+  return (
+    <Suspense fallback={<div className="p-20 text-center">Cargando menú...</div>}>
+      <MenuContent />
+    </Suspense>
   )
 }

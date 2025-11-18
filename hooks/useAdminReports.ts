@@ -53,7 +53,7 @@ interface UseAdminReportsReturn {
   loading: boolean
   error: string | null
   kpis: KPIStats
-  getSalesSeries: (periodo: Periodo) => SalesPoint[]
+  getSalesSeries: (periodo: Periodo, opts?: { month?: number; year?: number; granularity?: 'daily'|'weekly'|'monthly' }) => SalesPoint[]
   getProductShare: (periodo: Periodo) => ProductShare[]
   inventory: InventoryItem[]
   clientesSeries: ClientesPoint[]
@@ -65,7 +65,35 @@ interface UseAdminReportsReturn {
   getClientesSegmentacion: (periodo: Periodo) => ClientesSegmentacion
 }
 
-const toDate = (iso?: string) => (iso ? new Date(iso) : null)
+// Robust conversion from stored timestamp to JS Date.
+// Accepts ISO strings, Date objects, Firestore Timestamp (has toDate()),
+// or plain objects with 'seconds' (unix seconds).
+const toDate = (v?: any): Date | null => {
+  if (!v && v !== 0) return null
+  // Date instance
+  if (v instanceof Date) return v
+  // ISO string
+  if (typeof v === 'string') {
+    const d = new Date(v)
+    return isNaN(d.getTime()) ? null : d
+  }
+  // Firestore Timestamp (has toDate)
+  if (typeof v === 'object') {
+    if (typeof v.toDate === 'function') {
+      try {
+        const d = v.toDate()
+        return d instanceof Date && !isNaN(d.getTime()) ? d : null
+      } catch (e) {
+        return null
+      }
+    }
+    // Plain object with seconds / nanoseconds
+    if (typeof v.seconds === 'number') {
+      return new Date(v.seconds * 1000)
+    }
+  }
+  return null
+}
 
 const currencyRound = (v: number) => Math.round(v)
 
@@ -78,6 +106,16 @@ export function useAdminReports(): UseAdminReportsReturn {
   useEffect(() => {
     const unsub = listenToAllOrders((all) => {
       setOrders(all)
+      // Diagnostic logging in non-production to help debug missing "Actual" series
+      try {
+        if (process.env.NODE_ENV !== 'production') {
+          const sample = all.slice(0, 5).map(o => ({ id: o.id, created: o.timestamps?.created }))
+          // eslint-disable-next-line no-console
+          console.log('[useAdminReports] received orders:', all.length, 'sample timestamps:', sample)
+        }
+      } catch (err) {
+        // ignore logging errors
+      }
       setLoading(false)
     })
     return () => unsub()
@@ -192,8 +230,40 @@ export function useAdminReports(): UseAdminReportsReturn {
     }
   }, [orders])
 
-  const getSalesSeries = (periodo: Periodo): SalesPoint[] => {
-    const filtered = filterOrdersByPeriodo(periodo)
+  const getSalesSeries = (periodo: Periodo, opts?: { month?: number; year?: number; granularity?: 'daily'|'weekly'|'monthly' }): SalesPoint[] => {
+    // If caller provided explicit month/year (e.g., to view historical month), filter orders by that exact month
+    let filtered: Order[] = []
+    if (periodo === 'mes' && typeof opts?.month === 'number' && typeof opts?.year === 'number') {
+      const y = opts.year
+      const m = opts.month // expected 0-based
+      const start = new Date(y, m, 1)
+      const end = new Date(y, m + 1, 0, 23, 59, 59, 999)
+      filtered = orders.filter(o => {
+        const d = toDate(o.timestamps?.created)
+        return d ? d >= start && d <= end : false
+      })
+    } else if (periodo === 'anual' && typeof opts?.year === 'number') {
+      const y = opts.year
+      const start = new Date(y, 0, 1)
+      const end = new Date(y, 11, 31, 23, 59, 59, 999)
+      filtered = orders.filter(o => {
+        const d = toDate(o.timestamps?.created)
+        return d ? d >= start && d <= end : false
+      })
+    } else {
+      filtered = filterOrdersByPeriodo(periodo)
+    }
+    // DEV: log filtered orders and a small sample to debug empty series
+    try {
+      if (process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.log('[useAdminReports][getSalesSeries] periodo:', periodo, 'opts:', opts, 'filteredCount:', filtered.length)
+        // print first 5 orders (id, created, total) if present
+        const sampleOrders = filtered.slice(0,5).map(o => ({ id: o.id, created: o.timestamps?.created, total: o.total }))
+        // eslint-disable-next-line no-console
+        console.log('[useAdminReports][getSalesSeries] sample orders:', sampleOrders)
+      }
+    } catch (e) {}
     if (!filtered.length) return []
     const now = new Date()
     const map: Record<string, number> = {}
@@ -214,12 +284,56 @@ export function useAdminReports(): UseAdminReportsReturn {
         break
       }
       case 'mes': { // agrupar por semana relativa
+        // If caller asked for daily granularity, return one point per day (use opts.month/year if provided)
+        if (opts?.granularity === 'daily') {
+          // If month/year provided, aggregate for that month
+          if (typeof opts.month === 'number' && typeof opts.year === 'number') {
+            const year = opts.year
+            const month = opts.month // 0-based expected by caller
+            // determine days in month
+            const daysInMonth = new Date(year, month + 1, 0).getDate()
+            for (let d = 1; d <= daysInMonth; d++) {
+              const label = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+              map[label] = 0
+            }
+            filtered.forEach(o => {
+              const dt = toDate(o.timestamps?.created)!
+              if (!dt) return
+              if (dt.getFullYear() === year && dt.getMonth() === month) {
+                const label = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`
+                // DEV: log push for debugging missing values
+                try {
+                  if (process.env.NODE_ENV !== 'production') {
+                    // eslint-disable-next-line no-console
+                    console.log('[useAdminReports][getSalesSeries] pushing point', { label, value: o.total })
+                  }
+                } catch (e) {}
+                pushPoint(label, o.total || 0)
+              }
+            })
+            break
+          }
+          // default daily: last 30 days
+          const start = subDays(startOfDay(now), 29)
+          for (let i = 0; i < 30; i++) {
+            const d = addDays(start, i)
+            const label = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+            map[label] = 0
+          }
+          filtered.forEach(o => {
+            const d = toDate(o.timestamps?.created)!
+            const label = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+            pushPoint(label, o.total || 0)
+          })
+          break
+        }
+        // default behavior: aggregate by 5 relative weeks
         for (let w = 1; w <= 5; w++) map[`Sem ${w}`] = 0
         const start = subDays(startOfDay(now), 29)
         filtered.forEach(o => {
           const d = toDate(o.timestamps?.created)!
           const diff = Math.floor((d.getTime() - start.getTime()) / 86400000)
-            const w = Math.min(4, Math.floor(diff / 7)) + 1
+          const w = Math.min(4, Math.floor(diff / 7)) + 1
           pushPoint(`Sem ${w}`, o.total || 0)
         })
         break
