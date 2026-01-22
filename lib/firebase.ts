@@ -2,18 +2,26 @@ import { initializeApp, getApps } from "firebase/app"
 import { getAuth, connectAuthEmulator } from "firebase/auth"
 import { getFirestore, connectFirestoreEmulator } from "firebase/firestore"
 import { getStorage, connectStorageEmulator } from "firebase/storage"
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions"
 import { getAnalytics, isSupported } from "firebase/analytics";
 
-// REEMPLAZA ESTA CONFIGURACIÓN CON LA TUYA
+// ✅ SEGURIDAD: Credenciales desde variables de entorno
 const firebaseConfig = {
-  apiKey: "AIzaSyCVKPmInym85FO89UhVQNsGzBeeqZ0wmFM",
-  authDomain: "pizzeria-palermo-17f6d.firebaseapp.com",
-  projectId: "pizzeria-palermo-17f6d",
-  storageBucket: "pizzeria-palermo-17f6d.appspot.com", 
-  messagingSenderId: "648738451663",
-  appId: "1:648738451663:web:4069b7fa6cd5d1a1a487ba",
-  measurementId: "G-N89WX0NQJG"
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID
 };
+
+// Validar que las variables de entorno estén configuradas
+if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+  throw new Error(
+    '❌ Firebase config incompleto. Verifica que .env.local tenga todas las variables NEXT_PUBLIC_FIREBASE_*'
+  );
+}
 
 // Inicializar Firebase solo si no hay aplicaciones inicializadas
 let app;
@@ -41,6 +49,7 @@ if (typeof window !== "undefined") {
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
 // Para desarrollo - conectar a emuladores locales si están disponibles o usar reglas menos restrictivas
 if (typeof window !== "undefined" && window.location.hostname === "localhost") {
@@ -48,6 +57,7 @@ if (typeof window !== "undefined" && window.location.hostname === "localhost") {
   // connectAuthEmulator(auth, 'http://localhost:9099');
   // connectFirestoreEmulator(db, 'localhost', 8080);
   // connectStorageEmulator(storage, 'localhost', 9199);
+  // connectFunctionsEmulator(functions, 'localhost', 5001);
   
   console.log("Ejecutando en modo desarrollo - reglas de seguridad menos restrictivas");
 }

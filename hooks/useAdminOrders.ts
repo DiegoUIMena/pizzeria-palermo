@@ -1,19 +1,22 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Order, getAllOrders, updateOrderStatus, listenToAllOrders } from '../lib/orders'
+import { Order, getAllOrders, updateOrderStatus, listenToRecentOrders } from '../lib/orders'
 
-// Hook para obtener todos los pedidos (Admin)
-export const useAdminOrders = () => {
+// Hook para obtener todos los pedidos (Admin) - OPTIMIZADO
+export const useAdminOrders = (estadoFiltro?: string) => {
   const [pedidos, setPedidos] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Función para cargar pedidos iniciales
+  // Función para cargar pedidos iniciales (solo para refetch manual)
   const loadOrders = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
       const allOrders = await getAllOrders()
-      setPedidos(allOrders)
+      // Filtrar solo activos
+      const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
+      const activosOrders = allOrders.filter(order => estadosActivos.includes(order.estado))
+      setPedidos(activosOrders)
     } catch (err) {
       setError('Error al cargar pedidos')
       console.error('Error loading admin orders:', err)
@@ -22,20 +25,16 @@ export const useAdminOrders = () => {
     }
   }, [])
 
-  // Cargar pedidos al montar el componente
+  // ✅ OPTIMIZACIÓN: Escuchar pedidos con filtro dinámico en tiempo real
   useEffect(() => {
-    loadOrders()
-  }, [loadOrders])
-
-  // Escuchar cambios en tiempo real
-  useEffect(() => {
-    const unsubscribe = listenToAllOrders((updatedOrders) => {
+    setIsLoading(true)
+    const unsubscribe = listenToRecentOrders((updatedOrders) => {
       setPedidos(updatedOrders)
       setIsLoading(false)
-    })
+    }, 100, estadoFiltro) // Pasar filtro de estado al listener
 
     return () => unsubscribe()
-  }, [])
+  }, [estadoFiltro]) // Re-ejecutar cuando cambie el filtro
 
   // Función para actualizar estado de un pedido
   const actualizarEstado = async (pedidoId: string, nuevoEstado: Order['estado']) => {
@@ -58,8 +57,8 @@ export const useAdminOrders = () => {
 }
 
 // Hook para formatear datos de Order a la interfaz esperada por la página admin
-export const useFormattedAdminOrders = () => {
-  const { pedidos, isLoading, error, actualizarEstado } = useAdminOrders()
+export const useFormattedAdminOrders = (estadoFiltro?: string) => {
+  const { pedidos, isLoading, error, actualizarEstado } = useAdminOrders(estadoFiltro)
 
   const formattedPedidos = pedidos.map(order => {
     // Asegurar que el cliente tenga la estructura correcta

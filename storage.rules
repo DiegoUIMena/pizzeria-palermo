@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Reglas para la carpeta de pizzas
+    match /pizzas/{imageId} {
+      // Permitir lectura pública para las imágenes de pizzas
+      allow read: if true;
+      
+      // Solo admins pueden escribir/actualizar/eliminar imágenes
+      allow write: if request.auth != null && 
+                      request.auth.token.role == "admin";
+    }
+    
+    // Otras carpetas (usuarios, pedidos, etc.)
+    match /{allPaths=**} {
+      // Por defecto, solo usuarios autenticados pueden leer
+      allow read: if request.auth != null;
+      
+      // Solo admins pueden escribir
+      allow write: if request.auth != null && 
+                      request.auth.token.role == "admin";
+    }
+  }
+}

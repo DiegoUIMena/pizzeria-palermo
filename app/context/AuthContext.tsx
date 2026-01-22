@@ -86,29 +86,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
+          // IMPORTANTE: Obtener el ID Token para leer los custom claims
+          const tokenResult = await firebaseUser.getIdTokenResult();
+          const roleFromClaim = tokenResult.claims.role as string || 'customer';
+          
+          console.log('[AuthContext] Custom claims:', tokenResult.claims);
+          console.log('[AuthContext] Role from claim:', roleFromClaim);
+          
           // Obtener datos adicionales del usuario desde Firestore
           const userRef = doc(db, "users", firebaseUser.uid);
           const userDoc = await getDoc(userRef);
 
           if (userDoc.exists()) {
             const userData = userDoc.data() as User;
+            
+            // PRIORIZAR el rol del custom claim sobre el de Firestore
+            // Los custom claims son la fuente de verdad para roles
             setAuthState({
               user: {
                 ...userData,
-                id: firebaseUser.uid // Asegurarse de que el id esté correcto
+                id: firebaseUser.uid,
+                role: roleFromClaim as "customer" | "admin" | "staff" // Custom claim tiene prioridad
               },
               firebaseUser,
               isAuthenticated: true,
               isLoading: false,
             });
-            console.log("Usuario autenticado con datos de Firestore");
+            console.log("Usuario autenticado con rol:", roleFromClaim);
           } else {
             // Si no existe el documento, crear uno básico
             const basicUserData: User = {
               id: firebaseUser.uid,
               name: firebaseUser.displayName || "",
               email: firebaseUser.email || "",
-              role: "customer",
+              role: roleFromClaim as "customer" | "admin" | "staff",
               addresses: [],
               preferences: {
                 notifications: true,

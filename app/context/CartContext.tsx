@@ -1,7 +1,9 @@
 "use client"
 
 import { createContext, useContext, useReducer, type ReactNode } from "react"
-import { createOrder as createOrderInFirestore, type Order, type OrderItem } from "../../lib/orders"
+import { type Order, type OrderItem } from "../../lib/orders"
+import { functions } from "../../lib/firebase"
+import { httpsCallable } from "firebase/functions"
 
 interface CartItem {
   id: string
@@ -190,8 +192,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
         pizzaType: item.pizzaType
       }))
 
-      // Crear el pedido en Firestore
-      const result = await createOrderInFirestore({
+      // Llamar a la Cloud Function createOrder
+      const createOrderFunction = httpsCallable(functions, 'createOrder')
+      
+      const functionResponse = await createOrderFunction({
         userId: orderData.userId,
         cliente: orderData.cliente,
         tipoEntrega: orderData.tipoEntrega,
@@ -204,19 +208,30 @@ export function CartProvider({ children }: { children: ReactNode }) {
         notas: orderData.notas
       })
 
+      const result = functionResponse.data as {id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}
+
       // Limpiar el carrito solo si el pedido fue exitoso
       if (result.success) {
         clearCart()
       }
 
       return result
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating order:', error)
+      
+      // Extraer el mensaje de error de Firebase Functions
+      let errorMessage = 'Error desconocido al crear el pedido'
+      if (error?.code === 'functions/unauthenticated') {
+        errorMessage = 'Debes iniciar sesión para crear un pedido'
+      } else if (error?.message) {
+        errorMessage = error.message
+      }
+      
       return {
         id: '',
         orderNumber: 0,
         success: false,
-        error: error instanceof Error ? error.message : 'Error desconocido al crear el pedido'
+        error: errorMessage
       }
     }
   }

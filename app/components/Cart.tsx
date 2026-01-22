@@ -19,6 +19,8 @@ import type { DeliveryZone } from "../../lib/delivery-zones"
 import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 import PizzaConfigModal from "./PizzaConfigModal"
 import InventoryErrorModal from "./InventoryErrorModal"
+import { functions } from "@/lib/firebase"
+import { httpsCallable } from "firebase/functions"
 
 const Cart = () => {
   const { items, removeItem, getTotal, updateQuantity, clearCart, createOrder } = useCart()
@@ -409,6 +411,46 @@ const Cart = () => {
       
       console.log('Pedido creado exitosamente:', result)
       
+      // Si el método de pago es Webpay, iniciar transacción
+      if (paymentMethod === "webpay") {
+        try {
+          // Construir la URL de retorno
+          const returnUrl = `${window.location.origin}/pago/webpay-return`
+          
+          // Llamar a la Cloud Function para iniciar transacción Webpay
+          const initWebpayFunction = httpsCallable(functions, "initWebpayTransaction")
+          const webpayResponse = await initWebpayFunction({
+            orderId: result.id,
+            amount: Math.round(totalFinal), // Webpay requiere monto entero
+            returnUrl
+          })
+          
+          const webpayData = webpayResponse.data as any
+          
+          if (webpayData.success && webpayData.url && webpayData.token) {
+            // Guardar información antes de redireccionar
+            localStorage.setItem('pendingOrderId', result.id)
+            localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
+            
+            // Redireccionar a Webpay
+            window.location.href = `${webpayData.url}?token_ws=${webpayData.token}`
+            return
+          } else {
+            throw new Error('No se pudo iniciar la transacción con Webpay')
+          }
+        } catch (webpayError: any) {
+          console.error('Error iniciando Webpay:', webpayError)
+          toast({
+            title: "Error con Webpay",
+            description: webpayError.message || "No se pudo iniciar el pago. El pedido fue creado pero debes contactarnos para completar el pago.",
+            variant: "destructive"
+          })
+          setIsProcessing(false)
+          return
+        }
+      }
+      
+      // Para otros métodos de pago (efectivo, transferencia), continuar con flujo normal
       // Usamos el número de pedido real devuelto por Firestore
       setOrderNumber(result.orderNumber)
       

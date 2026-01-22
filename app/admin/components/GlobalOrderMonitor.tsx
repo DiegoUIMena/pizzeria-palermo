@@ -104,13 +104,19 @@ export default function GlobalOrderMonitor() {
     
     // Buscar pedidos pendientes que no hayamos notificado aún
     const pedidosPendientesNuevos = new Set<string>()
+    const pedidosPendientesActuales = new Set<string>()
     
     pedidos.forEach(pedido => {
-      // Solo considerar pedidos pendientes y que no hayamos notificado antes
-      if (pedido.estado === "Pendiente" && !pedidosNotificadosRef.current.has(pedido.documentId)) {
-        pedidosPendientesNuevos.add(pedido.documentId)
-        // Marcar este pedido como notificado para no alertar de nuevo
-        pedidosNotificadosRef.current.add(pedido.documentId)
+      // Solo considerar pedidos pendientes
+      if (pedido.estado === "Pendiente") {
+        pedidosPendientesActuales.add(pedido.documentId)
+        
+        // Si no lo hemos notificado antes, es nuevo
+        if (!pedidosNotificadosRef.current.has(pedido.documentId)) {
+          pedidosPendientesNuevos.add(pedido.documentId)
+          // Marcar como notificado
+          pedidosNotificadosRef.current.add(pedido.documentId)
+        }
       }
     })
     
@@ -129,30 +135,37 @@ export default function GlobalOrderMonitor() {
       }
     }
     
-    // Verificar si todos los pedidos sin atender ahora tienen un estado diferente
-    let todosAtendidos = true
+    // Actualizar pedidosSinAtenderRef solo con los que siguen pendientes
+    const nuevosSinAtender = new Set<string>()
     pedidosSinAtenderRef.current.forEach(id => {
-      const pedido = pedidos.find(p => p.documentId === id)
-      // Si el pedido sigue existiendo y sigue en estado Pendiente
-      if (pedido && pedido.estado === "Pendiente") {
-        todosAtendidos = false
-      } else if (pedido) {
-        // Si el pedido cambió de estado, ya no está sin atender
-        pedidosSinAtenderRef.current.delete(id)
+      if (pedidosPendientesActuales.has(id)) {
+        nuevosSinAtender.add(id)
       }
     })
+    pedidosSinAtenderRef.current = nuevosSinAtender
     
-    // Si todos los pedidos han sido atendidos, detener la alarma
-    if (todosAtendidos && pedidosSinAtenderRef.current.size === 0 && alarmaActiva) {
+    // Si no hay pedidos sin atender, detener la alarma
+    if (pedidosSinAtenderRef.current.size === 0 && alarmaActiva) {
+      console.log(`✅ [GLOBAL] Todos los pedidos atendidos, deteniendo alarma`)
       detenerAlarmaRepetitiva()
     }
     
-    // Limpiar IDs de pedidos que ya no están pendientes
-    pedidos.forEach(p => {
-      if (p.estado !== "Pendiente" && pedidosNotificadosRef.current.has(p.documentId)) {
-        pedidosNotificadosRef.current.delete(p.documentId)
+    // Limpiar IDs de pedidos que ya no están en la lista o no están pendientes
+    const idsActuales = new Set(pedidos.map(p => p.documentId))
+    const notificadosParaEliminar: string[] = []
+    
+    pedidosNotificadosRef.current.forEach(id => {
+      const pedido = pedidos.find(p => p.documentId === id)
+      // Eliminar si el pedido ya no existe o no está pendiente
+      if (!idsActuales.has(id) || (pedido && pedido.estado !== "Pendiente")) {
+        notificadosParaEliminar.push(id)
       }
     })
+    
+    notificadosParaEliminar.forEach(id => {
+      pedidosNotificadosRef.current.delete(id)
+    })
+    
   }, [pedidos, isLoading, alarmaActiva, iniciarAlarmaRepetitiva, detenerAlarmaRepetitiva])
 
   // Sincronizar tiempos estimados y cuentas regresivas

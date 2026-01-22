@@ -76,7 +76,7 @@ const CUENTAS_STORAGE_KEY = 'admin_pedidos_cuentas'
 const ULTIMO_UPDATE_KEY = 'admin_pedidos_ultimo_update'
 
 export default function AdminPedidos() {
-  const [filtroEstado, setFiltroEstado] = useState("todos")
+  const [filtroEstado, setFiltroEstado] = useState("activos")
   const [busqueda, setBusqueda] = useState("")
   const [tiemposEstimados, setTiemposEstimados] = useState<Record<string, number>>({})
   const [cuentasRegresivas, setCuentasRegresivas] = useState<Record<string, number>>({})
@@ -91,7 +91,7 @@ export default function AdminPedidos() {
   const pedidosNotificadosRef = useRef<Set<string>>(new Set());
   const whatsappWindowRef = useRef<Window | null>(null);
 
-  const { pedidos, isLoading, error, actualizarEstado: actualizarEstadoOriginal } = useFormattedAdminOrders()
+  const { pedidos, isLoading, error, actualizarEstado: actualizarEstadoOriginal } = useFormattedAdminOrders(filtroEstado)
   
   // Usar el contexto global de alarmas
   const { 
@@ -756,10 +756,12 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
     };
   }, []);
 
+  // Los pedidos ya vienen filtrados por estado desde el listener
+  // Aquí solo filtramos por búsqueda de texto
   const pedidosFiltrados = pedidos.filter(p =>
-    (filtroEstado==='todos'||p.estado===filtroEstado) &&
-    (p.id.toLowerCase().includes(busqueda.toLowerCase())||
-     (p.cliente && p.cliente.nombre && p.cliente.nombre.toLowerCase().includes(busqueda.toLowerCase())))
+    busqueda === '' || 
+    p.id.toLowerCase().includes(busqueda.toLowerCase()) ||
+    (p.cliente && p.cliente.nombre && p.cliente.nombre.toLowerCase().includes(busqueda.toLowerCase()))
   )
 
   if (isLoading) return <div className="min-h-screen bg-gray-50 dark:bg-gray-900"><p className="p-8 text-center dark:text-white">Cargando pedidos...</p></div>
@@ -785,7 +787,7 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                 onChange={e => setFiltroEstado(e.target.value)}
                 className="border rounded px-2 py-1"
               >
-                <option value="todos">Todos</option>
+                <option value="activos">Activos</option>
                 <option value="Pendiente">Pendiente</option>
                 <option value="En preparación">En preparación</option>
                 <option value="En camino">En camino</option>

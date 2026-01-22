@@ -12,7 +12,8 @@ import {
   onSnapshot,
   Timestamp 
 } from 'firebase/firestore'
-import { db } from './firebase'
+import { httpsCallable } from 'firebase/functions'
+import { db, functions } from './firebase'
 import { validateInventoryForOrder, consumeInventoryForOrder } from './inventory-service'
 import { revertInventoryConsumption } from './inventory-reversal'
 
@@ -66,9 +67,25 @@ export interface Order {
     cashAmount?: number
     change?: number
   }
+  paymentStatus?: "pending" | "paid" | "failed"
+  
+  // Webpay Plus (solo cuando se usa este método de pago)
+  webpay?: {
+    token?: string
+    status?: "pending" | "approved" | "rejected"
+    responseCode?: number
+    authorizationCode?: string
+    amount?: number
+    cardDetail?: {
+      card_number?: string
+    }
+    transactionDate?: string
+    createdAt?: string
+    confirmedAt?: string
+  }
   
   // Estados
-  estado: "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
+  estado: "Pago Pendiente" | "Pago Rechazado" | "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
   
   // Timestamps
   fechaCreacion: string
@@ -78,6 +95,7 @@ export interface Order {
     preparing?: string
     ready?: string
     delivered?: string
+    paid?: string
   }
   
   // Tiempo
@@ -276,7 +294,7 @@ export const getUserOrders = async (userId: string): Promise<Order[]> => {
   }
 }
 
-// Función para obtener todos los pedidos (Admin)
+// Función para obtener todos los pedidos (Admin) - SIN PAGINACIÓN (Legacy)
 export const getAllOrders = async (): Promise<Order[]> => {
   try {
     const q = query(
@@ -288,15 +306,100 @@ export const getAllOrders = async (): Promise<Order[]> => {
     const orders: Order[] = []
     
     querySnapshot.forEach((doc) => {
-      orders.push({
+      const orderData = {
         id: doc.id,
         ...doc.data()
-      } as Order)
+      } as Order
+      
+      // Filtrar pedidos que están en "Pago Pendiente" (esperando confirmación de Webpay)
+      if (orderData.estado !== "Pago Pendiente") {
+        orders.push(orderData)
+      }
     })
     
     return orders
   } catch (error) {
-    console.error('Error al obtener todos los pedidos:', error)
+    console.error('Error al obtener pedidos:', error)
+    throw error
+  }
+}
+
+// ✅ OPTIMIZACIÓN: Función para obtener pedidos con paginación
+export interface GetOrdersOptions {
+  limitCount?: number // Límite de pedidos por página (default: 50)
+  estados?: Array<Order['estado']> // Filtrar por estados específicos
+  lastVisible?: any // Cursor para paginación (último documento de la página anterior)
+}
+
+export const getOrdersPaginated = async (options: GetOrdersOptions = {}): Promise<{
+  orders: Order[]
+  lastVisible: any
+  hasMore: boolean
+}> => {
+  try {
+    const {
+      limitCount = 50,
+      estados,
+      lastVisible
+    } = options
+
+    // Construir query base
+    let q = query(
+      collection(db, 'orders'),
+      orderBy('timestamps.created', 'desc')
+    )
+
+    // Agregar filtro de estados si se especifica
+    if (estados && estados.length > 0) {
+      // Excluir "Pago Pendiente" siempre
+      const estadosFiltrados = estados.filter(e => e !== "Pago Pendiente")
+      if (estadosFiltrados.length > 0) {
+        q = query(q, where('estado', 'in', estadosFiltrados))
+      }
+    } else {
+      // Por defecto, excluir "Pago Pendiente"
+      // Nota: Firestore no soporta != con orderBy, usamos filtro en cliente
+    }
+
+    // Agregar cursor de paginación si existe
+    if (lastVisible) {
+      q = query(q, limit(limitCount + 1)) // +1 para saber si hay más
+    } else {
+      q = query(q, limit(limitCount + 1))
+    }
+
+    const querySnapshot = await getDocs(q)
+    const orders: Order[] = []
+    let newLastVisible = null
+    let index = 0
+
+    querySnapshot.forEach((doc) => {
+      // Saltar el último si llegamos al límite (es solo para saber si hay más)
+      if (index < limitCount) {
+        const orderData = {
+          id: doc.id,
+          ...doc.data()
+        } as Order
+
+        // Filtrar "Pago Pendiente" en el cliente
+        if (orderData.estado !== "Pago Pendiente") {
+          orders.push(orderData)
+          newLastVisible = doc // Guardar último documento
+        }
+      }
+      index++
+    })
+
+    // Verificar si hay más resultados
+    const hasMore = querySnapshot.size > limitCount
+
+    return {
+      orders,
+      lastVisible: newLastVisible,
+      hasMore
+    }
+  } catch (error) {
+    console.error('Error al obtener pedidos paginados:', error)
     throw error
   }
 }
@@ -315,106 +418,38 @@ export const getAllOrders = async (): Promise<Order[]> => {
  */
 export const updateOrderStatus = async (orderId: string, newStatus: Order['estado']): Promise<void> => {
   try {
-    const orderRef = doc(db, 'orders', orderId)
-    const now = new Date()
+    // Llamar a la Cloud Function updateOrderStatus
+    const updateOrderStatusFunction = httpsCallable(functions, 'updateOrderStatus')
     
-    // Primero obtenemos el pedido para verificar si ya se procesó el inventario
-    // Usar getDoc directamente con el documento de referencia es más eficiente
-    const orderDoc = await getDoc(orderRef)
+    // Determinar si se debe consumir inventario basado en el nuevo estado
+    const consumeInventory = newStatus === "En preparación"
     
-    if (!orderDoc.exists()) {
-      throw new Error('Pedido no encontrado');
+    const result = await updateOrderStatusFunction({
+      orderId,
+      newStatus,
+      consumeInventory
+    })
+    
+    const response = result.data as { success: boolean; error?: string }
+    
+    if (!response.success) {
+      throw new Error(response.error || 'Error al actualizar estado del pedido')
     }
     
-    const orderData = orderDoc.data() as Order;
-    // Usar una verificación explícita porque inventoryProcessed podría ser undefined
-    const inventoryProcessed = Boolean(orderData.inventoryProcessed);
-    const previousStatus = orderData.estado;
-    
-    const updateData: any = {
-      estado: newStatus
-    }
-    
-    // Agregar timestamp específico según el estado
-    switch (newStatus) {
-      case "En preparación":
-        updateData['timestamps.preparing'] = now.toISOString()
-        
-        // Si cambiamos a "En preparación", consumimos el inventario
-        // Solo si no se ha procesado antes y estamos cambiando desde "Pendiente"
-        if (!inventoryProcessed && previousStatus === "Pendiente") {
-          console.log('Procesando inventario para pedido confirmado:', orderId);
-          try {
-            const inventoryResult = await consumeInventoryForOrder(
-              orderData.items,
-              orderId,
-              orderData.orderNumber
-            );
-            
-            // Marcar como procesado y actualizar resultado
-            updateData.inventoryProcessed = true;
-            updateData.inventorySuccess = inventoryResult.success;
-            updateData.inventoryStatus = inventoryResult.success ? 'processed' : 'failed';
-            
-            if (!inventoryResult.success) {
-              console.error('Error consumiendo inventario:', inventoryResult.error);
-              updateData.inventoryIssue = true;
-              updateData.inventoryError = inventoryResult.error;
-            } else {
-              console.log('Inventario procesado correctamente para el pedido:', orderId);
-            }
-          } catch (inventoryError) {
-            console.error('Error procesando inventario:', inventoryError);
-            updateData.inventoryIssue = true;
-            updateData.inventoryError = inventoryError instanceof Error ? 
-              inventoryError.message : 'Error desconocido procesando inventario';
-          }
-        } else if (inventoryProcessed) {
-          console.log('El inventario ya fue procesado previamente para el pedido:', orderId);
-        } else {
-          console.log('El pedido no estaba en estado "Pendiente", no se procesa inventario:', orderId, 'Estado previo:', previousStatus);
-        }
-        break
-      case "Pedido Listo":
-        updateData['timestamps.ready'] = now.toISOString()
-        break
-      case "En camino":
-        updateData['timestamps.ready'] = now.toISOString()
-        break
-      case "Entregado":
-        updateData['timestamps.delivered'] = now.toISOString()
-        // Para pedidos entregados, eliminar la información de tiempo restante
-        updateData['tiempoRestante'] = null
-        break
-      case "Cancelado":
-        // Para pedidos cancelados, eliminar la información de tiempo restante
-        updateData['tiempoRestante'] = null
-        
-        // IMPORTANTE: Si el pedido se cancela ANTES de ser confirmado ("En preparación"),
-        // no hay nada que revertir porque el inventario nunca se consumió.
-        // Si el pedido se cancela DESPUÉS de ser confirmado, NO debemos revertir el inventario,
-        // porque los insumos ya fueron utilizados para preparar la pizza.
-        
-        // Verificamos si el pedido está en estado "Pendiente"
-        if (previousStatus === "Pendiente") {
-          // Si está en Pendiente y se cancela, marcamos explícitamente que no se procesó inventario
-          console.log('Cancelando pedido pendiente. No se realizó consumo de inventario:', orderId);
-          updateData.inventoryProcessed = false;
-          updateData.inventoryStatus = 'cancelled_before_processing';
-        } else {
-          // Si el pedido ya estaba en preparación o más allá, ya se consumió el inventario
-          // y NO debemos revertirlo porque los insumos ya se utilizaron
-          console.log('Cancelando pedido que ya estaba en preparación o entrega. Inventario YA CONSUMIDO se mantiene:', orderId);
-          updateData.inventoryCancellationNote = 'Pedido cancelado después de preparación, inventario no se revierte';
-        }
-        break
-    }
-    
-    await updateDoc(orderRef, updateData)
-    console.log('Estado del pedido actualizado:', orderId, newStatus)
-  } catch (error) {
+    console.log('Estado del pedido actualizado mediante Cloud Function:', orderId, newStatus)
+  } catch (error: any) {
     console.error('Error al actualizar estado del pedido:', error)
-    throw error
+    
+    // Extraer mensaje de error de Firebase Functions
+    if (error?.code === 'functions/unauthenticated') {
+      throw new Error('Debes iniciar sesión para actualizar el estado del pedido')
+    } else if (error?.code === 'functions/permission-denied') {
+      throw new Error('No tienes permisos para actualizar el estado del pedido')
+    } else if (error?.message) {
+      throw new Error(error.message)
+    } else {
+      throw new Error('Error desconocido al actualizar el estado del pedido')
+    }
   }
 }
 
@@ -456,6 +491,89 @@ export const listenToAllOrders = (callback: (orders: Order[]) => void): () => vo
       } as Order)
     })
     callback(orders)
+  })
+  
+  return unsubscribe
+}
+
+// ✅ OPTIMIZACIÓN: Listener con límite para pedidos recientes
+export const listenToRecentOrders = (
+  callback: (orders: Order[]) => void,
+  limitCount: number = 100,
+  estadoFiltro?: string // Nuevo parámetro para filtrar por estado
+): () => void => {
+  // Cargar últimos pedidos ordenados por fecha
+  // Filtrado se hace en cliente para evitar error de índice compuesto
+  const q = query(
+    collection(db, 'orders'),
+    orderBy('timestamps.created', 'desc'),
+    limit(limitCount)
+  )
+  
+  const unsubscribe = onSnapshot(q, (querySnapshot) => {
+    const orders: Order[] = []
+    const ahora = new Date()
+    // Para Entregados/Cancelados: mostrar últimos 7 días
+    const hace7Dias = new Date(ahora.getTime() - (7 * 24 * 60 * 60 * 1000))
+    
+    querySnapshot.forEach((doc) => {
+      const orderData = {
+        id: doc.id,
+        ...doc.data()
+      } as Order
+      
+      // Si no hay filtro o filtro es "todos" o "activos", mostrar solo activos
+      if (!estadoFiltro || estadoFiltro === 'todos' || estadoFiltro === 'activos') {
+        const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
+        if (estadosActivos.includes(orderData.estado)) {
+          orders.push(orderData)
+        }
+      }
+      // Si el filtro es Entregado o Cancelado, mostrar últimos 7 días
+      else if (estadoFiltro === 'Entregado' || estadoFiltro === 'Cancelado') {
+        if (orderData.estado === estadoFiltro) {
+          // Intentar obtener la fecha del pedido de múltiples fuentes
+          let fechaPedido: Date | null = null
+          
+          if (orderData.timestamps?.created) {
+            // Si es un string ISO (formato '2026-01-22T03:44:25.954Z')
+            if (typeof orderData.timestamps.created === 'string') {
+              fechaPedido = new Date(orderData.timestamps.created)
+            }
+            // Si es un Timestamp de Firestore con método toDate()
+            else if (typeof orderData.timestamps.created.toDate === 'function') {
+              fechaPedido = orderData.timestamps.created.toDate()
+            } 
+            // Si ya es un objeto Date
+            else if (orderData.timestamps.created instanceof Date) {
+              fechaPedido = orderData.timestamps.created
+            }
+          }
+          
+          // Fallback a fechaCreacion si existe
+          if (!fechaPedido && orderData.fechaCreacion) {
+            fechaPedido = new Date(orderData.fechaCreacion)
+          }
+          
+          // Si tenemos fecha válida y es de los últimos 7 días, incluir
+          if (fechaPedido && !isNaN(fechaPedido.getTime()) && fechaPedido >= hace7Dias) {
+            orders.push(orderData)
+          } else if (!fechaPedido || isNaN(fechaPedido.getTime())) {
+            // Si no hay fecha válida, incluir de todas formas (es reciente si está en los últimos 100)
+            orders.push(orderData)
+          }
+        }
+      }
+      // Para otros filtros específicos (Pendiente, En preparación, etc.)
+      else {
+        if (orderData.estado === estadoFiltro) {
+          orders.push(orderData)
+        }
+      }
+    })
+    callback(orders)
+  }, (error) => {
+    console.error('Error en listener de pedidos recientes:', error)
   })
   
   return unsubscribe

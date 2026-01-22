@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { Upload, X } from 'lucide-react'
+import { toast } from '@/hooks/use-toast'
 
 type Point = { label: string; value: number; date?: string }
 
@@ -23,11 +24,14 @@ const MONTHS = [
 const COLORS = ['#ef4444','#0ea5e9','#f97316','#10b981','#a78bfa','#ec4899']
 
 export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Props) {
+  const isDev = process.env.NODE_ENV !== 'production'
   const [mode, setMode] = useState<'mes'|'anio'>('mes')
   const [month, setMonth] = useState<string>((new Date()).getMonth().toString())
   const [year, setYear] = useState<string>((new Date()).getFullYear().toString())
   const [overlays, setOverlays] = useState<any[]>([])
   const [uploadedSeries, setUploadedSeries] = useState<any[]>([])
+  const [showAll, setShowAll] = useState<boolean>(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   // helpers to avoid timezone shifts when creating dates from ISO strings
   const parseIsoToLocal = (iso: string) => {
     // expect YYYY-MM-DD
@@ -85,7 +89,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
 
       // DEV: if historical month returned empty, fallback to relative 'mes' series (last 30 days)
       try {
-        if (process.env.NODE_ENV !== 'production' && Array.isArray(raw)) {
+        if (isDev && Array.isArray(raw)) {
           // eslint-disable-next-line no-console
           console.log('[GeneralSalesReport] raw getSalesSeries length for', mode, month, year, raw.length)
         }
@@ -96,7 +100,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
           const fallback = getSalesSeries('mes', { granularity: 'daily' })
           if (fallback && fallback.length > 0) {
             // eslint-disable-next-line no-console
-            if (process.env.NODE_ENV !== 'production') console.log('[GeneralSalesReport] falling back to relative mes series (last 30 days)')
+            if (isDev) console.log('[GeneralSalesReport] falling back to relative mes series (last 30 days)')
             raw = fallback
           }
         } catch (e) {}
@@ -104,7 +108,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
 
       // DEV: compare requested raw series vs default series (no opts) to spot differences
       try {
-        if (process.env.NODE_ENV !== 'production') {
+        if (isDev) {
           const defaultSeries = mode === 'mes' ? getSalesSeries('mes') : getSalesSeries('anual')
           // eslint-disable-next-line no-console
           console.log('[GeneralSalesReport] requested raw sample:', (raw || []).slice(0,5))
@@ -153,6 +157,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
         return { ...p, date: dateIso, label: visibleLabel }
       })
     } catch (e) {
+      if (isDev) console.error('[GeneralSalesReport] error building baseSeries', e)
       return []
     }
   }, [mode, month, year, getSalesSeries])
@@ -180,6 +185,12 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
           const sum = (s.data || []).reduce((acc: number, p: Point) => {
             const parts = p.date ? parseLabelToLocalDateParts(p.date) : parseLabelToLocalDateParts(p.label)
             if (!parts) return acc
+            // When showAll is active, include values for that month regardless of year
+            if (showAll) {
+              if (parts.m === mi + 1) return acc + (p.value || 0)
+              return acc
+            }
+            // Default: only include values for the selected year
             if (parts.y === yearNum && parts.m === mi + 1) return acc + (p.value || 0)
             return acc
           }, 0)
@@ -190,44 +201,150 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
       return rows
     }
 
-    // DAILY view (month): collect all dates (ISO) from points; if a point lacks date try to parse its label
-    const dateSet = new Set<string>()
-    normSeries.forEach(s => s.data.forEach((p: Point) => {
-      if (p.date) {
-        dateSet.add(p.date)
-      } else {
-        // attempt to parse label as date parts and build ISO locally
-        const parts = parseLabelToLocalDateParts(p.label)
-        if (parts) dateSet.add(`${parts.y}-${String(parts.m).padStart(2,'0')}-${String(parts.d).padStart(2,'0')}`)
+    // DEV: log debug info about collected dates when computing chartData
+    try {
+      if (isDev) {
+        // eslint-disable-next-line no-console
+        console.log('[GeneralSalesReport] build chartData', { showAll, dateCount: dateSet.size, sampleDates: Array.from(dateSet).slice(0,10) })
       }
+    } catch (e) {}
+
+    // DAILY view (month): collect all dates (ISO) from points; if a point lacks date try to parse its label
+    // For comparative overlays from other years we remap their day/month into the currently selected year
+    const dateSet = new Set<string>()
+    const targetYear = parseInt(year,10)
+    const targetMonth = parseInt(month,10) // 0-based
+
+    const pad = (n:number) => String(n).padStart(2,'0')
+
+    // helper: normalize a point into an ISO date relative to the current view
+    const pointToIsoForView = (p: Point) : string | null => {
+      if (mode === 'mes') {
+        // When 'Ver todos' is enabled we WANT to overlay series from other years
+        // by remapping their day-of-month into the currently selected month (so comparisons align).
+        if (showAll) {
+          // determine day of month from point (date or label)
+          let day: number | null = null
+          if (p.date) {
+            const parts = parseLabelToLocalDateParts(p.date)
+            if (parts && parts.d) day = parts.d
+          }
+          if (day === null) {
+            const m = String(p.label).match(/^(\d{1,2})$/)
+            if (m) day = parseInt(m[1], 10)
+          }
+          if (day === null || isNaN(day)) return null
+          // clamp day to the number of days in the target month
+          const lastDay = new Date(targetYear, targetMonth+1, 0).getDate()
+          const safeDay = Math.min(Math.max(1, day), lastDay)
+          // DEV: small log to verify mapping choices
+          try { if (isDev) console.log('[GeneralSalesReport] remap day', { originalDay: day, safeDay, targetMonth: targetMonth+1, targetYear }) } catch(e) {}
+          return `${targetYear}-${pad(targetMonth+1)}-${pad(safeDay)}`
+        }
+
+        // When 'Ver todos' is disabled, only include points that belong to the selected year/month.
+        if (p.date) {
+          const parts = parseLabelToLocalDateParts(p.date)
+          if (!parts) return null
+          if (parts.y === targetYear && parts.m === targetMonth + 1) return `${targetYear}-${pad(parts.m)}-${pad(parts.d)}`
+          return null
+        }
+        // if label is a day number (legacy), map it to the current selected month/year
+        const m2 = String(p.label).match(/^(\d{1,2})$/)
+        if (m2) {
+          const day = parseInt(m2[1],10)
+          return `${targetYear}-${pad(targetMonth+1)}-${pad(day)}`
+        }
+        return null
+      }
+      // anual view: try to parse month from date or label and return YYYY-MM-01
+      if (mode === 'anio') {
+        if (p.date) {
+          const parts = parseLabelToLocalDateParts(p.date)
+          if (!parts) return null
+          return `${parts.y}-${pad(parts.m)}-01`
+        }
+        const parts = parseLabelToLocalDateParts(p.label)
+        if (parts) return `${parts.y}-${pad(parts.m)}-01`
+        return null
+      }
+      return null
+    }
+
+    normSeries.forEach(s => s.data.forEach((p: Point) => {
+      const iso = pointToIsoForView(p)
+      if (iso) dateSet.add(iso)
     }))
 
-    // if viewing by month, restrict to days within that month
-    const allDates = Array.from(dateSet).filter(d => {
-      const dt = parseIsoToLocal(d)
-      return dt.getFullYear() === parseInt(year,10) && dt.getMonth() === parseInt(month,10)
-    }).sort((a,b) => parseIsoToLocal(a).getTime() - parseIsoToLocal(b).getTime())
+    // when viewing by month:
+    // - if 'Ver todos' is ACTIVE, include all dates from the collected set (all years)
+    // - otherwise restrict to the selected year/month only
+    let allDates: string[] = []
+    if (showAll && mode === 'mes') {
+      // When showing all series overlayed by day, use the canonical day list for the selected month
+      const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate()
+      allDates = Array.from({ length: lastDay }).map((_, i) => `${targetYear}-${pad(targetMonth+1)}-${pad(i+1)}`)
+    } else {
+      allDates = Array.from(dateSet)
+      if (!showAll) {
+        allDates = allDates.filter(d => {
+          const dt = parseIsoToLocal(d)
+          return dt.getFullYear() === targetYear && dt.getMonth() === targetMonth
+        })
+      }
+      allDates = allDates.sort((a,b) => parseIsoToLocal(a).getTime() - parseIsoToLocal(b).getTime())
+    }
 
-    return allDates.map(dateIso => {
+    const rows = allDates.map(dateIso => {
       const row: any = { label: dateIso }
       normSeries.forEach((s, idx) => {
         const found = (s.data || []).find((p: Point) => {
-          if (p.date) return p.date === dateIso
-          // fallback: parse label into local parts and compare
-          const parts = parseLabelToLocalDateParts(p.label)
-          if (parts) return `${parts.y}-${String(parts.m).padStart(2,'0')}-${String(parts.d).padStart(2,'0')}` === dateIso
-          return false
+          const iso = pointToIsoForView(p)
+          if (!iso) return false
+          return iso === dateIso
         })
         row[`v${idx}`] = found ? found.value : 0
       })
       return row
     })
-  }, [baseSeries, overlays, uploadedSeries, mode, month, year])
+
+    // DEV: log some rows for inspection and series mapping
+    try {
+      if (isDev) {
+        // eslint-disable-next-line no-console
+        console.log('[GeneralSalesReport] chartData sample rows count', rows.length, rows.slice(0,10))
+        // log mapping between lines and normSeries
+        // eslint-disable-next-line no-console
+        console.log('[GeneralSalesReport] lines keys', lines.map(l=>l.key))
+        // eslint-disable-next-line no-console
+        console.log('[GeneralSalesReport] visibleMap', visibleMap)
+        // compute per-series non-zero counts from rows
+        const perSeries = lines.map((l, idx) => {
+          const cnt = rows.reduce((acc, r) => acc + ((r[`v${idx}`] || 0) > 0 ? 1 : 0), 0)
+          const sum = rows.reduce((acc, r) => acc + (Number(r[`v${idx}`] || 0)), 0)
+          return { key: l.key, name: l.name, idx, nonZeroCount: cnt, sum }
+        })
+        // eslint-disable-next-line no-console
+        console.log('[GeneralSalesReport] perSeries summary', perSeries)
+          // eslint-disable-next-line no-console
+          console.log('[GeneralSalesReport] sample mappings (first 5 points per series):')
+          lines.forEach((l, idx) => {
+            const s = normSeries[idx]
+            if (!s) return
+            const samples = (s.data || []).slice(0,5).map(p => ({ original: p.date || p.label, mapped: pointToIsoForView(p), value: p.value }))
+            // eslint-disable-next-line no-console
+            console.log('[GeneralSalesReport] mapping', l.key, l.name, samples)
+          })
+      }
+    } catch (e) {}
+
+    return rows
+  }, [baseSeries, overlays, uploadedSeries, mode, month, year, showAll])
 
   // DEV: log any chart rows that contain non-zero values to help locate where system sales land
   useEffect(() => {
     try {
-      if (process.env.NODE_ENV !== 'production') {
+      if (isDev) {
         const nonZero = (chartData || []).filter((r: any) => Object.keys(r).some(k => k.startsWith('v') && (r[k] || 0) > 0))
         // eslint-disable-next-line no-console
         console.log('[GeneralSalesReport] chartData non-zero rows count:', nonZero.length, nonZero.slice(0,10))
@@ -238,7 +355,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
   // DEV: deeper inspection — log baseSeries and any non-zero points per series
   useEffect(() => {
     try {
-      if (process.env.NODE_ENV !== 'production') {
+      if (isDev) {
         // eslint-disable-next-line no-console
         console.log('[GeneralSalesReport] baseSeries sample:', (baseSeries || []).slice(0,10))
         const normSeries = [] as Array<{ label: string; data: Point[]; color?: string }>
@@ -261,6 +378,17 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
     const up = uploadedSeries.map((u, i) => ({ key: `v${i+1+overlays.length}`, name: u.label, color: COLORS[(i+1+overlays.length)%COLORS.length] }))
     return [...base, ...others, ...up]
   }, [mode, month, year, overlays, uploadedSeries])
+
+  // visibility map so we can force-show series in the chart for debugging
+  const [visibleMap, setVisibleMap] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    // ensure every line has a visibility entry, default true when showAll is active, otherwise true for base only
+    const map: Record<string, boolean> = {}
+    lines.forEach((l, i) => {
+      map[`v${i}`] = showAll ? true : (i === 0)
+    })
+    setVisibleMap(map)
+  }, [lines, showAll])
 
     const handleAddOverlay = () => {
     // add a simple overlay selector defaulting to previous year same mode
@@ -287,8 +415,51 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
     const file = e.target.files?.[0]
     if (!file) return
     const text = await file.text()
-    const parsedSeries = parseCsvText(text)
-  setUploadedSeries(prev => [...prev, { label: `Archivo: ${file.name}`, data: parsedSeries }]);
+    let parsedSeries: Point[] = []
+    try {
+      parsedSeries = parseCsvText(text)
+    } catch (err: any) {
+      toast({ title: 'Error al parsear CSV', description: String(err?.message || err) })
+      ;(e.target as HTMLInputElement).value = ''
+      return
+    }
+    if (!parsedSeries || parsedSeries.length === 0) {
+      toast({ title: 'Archivo sin datos', description: 'El archivo no contiene filas válidas o el formato no es reconocido.' })
+      ;(e.target as HTMLInputElement).value = ''
+      return
+    }
+    // attach year to label if possible
+    let fileYearLabel = ''
+    try {
+      const first = parsedSeries.find(p=>p.date || p.label)
+      const parts = first?.date ? parseLabelToLocalDateParts(first.date) : first?.label ? parseLabelToLocalDateParts(first.label) : null
+      if (parts && parts.y) fileYearLabel = ` (${parts.y})`
+    } catch (e) {}
+    setUploadedSeries(prev => [...prev, { label: `Archivo: ${file.name}${fileYearLabel}`, data: parsedSeries }]);
+    // if parsed file dates don't intersect current selection, switch view to file's first date
+    try {
+      const firstDateIso = parsedSeries.find(p=>p.date)?.date
+      if (firstDateIso) {
+        const parts = parseLabelToLocalDateParts(firstDateIso)
+        if (parts) {
+          const fileYear = parts.y
+          const fileMonth0 = parts.m - 1
+          if (mode === 'mes') {
+            if (fileYear !== parseInt(year,10) || fileMonth0 !== parseInt(month,10)) {
+              setYear(String(fileYear))
+              setMonth(String(fileMonth0))
+              toast({ title: 'Vista cambiada', description: `Mostrando ${MONTHS[fileMonth0]} ${fileYear} para ver los datos cargados.` })
+            }
+          } else {
+            if (fileYear !== parseInt(year,10)) {
+              setYear(String(fileYear))
+              toast({ title: 'Vista cambiada', description: `Mostrando ${fileYear} para ver los datos cargados.` })
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
     // simple CSV parser: date,value (date in ISO or dd/mm/yyyy)
     // clear input
     (e.target as HTMLInputElement).value = ''
@@ -362,7 +533,8 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
       let label = dateStr
       let dateIso: string | undefined = undefined
       if (d) {
-        dateIso = d.toISOString().slice(0,10)
+        const pad = (n: number) => String(n).padStart(2, '0')
+        dateIso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
         label = mode === 'mes' ? String(d.getDate()) : MONTHS[d.getMonth()]
       }
 
@@ -372,19 +544,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
     return parsed
   }
 
-  // Load an example CSV placed in public/ventas_2025.csv
-  const handleLoadVentas2025 = async () => {
-    try {
-      const res = await fetch('/ventas_2025.csv')
-      if (!res.ok) throw new Error('No se encontró /ventas_2025.csv en public/')
-      const text = await res.text()
-      const parsed = parseCsvText(text)
-  setUploadedSeries(prev => [...prev, { label: `ventas_2025.csv`, data: parsed }]);
-    } catch (err: any) {
-      console.error('Error cargando ventas_2025.csv:', err)
-      alert(`Error cargando ventas_2025.csv: ${err.message || err}`)
-    }
-  }
+  
 
   return (
     <div className="mt-8">
@@ -431,12 +591,15 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
             </SelectContent>
           </Select>
 
-          <input id="file-upload" type="file" accept=".csv,text/csv" onChange={handleUpload} className="hidden" />
-          <label htmlFor="file-upload">
-            <Button variant="outline" className="flex items-center gap-2"><Upload className="w-4 h-4"/> Subir datos</Button>
-          </label>
+          <input ref={fileInputRef as any} id="file-upload" type="file" accept=".csv,text/csv" onChange={handleUpload} className="hidden" />
+          <Button variant="outline" className="flex items-center gap-2" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="w-4 h-4"/> Subir datos
+          </Button>
 
-          <Button variant="outline" className="flex items-center gap-2" onClick={handleLoadVentas2025}>Cargar ventas_2025.csv</Button>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="w-4 h-4" checked={showAll} onChange={(e)=>setShowAll(e.target.checked)} />
+            <span>Ver todos</span>
+          </label>
 
           <Button onClick={handleAddOverlay} variant="ghost">Agregar periodo para comparar</Button>
         </div>
@@ -445,7 +608,7 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
       <div className="bg-white dark:bg-gray-800 border dark:border-gray-700 p-4 rounded-lg">
         <div className="w-full h-96">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <LineChart data={chartData} margin={{ top: 10, right: 20, left: 24, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
               <XAxis
                 dataKey="label"
@@ -478,7 +641,14 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
                   return String(label)
                 }}
               />
-              <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis
+                width={96}
+                tickFormatter={(v:any) => `$${Number(v).toLocaleString()}`}
+                tick={{ fontSize: 13, fontWeight: 600, fill: '#111' }}
+                tickMargin={8}
+                axisLine={false}
+                tickLine={false}
+              />
               <Tooltip
                 formatter={(v:any)=>`$${Number(v).toLocaleString()}`}
                 // show full weekday + date as tooltip label
@@ -497,13 +667,15 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
               <Legend />
               {lines.map((l, idx) => (
                 <Line
-                  key={l.key}
+                  key={`line-${idx}-${l.key}`}
                   type="monotone"
                   dataKey={l.key}
-                  stroke={l.color}
+                  stroke={l.color || COLORS[idx % COLORS.length]}
                   strokeWidth={2}
-                  dot={idx === 0 ? (p:any) => (p && p.value ? <circle r={3} fill={l.color} /> : null) : false}
+                  dot={false}
                   name={l.name}
+                  isAnimationActive={false}
+                  hide={!visibleMap[l.key]}
                 />
               ))}
             </LineChart>
@@ -533,6 +705,19 @@ export default function GeneralSalesReport({ getSalesSeries, orders = [] }: Prop
               </button>
             </div>
           ))}
+
+          {/* Visual toggles for each series (debug) */}
+          <div className="w-full mt-3">
+            <div className="text-sm text-gray-600 dark:text-gray-400 mb-2">Series visibles:</div>
+            <div className="flex flex-wrap gap-2">
+              {lines.map((l, idx) => (
+                <label key={`vis-${l.key}`} className="flex items-center gap-2 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                  <input type="checkbox" checked={!!visibleMap[l.key]} onChange={(e)=>setVisibleMap(prev=>({ ...prev, [l.key]: e.target.checked }))} />
+                  <span className="text-sm">{l.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
           {/* Acciones */}
           {(overlays.length > 0 || uploadedSeries.length > 0) && (
