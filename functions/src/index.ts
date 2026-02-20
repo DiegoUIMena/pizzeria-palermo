@@ -29,6 +29,8 @@ import {
   createWebpayTransaction,
   confirmWebpayTransaction as confirmWebpayService,
 } from "./services/webpay.service";
+import {sendWelcomeEmail} from "./services/email.service";
+import {sendWelcomeWhatsApp, isValidPhoneNumber} from "./services/whatsapp.service";
 import {CreateOrderData} from "./types/orders";
 
 // Inicializar Firebase Admin (solo una vez)
@@ -654,5 +656,101 @@ export const cleanupAbandonedOrders = onSchedule({
     logger.info(`Successfully cleaned up ${count} abandoned orders`);
   } catch (error) {
     logger.error("Error cleaning up abandoned orders:", error);
+  }
+});
+
+// ==================================================
+// FUNCTION 7: Enviar Email de Bienvenida
+// ==================================================
+export const sendWelcomeEmailToUser = onCall(async (request) => {
+  const {email, name, password} = request.data;
+
+  logger.info("sendWelcomeEmailToUser called", {email, name});
+
+  // Validar datos de entrada
+  if (!email || !name || !password) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Email, nombre y contraseña son requeridos"
+    );
+  }
+
+  // Validar formato de email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    throw new HttpsError("invalid-argument", "Email inválido");
+  }
+
+  try {
+    await sendWelcomeEmail(email, name, password);
+
+    return {
+      success: true,
+      message: "Email de bienvenida enviado correctamente",
+    };
+  } catch (error: any) {
+    logger.error("Error enviando email de bienvenida:", error);
+
+    // Si las credenciales no están configuradas, devolver error amigable
+    if (error.message.includes("not configured")) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Servicio de email no configurado. Contacta al administrador."
+      );
+    }
+
+    throw new HttpsError(
+      "internal",
+      "Error al enviar email de bienvenida"
+    );
+  }
+});
+
+// ==================================================
+// FUNCTION 8: Enviar WhatsApp de Bienvenida
+// ==================================================
+export const sendWelcomeWhatsAppToUser = onCall(async (request) => {
+  const {phone, name, email, password} = request.data;
+
+  logger.info("sendWelcomeWhatsAppToUser called", {phone, name, email});
+
+  // Validar datos de entrada
+  if (!phone || !name || !email || !password) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Teléfono, nombre, email y contraseña son requeridos"
+    );
+  }
+
+  // Validar formato de teléfono
+  if (!isValidPhoneNumber(phone)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Número de teléfono inválido. Debe incluir código de país (+56)"
+    );
+  }
+
+  try {
+    await sendWelcomeWhatsApp(phone, name, email, password);
+
+    return {
+      success: true,
+      message: "WhatsApp de bienvenida enviado correctamente",
+    };
+  } catch (error: any) {
+    logger.error("Error enviando WhatsApp de bienvenida:", error);
+
+    // Si las credenciales no están configuradas, devolver error amigable
+    if (error.message.includes("not configured")) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Servicio de WhatsApp no configurado. Contacta al administrador."
+      );
+    }
+
+    throw new HttpsError(
+      "internal",
+      "Error al enviar WhatsApp de bienvenida"
+    );
   }
 });

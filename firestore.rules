@@ -112,6 +112,17 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA CONFIGURACIÓN DE HORARIOS
+    // ============================================
+    match /settings/{settingId} {
+      // Todos pueden leer la configuración (para mostrar horarios y banner cuando está cerrado)
+      allow read: if true;
+      
+      // Solo admin puede modificar configuración
+      allow write: if isAdmin();
+    }
+    
+    // ============================================
     // BLOQUEAR TODO LO DEMÁS POR DEFECTO
     // ============================================
     // Esta regla bloquea cualquier colección no especificada arriba

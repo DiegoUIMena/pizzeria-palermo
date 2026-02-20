@@ -370,8 +370,8 @@ export default function PedidosPage() {
                   <p className="text-gray-500 mb-6">
                     Cuando realices un pedido, aparecerá aquí para que puedas seguir su progreso.
                   </p>
-                  <Link href="/menu">
-                    <Button className="bg-pink-600 text-white hover:bg-pink-700">Ver Menú</Button>
+                  <Link href="/">
+                    <Button className="bg-pink-600 text-white hover:bg-pink-700">Ver Productos</Button>
                   </Link>
                 </div>
               )}

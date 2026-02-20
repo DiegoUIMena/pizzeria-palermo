@@ -22,7 +22,11 @@ import InventoryErrorModal from "./InventoryErrorModal"
 import { functions } from "@/lib/firebase"
 import { httpsCallable } from "firebase/functions"
 
-const Cart = () => {
+interface CartProps {
+  onClose?: () => void
+}
+
+const Cart = ({ onClose }: CartProps) => {
   const { items, removeItem, getTotal, updateQuantity, clearCart, createOrder } = useCart()
   const [isMounted, setIsMounted] = useState(false)
   const [expandedItems, setExpandedItems] = useState<{ [key: string]: boolean }>({})
@@ -37,7 +41,129 @@ const Cart = () => {
   const [currentView, setCurrentView] = useState<"cart" | "address" | "payment" | "confirmation">("cart")
   const [paymentMethod, setPaymentMethod] = useState("webpay")
   const [isProcessing, setIsProcessing] = useState(false)
+  const [isRedirectingToWebpay, setIsRedirectingToWebpay] = useState(false)
   const [orderNumber, setOrderNumber] = useState(Math.floor(Math.random() * 100000))
+  const [confirmedTotal, setConfirmedTotal] = useState(0)
+  
+  // Crear overlay directamente en el DOM cuando se activa WebPay
+  useEffect(() => {
+    console.log("🎨 Estado isRedirectingToWebpay cambió a:", isRedirectingToWebpay)
+    
+    if (isRedirectingToWebpay) {
+      console.log("🎨 Creando overlay directamente en el DOM")
+      
+      // Crear el overlay
+      const overlay = document.createElement('div')
+      overlay.id = 'webpay-redirect-overlay'
+      overlay.style.cssText = `
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+      `
+      
+      overlay.innerHTML = `
+        <div style="
+          background-color: white;
+          border-radius: 0.75rem;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+          padding: 1.5rem;
+          max-width: 22rem;
+          width: calc(100% - 2rem);
+          margin: 0 1rem;
+          text-align: center;
+        ">
+          <!-- Spinner animado -->
+          <div style="margin-bottom: 1.25rem; display: flex; justify-content: center;">
+            <div style="position: relative; width: 4rem; height: 4rem;">
+              <div style="width: 4rem; height: 4rem; border: 3px solid #fbcfe8; border-radius: 9999px;"></div>
+              <div style="
+                width: 4rem; 
+                height: 4rem; 
+                border: 3px solid #ec4899; 
+                border-top-color: transparent; 
+                border-radius: 9999px; 
+                animation: spin 1s linear infinite;
+                position: absolute;
+                top: 0;
+                left: 0;
+              "></div>
+            </div>
+          </div>
+          
+          <!-- Icono de tarjeta -->
+          <div style="margin-bottom: 0.875rem;">
+            <svg style="width: 3rem; height: 3rem; margin: 0 auto; color: #ec4899;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <rect x="2" y="5" width="20" height="14" rx="2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              <line x1="2" y1="10" x2="22" y2="10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          
+          <!-- Mensaje -->
+          <h3 style="font-size: 1.25rem; font-weight: bold; color: #1f2937; margin-bottom: 0.5rem; line-height: 1.3;">
+            Procesando pago
+          </h3>
+          <p style="color: #4b5563; margin-bottom: 1rem; font-size: 0.9rem; line-height: 1.4;">
+            Estás siendo redirigido a Webpay Plus para completar tu pago de forma segura
+          </p>
+          
+          <!-- Barra de progreso -->
+          <div style="
+            width: 100%;
+            background-color: #e5e7eb;
+            border-radius: 9999px;
+            height: 0.4rem;
+            margin-bottom: 0.875rem;
+            overflow: hidden;
+          ">
+            <div style="
+              background: linear-gradient(to right, #f9a8d4, #ec4899);
+              height: 0.4rem;
+              border-radius: 9999px;
+              width: 70%;
+              animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            "></div>
+          </div>
+          
+          <p style="font-size: 0.8125rem; color: #6b7280; line-height: 1.3;">
+            Por favor, no cierres esta ventana...
+          </p>
+        </div>
+      `
+      
+      // Agregar animaciones
+      if (!document.getElementById('webpay-overlay-styles')) {
+        const style = document.createElement('style')
+        style.id = 'webpay-overlay-styles'
+        style.textContent = `
+          @keyframes spin {
+            to { transform: rotate(360deg); }
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+        `
+        document.head.appendChild(style)
+      }
+      
+      document.body.appendChild(overlay)
+      console.log("✅ Overlay agregado al DOM")
+      
+      // Cleanup: remover el overlay cuando el componente se desmonte o el estado cambie
+      return () => {
+        const existingOverlay = document.getElementById('webpay-redirect-overlay')
+        if (existingOverlay) {
+          existingOverlay.remove()
+          console.log("🗑️ Overlay removido del DOM")
+        }
+      }
+    }
+  }, [isRedirectingToWebpay])
+  
   const [estimatedTime, setEstimatedTime] = useState("20-25 minutos")
   
   // Cargar zonas de delivery desde Firestore
@@ -51,6 +177,7 @@ const Cart = () => {
     percentage?: number
   } | null>(null)
   const [discountError, setDiscountError] = useState("")
+  const [isDiscountPanelOpen, setIsDiscountPanelOpen] = useState(false)
 
   // Estados para dirección
   const [calle, setCalle] = useState("")
@@ -307,6 +434,24 @@ const Cart = () => {
     }
 
     setIsProcessing(true)
+    
+    // Si el método de pago es Webpay, mostrar indicador de redirección ANTES de procesar
+    if (paymentMethod === "webpay") {
+      console.log("🔄 Mostrando indicador de redirección a WebPay")
+      setIsRedirectingToWebpay(true)
+      
+      // Usar requestAnimationFrame para asegurar que el navegador pinte el overlay
+      // antes de continuar con el procesamiento
+      await new Promise(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 50)
+          })
+        })
+      })
+      console.log("🎨 Overlay debería estar visible ahora")
+    }
+    
     try {
       // Crear el pedido en Firestore
       const orderData: any = {
@@ -354,45 +499,24 @@ const Cart = () => {
       // Crear el pedido (ya incluye validación de inventario)
       const result = await createOrder(orderData)
 
+      console.log('🛒 Resultado de createOrder:', result)
+      console.log('Success:', result.success)
+      console.log('Error code:', result.error)
+
       // Verificar si la creación fue exitosa
       if (!result.success) {
-        if (result.error === 'INVENTORY_UNAVAILABLE' && result.validationDetails) {
-          // Mostrar mensaje detallado sobre falta de inventario
-          let errorMessage = "No hay suficiente stock para procesar tu pedido:"
-          let ingredientesFaltantes = "";
+        console.log('❌ Pedido NO exitoso, procesando error...')
+        if (result.error === 'INVENTORY_UNAVAILABLE') {
+          console.log('🚨 Error de inventario detectado')
+          console.log('Validation details disponibles:', result.validationDetails)
           
-          result.validationDetails.forEach((item: any) => {
-            errorMessage += `\n• ${item.item}: `
-            if (item.missing && item.missing.length > 0) {
-              item.missing.forEach((ing: any) => {
-                errorMessage += `\n  - ${ing.ingrediente}: necesario ${ing.needed} ${ing.unidad}, disponible ${ing.available} ${ing.unidad}`
-                ingredientesFaltantes += `${ing.ingrediente}, `
-              })
-            }
-          })
-          
-          // Eliminar la última coma y espacio
-          ingredientesFaltantes = ingredientesFaltantes.replace(/,\s*$/, "");
-          
-          console.error('Detalles de inventario insuficiente:', errorMessage)
-          
-          // Guardar los detalles de validación
-          setInventoryErrorDetails(result.validationDetails)
-          
-          // Mostrar error en el carrito en lugar del modal
-          setShowInventoryError(true)
-          setCurrentView("cart") // Asegurarse de que el usuario vea el carrito con el mensaje
-          
-          // También mostrar toast con mensaje de error básico
-          const hasNoRecipes = result.validationDetails.some((item: any) => item.noRecipe);
-          
-          toast({
-            title: hasNoRecipes ? "Productos sin receta definida" : "Inventario insuficiente",
-            description: hasNoRecipes 
-              ? "Algunos productos no tienen recetas definidas en el sistema."
-              : "No podemos procesar tu pedido por falta de stock.",
-            variant: "destructive",
-          })
+          // Mostrar mensaje detallado en el carrito (sin toast redundante)
+          if (result.validationDetails) {
+            console.log('Detalles de inventario insuficiente:', result.validationDetails)
+            setInventoryErrorDetails(result.validationDetails)
+            setShowInventoryError(true)
+            setCurrentView("cart") // Asegurarse de que el usuario vea el carrito
+          }
           
           setIsProcessing(false)
           return
@@ -400,8 +524,9 @@ const Cart = () => {
           // Otro tipo de error
           toast({
             title: "Error al procesar el pedido",
-            description: "Ha ocurrido un error inesperado. Por favor intenta nuevamente.",
-            variant: "destructive"
+            description: result.error || "Ha ocurrido un error inesperado. Por favor intenta nuevamente.",
+            variant: "destructive",
+            duration: 5000,
           })
           
           setIsProcessing(false)
@@ -440,6 +565,7 @@ const Cart = () => {
           }
         } catch (webpayError: any) {
           console.error('Error iniciando Webpay:', webpayError)
+          setIsRedirectingToWebpay(false)
           toast({
             title: "Error con Webpay",
             description: webpayError.message || "No se pudo iniciar el pago. El pedido fue creado pero debes contactarnos para completar el pago.",
@@ -454,6 +580,9 @@ const Cart = () => {
       // Usamos el número de pedido real devuelto por Firestore
       setOrderNumber(result.orderNumber)
       
+      // Guardar el total confirmado antes de cambiar de vista
+      setConfirmedTotal(totalFinal)
+      
       // Cambiamos a la vista de confirmación
       setCurrentView("confirmation")
       
@@ -464,6 +593,10 @@ const Cart = () => {
         setDiscountCode("")
         setExpandedItems({})
         setCurrentView("cart")
+        // Cerrar el Sheet después de limpiar con un pequeño delay para animación
+        setTimeout(() => {
+          onClose?.()
+        }, 300)
       }, 10000) // 10 segundos para que el usuario pueda ver la confirmación
       
       // Limpiar datos de efectivo
@@ -632,37 +765,35 @@ const Cart = () => {
   // Vista de confirmación tiene prioridad sobre otras vistas
   if (currentView === "confirmation") {
     return (
-      <div className="h-full flex flex-col bg-white p-6 text-center">
-        <div className="flex-1 flex flex-col justify-center">
+      <div className="h-full flex flex-col bg-white overflow-y-auto">
+        <div className="flex-1 p-6 text-center">
           {/* Icono de confirmación grande y animado */}
-          <div className="flex justify-center mb-8">
-            <div className="bg-green-100 p-8 rounded-full shadow-lg animate-pulse">
-              <CheckCircle className="h-24 w-24 text-green-600" strokeWidth={1.5} />
+          <div className="flex justify-center mb-6">
+            <div className="bg-green-100 p-6 rounded-full shadow-lg animate-pulse">
+              <CheckCircle className="h-20 w-20 text-green-600" strokeWidth={1.5} />
             </div>
           </div>
           
           <h2 className="text-2xl font-bold text-green-600 mb-6">¡Pedido Confirmado!</h2>
           
           {/* Número de pedido destacado */}
-          <div className="bg-pink-50 py-8 px-6 rounded-lg border-2 border-pink-300 mb-8 shadow-md">
+          <div className="bg-pink-50 py-6 px-6 rounded-lg border-2 border-pink-300 mb-6 shadow-md">
             <h3 className="text-sm uppercase tracking-wider font-medium text-gray-600 mb-3">Número de Pedido</h3>
-            <div className="text-6xl font-extrabold text-pink-600 mb-3">#{orderNumber}</div>
-            <p className="text-sm text-gray-600">Guarda este número para cualquier consulta</p>
+            <div className="text-5xl font-extrabold text-pink-600">#{orderNumber}</div>
           </div>
           
           {/* Instrucciones para seguimiento */}
-          <div className="bg-blue-50 p-5 rounded-lg border border-blue-200 mb-6">
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
             <h3 className="font-medium text-gray-800 mb-2 flex items-center justify-center">
               <ArrowRightCircle className="h-5 w-5 text-blue-600 mr-2" />
               Seguimiento de Pedido
             </h3>
-            <p className="text-gray-700 mb-3">
+            <p className="text-gray-700">
               Sigue el estado de tu pedido en la sección de 
               <Link href="/pedidos" className="font-bold text-blue-600 hover:underline mx-1">
                 "Mis Pedidos"
               </Link>
             </p>
-            <p className="text-sm text-gray-600">Podrás ver el progreso en tiempo real y recibir notificaciones cuando tu pedido esté listo.</p>
           </div>
           
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4">
@@ -672,7 +803,7 @@ const Cart = () => {
           
           <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
             <h3 className="font-medium text-gray-800 mb-2">Total Pagado</h3>
-            <p className="text-xl font-bold text-blue-600">${totalFinal.toLocaleString()}</p>
+            <p className="text-xl font-bold text-blue-600">${confirmedTotal.toLocaleString()}</p>
           </div>
           
           {isDelivery && deliveryInfo.zone && (
@@ -683,20 +814,7 @@ const Cart = () => {
             </div>
           )}
           
-          <Button 
-            onClick={() => {
-              clearCart();
-              setAppliedDiscount(null);
-              setDiscountCode("");
-              setExpandedItems({});
-              setCurrentView("cart");
-            }}
-            className="mt-4 bg-pink-600 hover:bg-pink-700 text-white"
-          >
-            Volver al Menú
-          </Button>
-          
-          <p className="text-xs text-gray-500 mt-4">El carrito se limpiará automáticamente en 10 segundos...</p>
+          <p className="text-xs text-gray-500 mt-4 mb-4">El carrito se limpiará automáticamente en 10 segundos...</p>
         </div>
       </div>
     )
@@ -998,15 +1116,41 @@ const Cart = () => {
           </div>
         </div>
 
-        {/* Sección de código de descuento */}
-        <div className="p-4 border-t border-gray-200 bg-gray-50">
-          <div className="mb-4">
-            <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <div className="flex items-center mb-3">
-                <Tag className="h-4 w-4 text-pink-600 mr-2" />
-                <span className="font-medium text-gray-800">Código de Descuento</span>
-              </div>
+        {/* Sección de código de descuento colapsable */}
+        <div className="border-t border-gray-200 bg-gray-50">
+          {/* Botón/pestaña para abrir el panel */}
+          <button
+            onClick={() => setIsDiscountPanelOpen(!isDiscountPanelOpen)}
+            className="w-full p-3 flex items-center justify-between hover:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <Tag className="h-4 w-4 text-pink-600" />
+              <span className="font-medium text-gray-800">
+                {appliedDiscount ? 'Descuento aplicado' : '¿Tienes un código de descuento?'}
+              </span>
+              {appliedDiscount && (
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                  {appliedDiscount.code}
+                </span>
+              )}
+            </div>
+            <ChevronDown 
+              className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${
+                isDiscountPanelOpen ? 'rotate-180' : ''
+              }`} 
+            />
+          </button>
 
+          {/* Panel desplegable */}
+          <div 
+            className={`transition-all duration-500 ease-in-out overflow-hidden ${
+              isDiscountPanelOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+            }`}
+            style={{
+              transition: 'max-height 0.5s ease-in-out, opacity 0.3s ease-in-out'
+            }}
+          >
+            <div className="p-4 bg-white border-t border-gray-200">
               {appliedDiscount ? (
                 <div className="flex items-center justify-between bg-green-50 p-3 rounded-lg border border-green-200">
                   <div>
@@ -1052,6 +1196,10 @@ const Cart = () => {
               )}
             </div>
           </div>
+        </div>
+
+        {/* Botón de confirmar pago */}
+        <div className="p-4 bg-gray-50">
 
           <Button
             onClick={handlePayment}
@@ -1070,10 +1218,11 @@ const Cart = () => {
   }
 
   return (
-    <div className="h-full flex flex-col bg-white">
-      <div className="p-4 border-b border-gray-200 bg-gray-50">
-        <h2 className="text-xl font-bold text-gray-800">Tu Carrito ({items.length})</h2>
-      </div>
+    <>
+      <div className="h-full flex flex-col bg-white">
+        <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <h2 className="text-xl font-bold text-gray-800">Tu Carrito ({items.length})</h2>
+        </div>
 
       {/* Mensaje de error de inventario */}
       {showInventoryError && inventoryErrorDetails && inventoryErrorDetails.length > 0 && (
@@ -1083,34 +1232,27 @@ const Cart = () => {
             <h3 className="font-bold">¡Atención! No podemos procesar tu pedido</h3>
           </div>
           <p className="text-sm text-red-700 mb-3">
-            {inventoryErrorDetails.some(item => item.noRecipe) 
-              ? "Hay productos sin recetas definidas o ingredientes insuficientes:"
-              : "No hay suficiente stock de los siguientes ingredientes:"}
+            No hay suficiente stock de los siguientes ingredientes:
           </p>
           
-          <div className="space-y-3 mb-3">
-            {inventoryErrorDetails.map((item, index) => (
-              <div key={index} className="p-3 bg-white border border-red-200 rounded-md shadow-sm">
-                <p className="font-medium text-red-700 mb-1">{item.item}</p>
-                
-                {item.noRecipe ? (
-                  <div className="text-sm bg-yellow-50 p-2 border border-yellow-200 rounded">
-                    <p className="font-medium text-yellow-800">Este producto no tiene receta definida</p>
-                    <p className="text-gray-700">Por favor, contacta al administrador para solucionar este problema.</p>
-                  </div>
-                ) : item.missing && item.missing.length > 0 && (
-                  <ul className="text-sm space-y-1 ml-2">
-                    {item.missing.map((ing: any, idx: number) => (
-                      <li key={idx} className="text-gray-700">
-                        <span className="font-medium">{ing.ingrediente}:</span>{' '}
-                        necesario <span className="text-red-600 font-medium">{ing.needed} {ing.unidad}</span>,
-                        disponible <span className="text-gray-600">{ing.available} {ing.unidad}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ))}
+          <div className="bg-white p-3 border border-red-200 rounded-md shadow-sm mb-3">
+            <ul className="text-sm space-y-2">
+              {inventoryErrorDetails.map((item, index) => (
+                <li key={index} className="text-gray-700 flex items-start gap-2">
+                  <span className="text-red-500 mt-1">•</span>
+                  <span>
+                    <span className="font-semibold text-red-700">{item.ingrediente || item.item}</span>
+                    {item.requerido && (
+                      <>
+                        {': '}
+                        necesario <span className="font-medium text-red-600">{item.requerido}gr</span>, 
+                        disponible <span className="text-gray-600">{item.disponible}gr</span>
+                      </>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
           
           <div className="bg-yellow-50 p-3 rounded-md border border-yellow-200 mb-3 text-sm">
@@ -1514,7 +1656,8 @@ const Cart = () => {
           setCurrentView("cart");
         }}
       />
-    </div>
+      </div>
+    </>
   )
 }
 

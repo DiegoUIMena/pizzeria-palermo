@@ -30,6 +30,8 @@ export interface OrderItem {
   extras?: string[]
   comments?: string
   pizzaType?: string
+  pizza1?: string  // Para pizzas DUO
+  pizza2?: string  // Para pizzas DUO
 }
 
 export interface Order {

@@ -189,7 +189,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         drinks: item.drinks,
         extras: item.extras,
         comments: item.comments,
-        pizzaType: item.pizzaType
+        pizzaType: item.pizzaType,
+        pizza1: item.pizza1,
+        pizza2: item.pizza2
       }))
 
       // Llamar a la Cloud Function createOrder
@@ -208,22 +210,48 @@ export function CartProvider({ children }: { children: ReactNode }) {
         notas: orderData.notas
       })
 
-      const result = functionResponse.data as {id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}
+      const result = functionResponse.data as {id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, details?: any}
+
+      console.log('✅ Cloud Function response:', result)
+      console.log('Success:', result.success)
+      console.log('Error:', result.error)
+      console.log('Validation details:', result.validationDetails || result.details)
 
       // Limpiar el carrito solo si el pedido fue exitoso
       if (result.success) {
         clearCart()
       }
 
-      return result
+      // Mapear 'details' a 'validationDetails' si existe
+      return {
+        ...result,
+        validationDetails: result.validationDetails || result.details
+      }
     } catch (error: any) {
-      console.error('Error creating order:', error)
+      console.error('❌ Error creating order:', error)
+      console.log('Error code:', error?.code)
+      console.log('Error message:', error?.message)
+      console.log('Error details:', error?.details)
       
       // Extraer el mensaje de error de Firebase Functions
       let errorMessage = 'Error desconocido al crear el pedido'
+      let errorCode = ''
+      let validationDetails = null
+      
       if (error?.code === 'functions/unauthenticated') {
+        console.log('🔒 Error de autenticación detectado')
         errorMessage = 'Debes iniciar sesión para crear un pedido'
+        errorCode = 'UNAUTHENTICATED'
+      } else if (error?.code === 'functions/failed-precondition') {
+        console.log('📦 Error de inventario detectado')
+        // Este es el error de inventario insuficiente
+        errorMessage = error?.message || 'No hay suficiente stock disponible'
+        errorCode = 'INVENTORY_UNAVAILABLE'
+        // Los detalles de validación vienen en error.details
+        validationDetails = error?.details || null
+        console.log('Detalles de validación de inventario:', validationDetails)
       } else if (error?.message) {
+        console.log('⚠️ Error genérico:', error.message)
         errorMessage = error.message
       }
       
@@ -231,7 +259,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         id: '',
         orderNumber: 0,
         success: false,
-        error: errorMessage
+        error: errorCode || errorMessage,
+        validationDetails: validationDetails
       }
     }
   }

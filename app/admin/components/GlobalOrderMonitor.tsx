@@ -288,8 +288,8 @@ export default function GlobalOrderMonitor() {
               
               if (!nuevosPocoTiempo.has(id)) {
                 nuevosPocoTiempo.add(id)
-                // Reproducir alarma cuando un pedido entra en tiempo crítico
-                reproducirAlarmaTiempoAgotandose()
+                // Reproducir alarma cuando un pedido entra en tiempo crítico (pasando el ID)
+                reproducirAlarmaTiempoAgotandose(id)
               }
             }
             
@@ -297,7 +297,7 @@ export default function GlobalOrderMonitor() {
             if (newCuentas[id] > 0 && newCuentas[id] <= 180 && (Math.floor(newCuentas[id]) % 60 <= delta)) {
               if (nuevosPocoTiempo.has(id)) {
                 console.log(`⏱️ [GLOBAL] Recordatorio de tiempo crítico para pedido ${id}: ${formatearTiempo(newCuentas[id])}`)
-                reproducirAlarmaTiempoAgotandose()
+                reproducirAlarmaTiempoAgotandose(id)
               }
             }
           } else if (newCuentas[id] === 0) {
@@ -307,7 +307,7 @@ export default function GlobalOrderMonitor() {
             if (nuevosPocoTiempo.has(id) && pedido && 
                 pedido.estado !== "Entregado" && pedido.estado !== "Cancelado") {
               console.log(`⚠️ [GLOBAL] ¡Tiempo agotado para pedido ${id}!`)
-              reproducirAlarmaTiempoAgotandose()
+              reproducirAlarmaTiempoAgotandose(id)
             }
           }
         }

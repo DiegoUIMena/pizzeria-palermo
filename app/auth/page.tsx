@@ -11,6 +11,9 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Eye, EyeOff, ArrowLeft } from "lucide-react"
+import { toast } from "@/hooks/use-toast"
+import { httpsCallable } from "firebase/functions"
+import { functions } from "@/lib/firebase"
 import Header from "../components/Header"
 import Footer from "../components/Footer"
 import { useAuth } from "../context/AuthContext"
@@ -38,11 +41,18 @@ export default function AuthPage() {
 
     try {
       await login(loginEmail, loginPassword)
+      toast({
+        title: "¡Bienvenido de vuelta!",
+        description: "Has iniciado sesión correctamente.",
+      })
       router.push("/")
     } catch (error: any) {
       console.error("Error al iniciar sesión:", error)
-      // Aquí puedes mostrar el error al usuario
-      alert(error.message)
+      toast({
+        variant: "destructive",
+        title: "Error al iniciar sesión",
+        description: error.message || "Por favor verifica tus credenciales.",
+      })
     } finally {
       setIsLoading(false)
     }
@@ -53,18 +63,61 @@ export default function AuthPage() {
     setIsLoading(true)
 
     try {
-      await register({
+      const userData = await register({
         name: registerName,
         email: registerEmail,
         password: registerPassword,
         phone: registerPhone,
         address: registerAddress,
       })
-      router.push("/")
+
+      // Mostrar toast de confirmación
+      toast({
+        title: "✅ ¡Registro exitoso!",
+        description: `Bienvenido ${registerName}. Tu cuenta ha sido creada correctamente.`,
+      })
+
+      // Enviar notificaciones de bienvenida en segundo plano
+      // No bloqueamos si hay errores en el envío
+      try {
+        // Enviar email de bienvenida
+        const sendEmailFunction = httpsCallable(functions, "sendWelcomeEmailToUser")
+        sendEmailFunction({
+          email: userData.email,
+          name: userData.name,
+          password: userData.password,
+        }).catch((error) => {
+          console.warn("No se pudo enviar email de bienvenida:", error)
+        })
+
+        // Enviar WhatsApp de bienvenida (si se proporcionó teléfono)
+        if (userData.phone) {
+          const sendWhatsAppFunction = httpsCallable(functions, "sendWelcomeWhatsAppToUser")
+          sendWhatsAppFunction({
+            phone: userData.phone,
+            name: userData.name,
+            email: userData.email,
+            password: userData.password,
+          }).catch((error) => {
+            console.warn("No se pudo enviar WhatsApp de bienvenida:", error)
+          })
+        }
+      } catch (notificationError) {
+        console.error("Error enviando notificaciones:", notificationError)
+        // No mostramos error al usuario, las notificaciones son secundarias
+      }
+
+      // Redirigir al inicio
+      setTimeout(() => {
+        router.push("/")
+      }, 1500)
     } catch (error: any) {
       console.error("Error al registrarse:", error)
-      // Aquí puedes mostrar el error al usuario
-      alert(error.message)
+      toast({
+        variant: "destructive",
+        title: "Error al registrarse",
+        description: error.message || "No se pudo crear la cuenta. Intenta nuevamente.",
+      })
     } finally {
       setIsLoading(false)
     }

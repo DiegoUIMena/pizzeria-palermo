@@ -2,14 +2,28 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // Función auxiliar para verificar si es admin
+    function isAdmin() {
+      return request.auth != null && 
+             (request.auth.token.role == 'admin' || request.auth.token.email != null);
+    }
+    
     // Reglas para la carpeta de pizzas
     match /pizzas/{imageId} {
       // Permitir lectura pública para las imágenes de pizzas
       allow read: if true;
       
-      // Solo admins pueden escribir/actualizar/eliminar imágenes
-      allow write: if request.auth != null && 
-                      request.auth.token.role == "admin";
+      // Permitir escritura a usuarios autenticados
+      allow write: if request.auth != null;
+    }
+    
+    // Reglas para banners de cierre
+    match /banners-closed/{imageId} {
+      // Permitir lectura pública (para mostrar banner cuando está cerrado)
+      allow read: if true;
+      
+      // Permitir escritura a usuarios autenticados (admin o con email verificado)
+      allow write: if request.auth != null;
     }
     
     // Otras carpetas (usuarios, pedidos, etc.)
@@ -17,9 +31,8 @@ service firebase.storage {
       // Por defecto, solo usuarios autenticados pueden leer
       allow read: if request.auth != null;
       
-      // Solo admins pueden escribir
-      allow write: if request.auth != null && 
-                      request.auth.token.role == "admin";
+      // Solo usuarios autenticados pueden escribir
+      allow write: if request.auth != null;
     }
   }
 }

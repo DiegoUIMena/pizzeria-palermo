@@ -2,6 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fuente personalizada BarberChop */
+@font-face {
+  font-family: 'BarberChop';
+  src: url('/iconos/BarberChop.otf') format('opentype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Clase para mejorar el renderizado de BarberChop */
+.barbershop-text {
+  font-family: 'BarberChop', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "liga" 1;
+  letter-spacing: 0.02em;
+}
+
+/* Animaciones para ClosedBanner */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Zoom al 80% solo en pantallas desktop (768px o más) */
+@media (min-width: 768px) {
+  body {
+    zoom: 0.8;
+    -moz-transform: scale(0.8);
+    -moz-transform-origin: 0 0;
+  }
+}
+
 /* Enhanced Color Palette for Better Readability */
 :root {
   /* Primary Pink Palette */
@@ -199,6 +248,17 @@
   }
 }
 
+@keyframes zoomFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 .animate-fadeIn {
   animation: fadeIn 0.5s ease-out;
 }
@@ -375,4 +435,136 @@ textarea:focus {
     transform: scale(1.2);
     opacity: 0;
   }
+}
+/* Animaciones suaves para el carrito (Sheet desde la derecha) */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-out-to-right {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Aplicar animaciones al Sheet del carrito */
+[data-state="open"] > [data-side="right"] {
+  animation: slide-in-from-right 0.3s ease-in-out;
+}
+
+[data-state="closed"] > [data-side="right"] {
+  animation: slide-out-to-right 0.3s ease-in-out;
+}
+
+/* Overlay del Sheet */
+[data-state="open"][data-radix-dialog-overlay] {
+  animation: fade-in 0.3s ease-in-out;
+}
+
+[data-state="closed"][data-radix-dialog-overlay] {
+  animation: fade-out 0.3s ease-in-out;
+}
+
+/* Sobrescribir animaciones predeterminadas de shadcn/ui para el Sheet */
+.fixed.inset-0.z-50 {
+  transition: opacity 0.3s ease-in-out;
+}
+
+[role="dialog"][data-side="right"] {
+  transition: transform 0.3s ease-in-out;
+}
+
+/* Forzar animaciones del Sheet incluso con prefers-reduced-motion */
+[role="dialog"][data-state="open"] {
+  animation: slide-in-from-right 0.3s ease-in-out !important;
+}
+
+[role="dialog"][data-state="closed"] {
+  animation: slide-out-to-right 0.3s ease-in-out !important;
+}
+
+[data-radix-dialog-overlay][data-state="open"] {
+  animation: fade-in 0.3s ease-in-out !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+
+[data-radix-dialog-overlay][data-state="closed"] {
+  animation: fade-out 0.3s ease-in-out !important;
+  backdrop-filter: blur(0px) !important;
+  -webkit-backdrop-filter: blur(0px) !important;
+}
+
+/* Asegurar que las animaciones del carrito no sean bloqueadas por prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  [role="dialog"][data-state="open"],
+  [role="dialog"][data-state="closed"],
+  [data-radix-dialog-overlay][data-state="open"],
+  [data-radix-dialog-overlay][data-state="closed"] {
+    animation-duration: 0.3s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.3s !important;
+  }
+}
+
+/* Forzar transiciones del carrusel de banners incluso con prefers-reduced-motion */
+.banner-carousel-slides {
+  transition: transform 1s ease-in-out !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .banner-carousel-slides {
+    transition: transform 1s ease-in-out !important;
+    transition-duration: 1s !important;
+  }
+}
+
+/* Modal de búsqueda - sin animaciones de slide lateral */
+/* Modal de búsqueda - BLOQUEAR completamente animaciones y transiciones de Radix UI */
+[data-radix-dialog-content] {
+  animation: none !important;
+  transition: none !important;
+}
+
+[data-radix-dialog-content][data-state="open"] {
+  animation: none !important;
+  transition: none !important;
+}
+
+[data-radix-dialog-content][data-state="closed"] {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Overlay del modal de búsqueda con blur */
+[data-radix-dialog-overlay].search-modal-overlay {
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+  animation: fadeIn 0.2s ease-out !important;
 }

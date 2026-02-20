@@ -782,8 +782,25 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
           
           const normalizedItemName = normalizeText(itemName);
           
+          // LOG RAW ITEM DATA
+          console.log('🔴 RAW ITEM DATA:', JSON.stringify({
+            nombre: item.nombre,
+            pizzaType: item.pizzaType,
+            pizza1: item.pizza1,
+            pizza2: item.pizza2,
+            typeofPizzaType: typeof item.pizzaType,
+            typeofPizza1: typeof item.pizza1,
+            typeofPizza2: typeof item.pizza2
+          }, null, 2));
+          
           // 1. Verificar si es una pizza Duo
           const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
+          console.log('🔴 isDuoPizza CHECK:', {
+            pizzaType: item.pizzaType,
+            pizza1: item.pizza1,
+            pizza2: item.pizza2,
+            result: isDuoPizza
+          });
           
           let recipe: RecipeLine[] = []
           
@@ -1004,9 +1021,26 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
             
             // Combinar las recetas de ambas mitades
             if (recipe1.length > 0 || recipe2.length > 0) {
+              // 🔍 DEBUG: Mostrar recetas ANTES de combinar
+              console.log('\n🔍 ========== DEBUG PIZZA DÚO - DETALLE COMPLETO ==========');
+              console.log(`\n📋 PIZZA 1 (${item.pizza1}) - ${recipe1.length} ingredientes:`);
+              recipe1.forEach((ing, idx) => {
+                console.log(`   ${idx + 1}. ID: ${ing.ingredienteId}, Cantidad: ${ing.cantidad} ${ing.unidad || 'u'}`);
+              });
+              
+              console.log(`\n📋 PIZZA 2 (${item.pizza2}) - ${recipe2.length} ingredientes:`);
+              recipe2.forEach((ing, idx) => {
+                console.log(`   ${idx + 1}. ID: ${ing.ingredienteId}, Cantidad: ${ing.cantidad} ${ing.unidad || 'u'}`);
+              });
+              
               // Combinar ambas recetas, sumando cantidades para ingredientes comunes
               recipe = combineRecipes(recipe1, recipe2);
-              console.log(`Pizza Duo: Combinando recetas de ambas mitades - Total ${recipe.length} ingredientes únicos`);
+              
+              console.log(`\n📋 RECETA COMBINADA - ${recipe.length} ingredientes únicos:`);
+              recipe.forEach((ing, idx) => {
+                console.log(`   ${idx + 1}. ID: ${ing.ingredienteId}, Cantidad: ${ing.cantidad} ${ing.unidad || 'u'}`);
+              });
+              console.log('🔍 ========================================================\n');
               
               // Verificación adicional para asegurar que todos los ingredientes estén incluidos
               if (recipe.length === 0) {
@@ -1015,11 +1049,6 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
                 // Si hay muchos ingredientes menos de los esperados (permitiendo algunos comunes), mostrar advertencia
                 console.warn(`¡Advertencia! Posible pérdida de ingredientes en la combinación: 
                     Recipe1: ${recipe1.length} + Recipe2: ${recipe2.length} -> Combinada: ${recipe.length}`);
-              }
-              
-              // Mostrar detalles de la receta combinada para debugging
-              if (recipe.length > 0) {
-                console.log(`Muestra de ingredientes combinados: ${JSON.stringify(recipe.slice(0, 3))}`);
               }
             } else {
               console.log(`No se encontraron ingredientes para ninguna de las mitades de la pizza Duo`);

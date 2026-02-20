@@ -36,11 +36,24 @@ export const useAdminOrders = (estadoFiltro?: string) => {
     return () => unsubscribe()
   }, [estadoFiltro]) // Re-ejecutar cuando cambie el filtro
 
-  // Función para actualizar estado de un pedido
+  // Función para actualizar estado de un pedido con Optimistic Update
   const actualizarEstado = async (pedidoId: string, nuevoEstado: Order['estado']) => {
     try {
-      await updateOrderStatus(pedidoId, nuevoEstado)
-      // El estado se actualizará automáticamente por el listener en tiempo real
+      // 🚀 OPTIMISTIC UPDATE: Actualizar UI inmediatamente
+      setPedidos(prevPedidos => 
+        prevPedidos.map(pedido => 
+          pedido.id === pedidoId 
+            ? { ...pedido, estado: nuevoEstado }
+            : pedido
+        )
+      )
+      
+      // Luego actualizar en el servidor (en segundo plano)
+      // El listener en tiempo real corregirá si hay algún error
+      updateOrderStatus(pedidoId, nuevoEstado).catch(error => {
+        console.error('Error al actualizar estado en servidor:', error)
+        // El listener revertirá el cambio si falla
+      })
     } catch (error) {
       console.error('Error al actualizar estado:', error)
       throw error

@@ -242,7 +242,101 @@ export async function consumeInventoryForOrder(
         const size = (item.size || "Familiar").toLowerCase();
         
         logger.info(`Processing item: ${itemNombre}, size: ${size}, cantidad: ${cantidad}`);
+        
+        // 🔴 LOG RAW ITEM DATA
+        logger.info('🔴 RAW ITEM DATA:', JSON.stringify({
+          nombre: item.nombre,
+          pizzaType: item.pizzaType,
+          pizza1: item.pizza1,
+          pizza2: item.pizza2,
+          typeofPizzaType: typeof item.pizzaType,
+          typeofPizza1: typeof item.pizza1,
+          typeofPizza2: typeof item.pizza2
+        }, null, 2));
+        
+        // 🔴 VERIFICAR SI ES PIZZA DÚO
+        const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
+        logger.info('🔴 isDuoPizza CHECK:', {
+          pizzaType: item.pizzaType,
+          pizza1: item.pizza1,
+          pizza2: item.pizza2,
+          result: isDuoPizza
+        });
+        
+        // SI ES PIZZA DÚO, procesar ambas pizzas al 50%
+        if (isDuoPizza) {
+          logger.info(`🍕 PIZZA DÚO DETECTADA: ${item.pizza1} / ${item.pizza2}`);
+          
+          // Normalizar nombres de pizzas
+          const pizza1Name = (item.pizza1 || "").toLowerCase().trim();
+          const pizza2Name = (item.pizza2 || "").toLowerCase().trim();
+          
+          // Buscar ambas pizzas
+          let pizza1Encontrada: any = null;
+          let pizza2Encontrada: any = null;
+          
+          for (const [nombrePizza, pizza] of Object.entries(pizzasConReceta)) {
+            if (nombrePizza.includes(pizza1Name) || pizza1Name.includes(nombrePizza)) {
+              pizza1Encontrada = pizza;
+            }
+            if (nombrePizza.includes(pizza2Name) || pizza2Name.includes(nombrePizza)) {
+              pizza2Encontrada = pizza;
+            }
+          }
+          
+          if (pizza1Encontrada && pizza2Encontrada) {
+            logger.info(`✅ Ambas pizzas encontradas: ${pizza1Encontrada.nombre} + ${pizza2Encontrada.nombre}`);
+            
+            // Obtener recetas según tamaño
+            const receta1 = size.includes("mediana") 
+              ? pizza1Encontrada.recetaMediana 
+              : pizza1Encontrada.receta;
+              
+            const receta2 = size.includes("mediana") 
+              ? pizza2Encontrada.recetaMediana 
+              : pizza2Encontrada.receta;
+            
+            // Procesar ingredientes de pizza 1 al 50%
+            if (receta1 && Array.isArray(receta1)) {
+              receta1.forEach((ing: any) => {
+                const nombreIngrediente = (ing.nombre || "").toLowerCase();
+                const cantidadPorPizza = parseFloat(ing.cantidad || 0) * 0.5; // 50%
+                
+                if (nombreIngrediente && cantidadPorPizza > 0) {
+                  consumption[nombreIngrediente] =
+                    (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
+                  
+                  logger.info(`  [50% ${pizza1Encontrada.nombre}] ${nombreIngrediente}: +${cantidadPorPizza * cantidad}${ing.unidad || "gr"}`);
+                }
+              });
+            }
+            
+            // Procesar ingredientes de pizza 2 al 50%
+            if (receta2 && Array.isArray(receta2)) {
+              receta2.forEach((ing: any) => {
+                const nombreIngrediente = (ing.nombre || "").toLowerCase();
+                const cantidadPorPizza = parseFloat(ing.cantidad || 0) * 0.5; // 50%
+                
+                if (nombreIngrediente && cantidadPorPizza > 0) {
+                  consumption[nombreIngrediente] =
+                    (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
+                  
+                  logger.info(`  [50% ${pizza2Encontrada.nombre}] ${nombreIngrediente}: +${cantidadPorPizza * cantidad}${ing.unidad || "gr"}`);
+                }
+              });
+            }
+            
+            logger.info(`✅ Pizza Dúo procesada correctamente, saltando lógica normal`);
+            continue; // Saltar TODA la lógica normal
+          } else {
+            logger.error(`❌ No se encontraron las pizzas para el Dúo: ${pizza1Name} / ${pizza2Name}`);
+            // Si no encuentra las pizzas del dúo, continuar con lógica normal como fallback
+          }
+        }
 
+        // ⚠️ ESTA LÓGICA SOLO SE EJECUTA SI NO ES PIZZA DÚO O SI FALLÓ LA BÚSQUEDA
+        logger.info(`🔵 Procesando con lógica normal (no es Pizza Dúo)`);
+        
         // Buscar la pizza en items_menu
         let pizzaEncontrada = null;
         for (const [nombrePizza, pizza] of Object.entries(pizzasConReceta)) {

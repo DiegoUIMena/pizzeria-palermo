@@ -22,15 +22,6 @@ const promos = [
     category: "Promos",
   },
   {
-    id: 2,
-    name: "Promo Trio Especial",
-    description: "Elige 3 Pizzas Especiales",
-    price: 22990,
-    originalPrice: 26970,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Promos",
-  },
-  {
     id: 3,
     name: "Mega Promo Especial",
     description: "Elige 3 Pizzas Especiales y 2 acompañamientos",
@@ -446,13 +437,14 @@ export default function PromoSection() {
 
   // Categories = key (internal) and label (display)
   const categories = [
-    { key: "Pizzas Vegetarianas", label: "🥬 Pizzas Vegetarianas" },
-    { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne" },
-    { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar" },
-    { key: "Quiero armar mi pizza", label: "🍕 Quiero armar mi pizza", href: "/armar-pizza" },
-    { key: "Combos", label: "🎁 Combos" },
-    { key: "Acompañamientos", label: "🍟 Acompañamientos" },
-    { key: "Bebidas", label: "🥤 Bebidas" },
+    { key: "Todas las Pizzas", label: "Todas las Pizzas", icon: "/iconos/de_palermo.svg", iconLabel: "PALERMO" },
+    { key: "Pizzas Vegetarianas", label: "🥬 Pizzas Vegetarianas", icon: "/iconos/vegetariana.svg", iconLabel: "VEGETARIANAS" },
+    { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne", icon: "/iconos/tradicionales.svg", iconLabel: "TRADICIONALES" },
+    { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar", icon: "/iconos/mar.svg", iconLabel: "DEL MAR" },
+    { key: "Quiero armar mi pizza", label: "🍕 Quiero armar mi pizza", href: "/armar-pizza", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
+    { key: "Combos", label: "🎁 Combos", icon: "/iconos/combos.svg", iconLabel: "COMBOS" },
+    { key: "Acompañamientos", label: "🍟 Acompañamientos", icon: "/iconos/agregados.svg", iconLabel: "AGREGADOS" },
+    { key: "Bebidas", label: "🥤 Bebidas", icon: "/iconos/bebidas.svg", iconLabel: "BEBIDAS" },
   ]
 
   // Inicializar activeCategory con la primera categoría (si no se setea aún)
@@ -469,6 +461,7 @@ export default function PromoSection() {
     if (!q) return
 
     const map: Record<string, string> = {
+      palermo: "Todas las Pizzas",
       vegetarianas: "Pizzas Vegetarianas",
       carne: "Pizzas con Carne",
       delmar: "Pizzas del Mar",
@@ -505,24 +498,18 @@ export default function PromoSection() {
   })
 
   const getCurrentItems = () => {
-    // If Firestore items are not available, fallback to static arrays
-    if (!itemsMenu || itemsMenu.length === 0) {
-      switch (activeCategory) {
-        case "Promos":
-          return promos
-        case "Combos":
-          return combos
-        case "Pizzas Palermo":
-          return pizzasPalermo
-        case "Pizzas Tradicionales":
-          return pizzasTradicionales
-        case "Acompañamientos":
-          return acompanamientos
-        case "Bebidas":
-          return (acompanamientos as any[]).filter(a => a.variants)
-        default:
-          return promos
-      }
+    // Si aun esta cargando, retornar array vacio
+    if (configLoading || !itemsMenu || itemsMenu.length === 0) {
+      return []
+    }
+
+    // Nueva categoría: Todas las Pizzas (PALERMO) - muestra vegetarianas, carnicas y marinas juntas
+    if (activeCategory === "Todas las Pizzas") {
+      return itemsMenu.filter((it: any) => 
+        it.clasificacion === "vegetariana" || 
+        it.clasificacion === "carnica" || 
+        it.clasificacion === "marina"
+      ).map(mapFirestoreItemToUI)
     }
 
     // If firestore items exist, use classification filters for pizza categories
@@ -543,7 +530,10 @@ export default function PromoSection() {
       case "Promos":
         return promos
       case "Acompañamientos":
-        return acompanamientos
+        const acompanamientosFromFirestore = itemsMenu
+          .filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos")
+          .map(mapFirestoreItemToUI)
+        return acompanamientosFromFirestore.length > 0 ? acompanamientosFromFirestore : acompanamientos
       case "Bebidas":
         return itemsMenu
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
@@ -616,11 +606,70 @@ export default function PromoSection() {
     <section id="promo-section" className="py-12 bg-gray-50">
       <div className="container mx-auto px-4">
         {/* Category Tabs */}
-        <div className="mb-8">
-          {/* Desktop - Botones en línea (ahora permiten wrap) */}
-          <div className="hidden md:flex md:flex-wrap gap-4 justify-center">
+        <div className="mb-8 px-4">
+          {/* Desktop - Botones en línea (todos en una sola línea) */}
+          <div className="hidden md:flex md:flex-nowrap gap-6 justify-center items-end py-8">
             {categories.map((cat) => (
-              cat.href ? (
+              cat.icon ? (
+                cat.href ? (
+                  <Link href={cat.href} key={cat.key}>
+                    <div className="flex flex-col items-center gap-2 cursor-pointer transition-all hover:scale-110 group" data-category={cat.key}>
+                      <div className={`relative transition-all rounded-full aspect-square w-24 md:w-28 lg:w-36 xl:w-40 ${
+                        activeCategory === cat.key 
+                          ? "shadow-[0_0_20px_rgba(236,72,153,0.6),0_0_40px_rgba(236,72,153,0.4),0_0_60px_rgba(236,72,153,0.2)]" 
+                          : "opacity-80"
+                      }`}>
+                        <Image 
+                          src={cat.icon} 
+                          alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
+                          width={160} 
+                          height={160} 
+                          className={`w-full h-full object-contain transition-all ${
+                            activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
+                          }`}
+                        />
+                      </div>
+                      <span className={`text-xl md:text-2xl lg:text-3xl font-bold transition-all barbershop-text whitespace-nowrap ${
+                        activeCategory === cat.key
+                          ? "text-pink-600"
+                          : "text-gray-600"
+                      }`}>
+                        {cat.iconLabel}
+                      </span>
+                    </div>
+                  </Link>
+                ) : (
+                  <div
+                    key={cat.key}
+                    data-category={cat.key}
+                    onClick={() => setActiveCategory(cat.key)}
+                    className="flex flex-col items-center gap-2 cursor-pointer transition-all hover:scale-110 group"
+                  >
+                    <div className={`relative transition-all rounded-full aspect-square w-24 md:w-28 lg:w-36 xl:w-40 ${
+                      activeCategory === cat.key 
+                        ? "shadow-[0_0_20px_rgba(236,72,153,0.6),0_0_40px_rgba(236,72,153,0.4),0_0_60px_rgba(236,72,153,0.2)]" 
+                        : "opacity-80"
+                    }`}>
+                      <Image 
+                        src={cat.icon} 
+                        alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
+                        width={160} 
+                        height={160} 
+                        className={`w-full h-full object-contain transition-all ${
+                          activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
+                        }`}
+                      />
+                    </div>
+                    <span className={`text-xl md:text-2xl lg:text-3xl font-bold transition-all barbershop-text whitespace-nowrap ${
+                      activeCategory === cat.key
+                        ? "text-pink-600"
+                        : "text-gray-600"
+                    }`}>
+                      {cat.iconLabel}
+                    </span>
+                  </div>
+                )
+              ) : cat.href ? (
                 <Link href={cat.href} key={cat.key}>
                   <Button
                     variant={activeCategory === cat.key ? "default" : "outline"}
@@ -656,7 +705,66 @@ export default function PromoSection() {
           {/* Mobile - Grid de botones (ovalados y adaptativos) */}
           <div className="md:hidden grid grid-cols-2 gap-3 px-4">
             {categories.map((cat) => (
-              cat.href ? (
+              cat.icon ? (
+                cat.href ? (
+                  <Link href={cat.href} key={cat.key} className="col-span-1">
+                    <div className="flex flex-col items-center gap-2 cursor-pointer transition-all active:scale-95 group" data-category={cat.key}>
+                      <div className={`relative transition-all rounded-full aspect-square w-16 sm:w-20 ${
+                        activeCategory === cat.key 
+                          ? "shadow-[0_0_15px_rgba(236,72,153,0.6),0_0_30px_rgba(236,72,153,0.4)]" 
+                          : "opacity-80"
+                      }`}>
+                        <Image 
+                          src={cat.icon} 
+                          alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
+                          width={60} 
+                          height={60} 
+                          className={`w-full h-full object-contain transition-all ${
+                            activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
+                          }`}
+                        />
+                      </div>
+                      <span className={`text-sm sm:text-base font-bold text-center transition-all barbershop-text whitespace-nowrap ${
+                        activeCategory === cat.key
+                          ? "text-pink-600"
+                          : "text-gray-600"
+                      }`}>
+                        {cat.iconLabel}
+                      </span>
+                    </div>
+                  </Link>
+                ) : (
+                  <div
+                    key={cat.key}
+                    data-category={cat.key}
+                    onClick={() => setActiveCategory(cat.key)}
+                    className="col-span-1 flex flex-col items-center gap-2 cursor-pointer transition-all active:scale-95 group"
+                  >
+                    <div className={`relative transition-all rounded-full aspect-square w-16 sm:w-20 ${
+                      activeCategory === cat.key 
+                        ? "shadow-[0_0_15px_rgba(236,72,153,0.6),0_0_30px_rgba(236,72,153,0.4)]" 
+                        : "opacity-80"
+                    }`}>
+                      <Image 
+                        src={cat.icon} 
+                        alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
+                        width={60} 
+                        height={60} 
+                        className={`w-full h-full object-contain transition-all ${
+                          activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
+                        }`}
+                      />
+                    </div>
+                    <span className={`text-sm sm:text-base font-bold text-center transition-all barbershop-text whitespace-nowrap ${
+                      activeCategory === cat.key
+                        ? "text-pink-600"
+                        : "text-gray-600"
+                    }`}>
+                      {cat.iconLabel}
+                    </span>
+                  </div>
+                )
+              ) : cat.href ? (
                 <Link href={cat.href} key={cat.key} className="col-span-1">
                   <Button
                     variant={activeCategory === cat.key ? "default" : "outline"}
@@ -690,17 +798,39 @@ export default function PromoSection() {
           </div>
         </div>
 
-        <h2 className="text-4xl font-bold text-gray-800 mb-12 text-center">{activeCategory}</h2>
+        <h2 className="text-4xl font-bold text-gray-800 mb-12 text-center">
+          {activeCategory === "Pizzas con Carne" 
+            ? "Pizzas con Carne y derivados" 
+            : activeCategory === "Pizzas Vegetarianas"
+            ? "Pizzas Vegetarianas, No Veganas (contiene lacteos)"
+            : activeCategory}
+        </h2>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-          {currentItems.map((item) => {
+        {configLoading ? (
+          <div className="flex justify-center items-center py-20">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-pink-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Cargando productos...</p>
+            </div>
+          </div>
+        ) : currentItems.length === 0 ? (
+          <div className="flex justify-center items-center py-20">
+            <p className="text-gray-600">No hay productos disponibles en esta categoria</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {currentItems.map((item) => {
             // Determine availability if item has receta (from Firestore items may have receta field)
             const recipe = (item.receta) ? item.receta : undefined
             const avail = recipe ? isItemAvailable(recipe, ingredientsById, 1) : { available: true }
             const disabled = !avail.available
 
             return (
-            <Card key={item.id} className={`card-enhanced overflow-hidden group ${disabled ? 'opacity-60 grayscale' : ''}`}>
+            <Card 
+              key={item.id}
+              data-product-id={item.id}
+              className={`card-enhanced overflow-hidden group ${disabled ? 'opacity-60 grayscale' : ''}`}
+            >
               <CardContent className="p-0">
                 <div className="flex flex-col h-full">
                   <div className="w-full h-48 relative flex-shrink-0 overflow-hidden">
@@ -837,7 +967,8 @@ export default function PromoSection() {
               </CardContent>
             </Card>
           )})}
-        </div>
+          </div>
+        )}
       </div>
       {/* Estilos CSS para el efecto neon */}
       <style jsx>{`

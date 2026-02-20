@@ -11,8 +11,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { AlertTriangle, Package, Plus, Edit, Search, Filter, TrendingDown, CheckCircle } from "lucide-react"
+import { AlertTriangle, Package, Plus, Edit, Search, Filter, TrendingDown, CheckCircle, Trash2 } from "lucide-react"
 import RecipeEditor from "./RecipeEditor"
+import AddPizzaModal from "./AddPizzaModal"
 import { useFirestorePizzaConfig } from '@/hooks/useFirestorePizzaConfig'
 
 // Se utilizará la interfaz IngredienteFS desde Firestore.
@@ -30,6 +31,8 @@ export default function AdminInventario() {
   const [saving, setSaving] = useState(false)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [showRecipeEditor, setShowRecipeEditor] = useState(false)
+  const [showAddPizzaModal, setShowAddPizzaModal] = useState(false)
+  const [deletePizzaTarget, setDeletePizzaTarget] = useState<{ id: string; nombre: string } | null>(null)
   const [editorInitialPizza, setEditorInitialPizza] = useState<string | null>(null)
   const { itemsMenu: pizzasFromHook = [], refreshData } = useFirestorePizzaConfig()
 
@@ -98,6 +101,17 @@ export default function AdminInventario() {
       await deleteIngrediente(id)
     } catch (e) {
       console.error('Error eliminando ingrediente', e)
+    }
+  }
+
+  const eliminarPizza = async (id: string) => {
+    try {
+      const db = (await import('@/lib/firebase')).db
+      const { doc, deleteDoc } = await import('firebase/firestore')
+      await deleteDoc(doc(db, 'items_menu', id))
+      refreshData()
+    } catch (e) {
+      console.error('Error eliminando pizza', e)
     }
   }
 
@@ -210,8 +224,12 @@ export default function AdminInventario() {
               Agregar Ingrediente
             </Button>
               <div className="ml-4">
-                <Button onClick={() => setShowRecipeEditor(true)} className="bg-blue-600 text-white hover:bg-blue-700">
-                  Agregar Pizzas
+                <Button 
+                  onClick={() => setShowAddPizzaModal(true)} 
+                  className="bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Agregar Pizza
                 </Button>
               </div>
           </div>
@@ -326,7 +344,8 @@ export default function AdminInventario() {
               })
             }
             const pct = ing.stockMaximo > 0 ? Math.min((ing.stockActual / ing.stockMaximo) * 100, 100) : 0
-            const barColor = ing.stockActual === 0 ? 'bg-red-600' : ing.stockActual <= ing.stockMinimo ? 'bg-red-500' : ing.stockActual <= ing.stockMinimo * 2 ? 'bg-yellow-500' : 'bg-green-500'
+            // Color coherente con el porcentaje: verde > 50%, amarillo 20-50%, rojo < 20%
+            const barColor = pct === 0 ? 'bg-red-600' : pct < 20 ? 'bg-red-500' : pct <= 50 ? 'bg-yellow-500' : 'bg-green-500'
             return (
               <Card key={ing.id} className="group border border-gray-200 dark:border-gray-700 hover:shadow-sm transition-all">
                 <CardHeader className="py-3 pb-2">
@@ -356,6 +375,16 @@ export default function AdminInventario() {
                           {isOpen ? 'Ocultar' : 'Detalles'}
                         </Button>
                       </div>
+                      {/* Botón de eliminar debajo de "Detalles" */}
+                      <Button 
+                        size="icon" 
+                        variant="ghost" 
+                        className="h-6 w-6 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950" 
+                        onClick={() => setDeleteTarget(ing)}
+                        title="Eliminar ingrediente"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
@@ -384,11 +413,6 @@ export default function AdminInventario() {
                           <p className="font-medium">{ing.fechaVencimiento}</p>
                         </div>
                       )}
-                      <div className="col-span-2 pt-2 flex justify-end">
-                        <Button type="button" variant="destructive" size="sm" className="h-7 text-[11px]" onClick={() => setDeleteTarget(ing)}>
-                          Eliminar
-                        </Button>
-                      </div>
                     </div>
                   </CardContent>
                 )}
@@ -575,6 +599,30 @@ export default function AdminInventario() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Modal Confirmación Eliminación Pizza */}
+        <Dialog open={!!deletePizzaTarget} onOpenChange={(open) => { if(!open) setDeletePizzaTarget(null) }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle>Eliminar Pizza</DialogTitle>
+              <DialogDescription>
+                Esta acción eliminará permanentemente la pizza {deletePizzaTarget?.nombre}. No se puede deshacer.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="text-sm text-gray-600 dark:text-gray-300">
+              ¿Confirmas que deseas eliminarla?
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button variant="outline" onClick={() => setDeletePizzaTarget(null)}>Cancelar</Button>
+              <Button variant="destructive" onClick={async () => { 
+                if(deletePizzaTarget){ 
+                  await eliminarPizza(deletePizzaTarget.id); 
+                  setDeletePizzaTarget(null) 
+                } 
+              }}>Eliminar</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
       {/* Lista de pizzas y acceso a sus recetas */}
       <div className="container mx-auto px-4 py-8">
@@ -590,6 +638,9 @@ export default function AdminInventario() {
               "Coca Cola 1.5 Litro",
               "Pesto Margarita",
               "Salsa BBQ",
+              "Lipton Lata",
+              "Lipton Botella",
+              "Salsa Pesto",
             ].map(n => n.toLowerCase().trim())
 
             return pizzasFromHook
@@ -624,6 +675,15 @@ export default function AdminInventario() {
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => { setEditorInitialPizza(p.id); setShowRecipeEditor(true) }}>Editar receta</Button>
+                    <Button 
+                      size="icon" 
+                      variant="ghost"
+                      className="h-9 w-9 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+                      onClick={() => setDeletePizzaTarget({ id: p.id, nombre: p.nombre })}
+                      title="Eliminar pizza"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               ))
@@ -652,6 +712,17 @@ export default function AdminInventario() {
           }
         }} 
         initialPizzaId={editorInitialPizza} 
+      />
+      <AddPizzaModal
+        open={showAddPizzaModal}
+        onOpenChange={setShowAddPizzaModal}
+        onSuccess={() => {
+          // Actualizar lista de pizzas después de agregar una nueva
+          refreshData();
+          setTimeout(() => {
+            refreshData();
+          }, 500);
+        }}
       />
     </div>
   )

@@ -168,7 +168,11 @@ export function useAdminDashboard(): UseAdminDashboardReturn {
       const createdISO = o.timestamps?.created
       if (createdISO && typeof createdISO === 'string') {
         if (createdISO.startsWith(todayDate)) {
-          ventasHoy += o.total || 0
+          // Solo contar ventas si el pedido fue aceptado (no está pendiente, cancelado ni rechazado)
+          const estadosVenta = ['En preparación', 'En camino', 'Pedido Listo', 'Entregado']
+          if (estadosVenta.includes(o.estado)) {
+            ventasHoy += o.total || 0
+          }
           if (o.userId) clientesHoy.add(o.userId)
         }
       }

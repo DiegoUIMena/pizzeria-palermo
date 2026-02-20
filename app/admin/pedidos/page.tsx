@@ -56,7 +56,7 @@ interface Pedido {
     pizzaType?: string;
   }>
   total: number
-  estado: "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
+  estado: "Pago Pendiente" | "Pago Rechazado" | "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
   tipoEntrega: "Delivery" | "Retiro"
   metodoPago: string
   fechaCreacion: string
@@ -87,6 +87,9 @@ export default function AdminPedidos() {
   const [modalImpresionAbierto, setModalImpresionAbierto] = useState(false)
   const [pedidoAImprimir, setPedidoAImprimir] = useState<Pedido | null>(null)
   
+  // Estado para tracking de botones en proceso (aunque con optimistic update no es necesario)
+  const [botonesEnProceso, setBotonesEnProceso] = useState<Set<string>>(new Set())
+  
   // Referencias para tracking
   const pedidosNotificadosRef = useRef<Set<string>>(new Set());
   const whatsappWindowRef = useRef<Window | null>(null);
@@ -113,30 +116,32 @@ export default function AdminPedidos() {
     pedidosNotificadosRef.current.delete(pedidoId);
   }, []);
   
-  // Función para actualizar estado con atención automática
+  // Función para actualizar estado con atención automática y feedback instantáneo
   const actualizarEstado = useCallback(async (pedidoId: string, nuevoEstado: Pedido['estado']) => {
-    // Actualizar el estado en Firebase
-    await actualizarEstadoOriginal(pedidoId, nuevoEstado);
-    
-    // Marcar el pedido como atendido (actualiza visualización)
+    // 🚀 Marcar el pedido como atendido INMEDIATAMENTE (feedback visual)
     marcarPedidoAtendido(pedidoId);
     
-    // Si el pedido está marcado como "Entregado" o "Cancelado", eliminar la cuenta regresiva
+    // 🚀 Limpiar estados locales INMEDIATAMENTE para feedback instantáneo
     if (nuevoEstado === "Entregado" || nuevoEstado === "Cancelado") {
       setCuentasRegresivas(prev => {
         const next = { ...prev };
-        // Eliminar este pedido de las cuentas regresivas
         delete next[pedidoId];
         return next;
       });
       
-      // También eliminar de los pedidos con poco tiempo
       setPedidosConPocoTiempo(prev => {
         const nuevos = new Set(prev);
         nuevos.delete(pedidoId);
         return nuevos;
       });
     }
+    
+    // Actualizar el estado en Firebase (el hook ya hace optimistic update)
+    // No esperamos el resultado para no bloquear la UI
+    actualizarEstadoOriginal(pedidoId, nuevoEstado).catch(error => {
+      console.error('Error al actualizar estado:', error);
+      // El listener en tiempo real revertirá si hay error
+    });
   }, [actualizarEstadoOriginal, marcarPedidoAtendido]);
 
   // Funciones auxiliares
@@ -898,7 +903,6 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       )}
                     </div>
                     {/* Solo mostrar cuenta regresiva si el pedido no está entregado o cancelado */}
-                    {console.log(`Pedido ${pedido.documentId}: cuentaRegresiva=${cuentasRegresivas[pedido.documentId]}, estado=${pedido.estado}`)}
                     {cuentasRegresivas[pedido.documentId] !== undefined && !["Entregado", "Cancelado"].includes(pedido.estado) && (
                       <>
                         <div className={`font-mono text-2xl font-bold text-center py-2 px-3 ${

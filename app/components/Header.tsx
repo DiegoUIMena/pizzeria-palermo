@@ -1,6 +1,7 @@
 "use client"
 import Link from "next/link"
-import { Search, User, ShoppingCart, ChevronDown, LogOut, ShoppingBag, UserCircle, Menu } from "lucide-react"
+import Image from "next/image"
+import { Search, User, ShoppingCart, LogOut, ShoppingBag, UserCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import {
@@ -15,22 +16,16 @@ import { useAuth } from "../context/AuthContext"
 import { useState } from "react"
 import Cart from "./Cart"
 import SearchModal from "./SearchModal"
+import SleepingCat from "./SleepingCat"
+import { useBusinessHours } from "@/hooks/useBusinessHours"
 
 export default function Header() {
   const { items } = useCart()
   const { isAuthenticated, user, logout } = useAuth()
+  const { isOpen } = useBusinessHours()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isCartOpen, setIsCartOpen] = useState(false)
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
-
-  const categories = [
-  { name: "🥬 Pizzas Vegetarianas", href: "/?category=vegetarianas" },
-  { name: "🥩 Pizzas con Carne", href: "/?category=carne" },
-  { name: "🐟 Pizzas del Mar", href: "/?category=delmar" },
-  { name: "🍕 Quiero armar mi pizza", href: "/armar-pizza" },
-  { name: "🎁 Combos", href: "/?category=combos" },
-  { name: "🍟 Acompañamientos", href: "/?category=acompanamientos" },
-  { name: "🥤 Bebidas", href: "/?category=bebidas" },
-  ]
 
   return (
     <>
@@ -43,72 +38,26 @@ export default function Header() {
 
       <header className="bg-white shadow-lg sticky top-0 z-40 border-b border-gray-200">
         <div className="container mx-auto px-4">
-          <div className="flex items-center justify-between h-14 sm:h-16">
-            {/* Logo */}
-            <Link href="/" className="flex items-center">
-              <div className="bg-gray-900 text-pink-500 px-2 py-1 sm:px-4 sm:py-2 rounded-lg font-bold text-sm sm:text-xl shadow-md hover:bg-black transition-colors">
-                <span className="hidden sm:inline">PIZZERÍA PALERMO</span>
-                <span className="sm:hidden">PALERMO</span>
-              </div>
-            </Link>
-
-            {/* Desktop Navigation */}
-            <div className="hidden lg:block">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="bg-gray-50 text-gray-700 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 font-medium transition-all"
-                  >
-                    Categorías
-                    <ChevronDown className="ml-2 h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56 bg-white border-gray-200 shadow-lg">
-                  {categories.map((category) => (
-                    <DropdownMenuItem key={category.name} asChild>
-                      <Link
-                        href={category.href}
-                        className="w-full cursor-pointer text-gray-700 hover:text-pink-600 hover:bg-pink-50"
-                      >
-                        {category.name}
-                      </Link>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {/* Mobile Menu Button */}
-            <div className="lg:hidden">
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all"
-                  >
-                    <Menu className="w-4 h-4" />
-                    <span className="ml-1 text-xs">Menú</span>
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left" className="w-72">
-                  <div className="py-4">
-                    <h3 className="font-bold text-lg mb-4 text-gray-800">Categorías</h3>
-                    <div className="space-y-2">
-                      {categories.map((category) => (
-                        <Link
-                          key={category.name}
-                          href={category.href}
-                          className="block px-4 py-3 text-gray-700 hover:text-pink-600 hover:bg-pink-50 rounded-lg transition-colors"
-                        >
-                          {category.name}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                </SheetContent>
-              </Sheet>
+          <div className="flex items-center justify-between h-[70px] sm:h-[80px]">
+            {/* Logo con Gatita */}
+            <div className="flex items-center gap-3 relative -ml-5 sm:ml-0">
+              <Link href="/" className="flex items-center">
+                <Image
+                  src="/iconos/logo.png"
+                  alt="Pizzería Palermo"
+                  width={540}
+                  height={180}
+                  className="w-auto h-[85px] sm:h-[100px]"
+                  priority
+                />
+              </Link>
+              
+              {/* Gatita durmiendo - solo cuando está cerrado */}
+              {!isOpen && (
+                <div className="absolute -right-3 top-full -mt-14 sm:relative sm:top-11 sm:-ml-4 sm:left-auto sm:right-auto">
+                  <SleepingCat />
+                </div>
+              )}
             </div>
 
             {/* Right Side Actions */}
@@ -176,7 +125,7 @@ export default function Header() {
               )}
 
               {/* Shopping Cart */}
-              <Sheet>
+              <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                 <SheetTrigger asChild>
                   <Button
                     variant="outline"
@@ -191,8 +140,8 @@ export default function Header() {
                     )}
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="right" className="w-full sm:w-96">
-                  <Cart />
+                <SheetContent side="right" className="w-full sm:w-96 p-0">
+                  <Cart onClose={() => setIsCartOpen(false)} />
                 </SheetContent>
               </Sheet>
             </div>

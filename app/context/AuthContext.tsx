@@ -50,7 +50,7 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>
-  register: (userData: RegisterData) => Promise<void>
+  register: (userData: RegisterData) => Promise<{ uid: string; email: string; name: string; phone: string; password: string }>
   logout: () => Promise<void>
   updateUser: (userData: Partial<User>) => Promise<void>
 }
@@ -207,12 +207,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         displayName: userData.name,
       })
 
-      // Crear documento en Firestore
+      // Crear documento en Firestore con TODOS los datos del registro
       const newUser: User = {
         id: userCredential.user.uid,
         name: userData.name,
         email: userData.email,
-        phone: userData.phone,
+        phone: userData.phone || "",
+        address: userData.address || "", // Guardar dirección como string para compatibilidad con perfil
         role: "customer",
         addresses: userData.address
           ? [
@@ -231,11 +232,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         },
       }
 
+      // IMPORTANTE: Esperar a que el documento se cree completamente
       await setDoc(doc(db, "users", userCredential.user.uid), {
         ...newUser,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
+
+      // Actualizar el estado local inmediatamente con los datos correctos
+      setAuthState({
+        user: newUser,
+        firebaseUser: userCredential.user,
+        isAuthenticated: true,
+        isLoading: false,
+      })
+
+      // Retornar datos del usuario para usarlos en notificaciones
+      return {
+        uid: userCredential.user.uid,
+        email: userData.email,
+        name: userData.name,
+        phone: userData.phone || "",
+        password: userData.password // Solo para enviar en email de bienvenida
+      }
     } catch (error: any) {
       console.error("Error al registrarse:", error)
       throw new Error(getErrorMessage(error.code))

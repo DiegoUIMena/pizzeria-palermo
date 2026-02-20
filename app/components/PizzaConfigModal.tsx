@@ -87,7 +87,7 @@ export default function PizzaConfigModal({
 
   // Tipar los datos de Firestore
   type FirestoreIngredient = { id: string, nombre: string, categoria: string, clase?: string }
-  type FirestoreItem = { id: string, nombre: string, precio: number, precioMediana?: number, categoria: string }
+  type FirestoreItem = { id: string, nombre: string, precio: number, precioMediana?: number, categoria: string, imagen?: string }
 
   // Mapear ingredientes desde Firestore (memoizado)
   // Mapear ingredientes simples desde Firestore (memoizado)
@@ -210,16 +210,40 @@ export default function PizzaConfigModal({
   }, [ingredients])
 
   // Extras: Salsas, bebidas y agregados desde itemsMenu (memoizado)
-  const promoExtras = useMemo(() => [
-    ...(itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Acompañamientos" && i.nombre.toLowerCase().includes("salsa")),
-    ...(itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Bebidas"),
-    ...(itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Acompañamientos" && !i.nombre.toLowerCase().includes("salsa")),
-  ].map((item, idx) => ({
-    id: idx + 1,
-    name: item.nombre,
-    price: item.precio,
-    category: item.categoria.toLowerCase().includes("bebida") ? "bebida" : item.nombre.toLowerCase().includes("salsa") ? "salsa" : "agregado"
-  })), [itemsMenu])
+  const promoExtras = useMemo(() => {
+    console.log("🔍 DEBUG: itemsMenu completo:", itemsMenu);
+    console.log("🔍 DEBUG: Total items en itemsMenu:", (itemsMenu as FirestoreItem[]).length);
+    
+    const salsas = (itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Acompañamientos" && i.nombre.toLowerCase().includes("salsa"));
+    console.log("🔍 DEBUG: Salsas encontradas:", salsas.length, salsas.map(s => s.nombre));
+    
+    const bebidas = (itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Bebidas");
+    console.log("🔍 DEBUG: Bebidas encontradas:", bebidas.length, bebidas.map(b => b.nombre));
+    
+    const otrosAcompañamientos = (itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Acompañamientos" && !i.nombre.toLowerCase().includes("salsa"));
+    console.log("🔍 DEBUG: Otros acompañamientos:", otrosAcompañamientos.length, otrosAcompañamientos.map(a => a.nombre));
+    
+    const resultado = [
+      ...salsas,
+      ...bebidas,
+      ...otrosAcompañamientos
+    ].map((item, idx) => ({
+      id: idx + 1,
+      name: item.nombre,
+      price: item.precio,
+      imagen: item.imagen || "/placeholder.svg",
+      category: item.categoria.toLowerCase().includes("bebida") ? "bebida" : item.nombre.toLowerCase().includes("salsa") ? "salsa" : "agregado"
+    }));
+    
+    console.log("🔍 DEBUG: promoExtras resultado final:", resultado.length, "items");
+    console.log("🔍 DEBUG: promoExtras por categoría:", {
+      salsas: resultado.filter(r => r.category === "salsa").length,
+      bebidas: resultado.filter(r => r.category === "bebida").length,
+      agregados: resultado.filter(r => r.category === "agregado").length
+    });
+    
+    return resultado;
+  }, [itemsMenu])
 
   // Lista global de pizzas que no deben estar disponibles para DUO
   // Lista global de pizzas que no deben estar disponibles para DUO
@@ -648,6 +672,7 @@ export default function PizzaConfigModal({
         image: "/pizza-duo-bg.png",
         quantity: 1,
         size: selectedSize.name,
+        pizzaType: "duo" as const,
         pizza1: pizza1Name,
         pizza2: pizza2Name,
         sauces: Object.entries(selectedExtras)
@@ -673,7 +698,6 @@ export default function PizzaConfigModal({
           .filter(Boolean) as string[],
         comments: comments,
         basePrice: calculateDuoPrice(), // Agregar esta línea
-        pizzaType: activePizzaType,
       }
 
       if (isEditing) {
@@ -1079,6 +1103,14 @@ export default function PizzaConfigModal({
             {["SALSAS", "BEBIDAS", "AGREGADOS"].map((categoryTitle) => {
               const categoryKey = categoryTitle.toLowerCase().slice(0, -1) as "salsa" | "bebida" | "agregado"
               const itemsForCategory = promoExtras.filter((extra) => extra.category === categoryKey)
+              
+              console.log(`🎯 DEBUG: Renderizando ${categoryTitle}:`, {
+                categoryKey,
+                itemsTotal: promoExtras.length,
+                itemsEnCategoria: itemsForCategory.length,
+                items: itemsForCategory.map(i => i.name)
+              });
+              
               if (itemsForCategory.length === 0) return null
               return (
                 <div key={categoryKey}>
@@ -1087,8 +1119,21 @@ export default function PizzaConfigModal({
                     {itemsForCategory.map((extra) => (
                       <div key={extra.id} className="flex items-center justify-between py-2">
                         <div className="flex items-center space-x-3">
-                          <span className="text-gray-800 text-sm">{extra.name}</span>
-                          <span className="text-xs text-pink-600">${extra.price.toLocaleString()}</span>
+                          {/* Imagen del extra */}
+                          <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 border border-gray-200">
+                            <img 
+                              src={extra.imagen} 
+                              alt={extra.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.src = "/placeholder.svg";
+                              }}
+                            />
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-gray-800 text-sm font-medium">{extra.name}</span>
+                            <span className="text-xs text-pink-600">${extra.price.toLocaleString()}</span>
+                          </div>
                         </div>
                         <div className="flex items-center space-x-2">
                           <Button

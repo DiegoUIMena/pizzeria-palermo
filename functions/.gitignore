@@ -8,3 +8,8 @@ typings/
 # Node.js dependency directory
 node_modules/
 *.local
+
+# Environment variables (credenciales sensibles)
+.env
+.env.local
+.env.production
