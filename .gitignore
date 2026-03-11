@@ -44,6 +44,9 @@ firestore-debug.log
 # Misc
 coverage/
 
+# Local backups (usar script backup-local.js)
+backups/
+
 # Avoid committing local scripts used only during migration
 check-zones-initialization.*
 debug-delivery-zones.*

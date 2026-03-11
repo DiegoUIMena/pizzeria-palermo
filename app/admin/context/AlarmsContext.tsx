@@ -8,6 +8,7 @@ interface AlarmsContextType {
   reproducirAlarmaTiempoAgotandose: (pedidoId?: string) => void;
   iniciarAlarmaRepetitiva: () => void;
   detenerAlarmaRepetitiva: () => void;
+  detenerAudiosInmediatamente: () => void;
   alarmaActiva: boolean;
   resetearContadorTiempoCritico: (pedidoId: string) => void;
 }
@@ -34,6 +35,7 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const audioDesbloqueadoRef = useRef(false);
   const contadorTiempoCriticoRef = useRef<Map<string, number>>(new Map()); // Contador por pedido
   const ultimaReproduccionRef = useRef<Map<string, number>>(new Map()); // Timestamp de última reproducción por pedido
+  const sourcesActivosRef = useRef<AudioBufferSourceNode[]>([]); // Referencias a sources de audio activos
 
   // Pre-cargar los audios en buffers (mucho más rápido)
   useEffect(() => {
@@ -117,6 +119,14 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       gainNode.connect(audioContextRef.current.destination);
       source.start(0);
       
+      // Guardar referencia del source activo
+      sourcesActivosRef.current.push(source);
+      
+      // Remover de la lista cuando termine
+      source.onended = () => {
+        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== source);
+      };
+      
       console.log("🔊 Alarma de nuevo pedido reproducida");
     } catch (error) {
       console.error("Error al reproducir alarma de nuevo pedido:", error);
@@ -170,9 +180,16 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       gainNode.connect(audioContextRef.current.destination);
       source.start(0);
       
+      // Guardar referencia del source activo
+      sourcesActivosRef.current.push(source);
+      
+      // Remover de la lista cuando termine
+      source.onended = () => {
+        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== source);
+      };
+      
       // Incrementar contador y actualizar timestamp
       contadorTiempoCriticoRef.current.set(id, contadorActual + 1);
-    ultimaReproduccionRef.current.delete(pedidoId);
       ultimaReproduccionRef.current.set(id, ahora);
       
       console.log(`🔊 Alarma de tiempo crítico reproducida (${contadorActual + 1}/2) para pedido ${id}`);
@@ -215,6 +232,26 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, []);
 
+  // Función para detener INMEDIATAMENTE todos los audios en reproducción
+  const detenerAudiosInmediatamente = useCallback(() => {
+    // Detener todos los sources activos
+    sourcesActivosRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch (error) {
+        // Ignorar error si el source ya terminó
+      }
+    });
+    
+    // Limpiar el array
+    sourcesActivosRef.current = [];
+    
+    // También detener la alarma repetitiva si está activa
+    detenerAlarmaRepetitiva();
+    
+    console.log("🔇 Todos los audios detenidos inmediatamente");
+  }, [detenerAlarmaRepetitiva]);
+
   // Limpiar el intervalo de alarma al desmontar el componente
   useEffect(() => {
     return () => {
@@ -230,6 +267,7 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     reproducirAlarmaTiempoAgotandose,
     iniciarAlarmaRepetitiva,
     detenerAlarmaRepetitiva,
+    detenerAudiosInmediatamente,
     alarmaActiva,
     resetearContadorTiempoCritico
   };

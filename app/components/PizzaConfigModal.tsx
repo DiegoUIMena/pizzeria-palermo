@@ -3,11 +3,71 @@
 import { useState, useEffect, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X, Plus, Minus, ShoppingCart } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
+
+// Mapeo de nombres de pizzas a archivos de imagen
+const imageMap: Record<string, string> = {
+  'chilena': 'chilena',
+  'bariloche': 'bariloche',
+  'buenos aires': 'buenos aires',
+  'cuyana': 'cuyana',
+  '4 estaciones': '4 estaciones',
+  'sevillana': 'sevillana',
+  'amalfitana': 'amalfitana',
+  'calabresa': 'calabresa',
+  'napolitana': 'napolitana',
+  'hawaiana': 'hawaiana',
+  'neuquén': 'neuquén',
+  'la rioja': 'la rioja',
+  'cordobesa': 'cordobesa',
+  'luján': 'luján',
+  'veggie 1': 'veggie 1',
+  'veggie 2': 'veggie 2',
+  'recoleta': 'recoleta',
+  'entre rios': 'entre rios',
+  'centroamericana': 'centroamericana',
+  'messi': 'messi',
+  'de charly': 'de-charly',
+  'del pibe': 'del-pibe jpg',
+  'pepperoni cheese': 'pepperoni cheese',
+  'pesto margarita': 'pesto margarita',
+  'doble muzza': 'doble muzza',
+  'chicken bbq': 'chicken bbq',
+  '4 quesos': '4 quesos',
+}
+
+// Función helper para obtener la ruta correcta de la imagen de pizzas
+const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
+  // Si ya tiene una URL completa de Firebase Storage, usarla directamente
+  if (imagePath && (imagePath.startsWith('https://') || imagePath.startsWith('http://'))) {
+    return imagePath
+  }
+  
+  // Si ya tiene una ruta de imagen válida (empieza con /pizzas/) y NO es placeholder
+  if (imagePath && imagePath.startsWith('/pizzas/') && !imagePath.includes('placeholder')) {
+    // Codificar espacios en el nombre del archivo
+    const parts = imagePath.split('/')
+    const fileName = parts[parts.length - 1]
+    const encodedFileName = encodeURIComponent(fileName)
+    parts[parts.length - 1] = encodedFileName
+    return parts.join('/')
+  }
+  
+  // Si es un placeholder o no tiene imagen, buscar por nombre de pizza
+  if (pizzaName) {
+    const cleanName = pizzaName.toLowerCase().trim()
+    const mappedName = imageMap[cleanName] || cleanName
+    const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`
+    return imagePath
+  }
+  
+  // Último recurso: usar fondo genérico
+  return "/pizza-promo-bg.png"
+}
 
 // Tipos
 interface Ingredient {
@@ -30,30 +90,8 @@ interface PizzaSize {
   premiumBasePrice: number
   simpleExtraPrice: number
   premiumExtraPrice: number
-  description: string
+  description?: string
 }
-
-// Tamaños de pizza
-const pizzaSizes: PizzaSize[] = [
-  {
-    id: "mediana",
-    name: "Mediana",
-    simpleBasePrice: 8000,
-    premiumBasePrice: 9000,
-    simpleExtraPrice: 1000,
-    premiumExtraPrice: 1500,
-    description: "Perfecta para 1-2 personas",
-  },
-  {
-    id: "familiar",
-    name: "Familiar",
-    simpleBasePrice: 10000,
-    premiumBasePrice: 13000,
-    simpleExtraPrice: 1500,
-    premiumExtraPrice: 2000,
-    description: "Ideal para 3-4 personas",
-  },
-]
 
 interface PizzaConfigModalProps {
   isOpen: boolean
@@ -72,6 +110,10 @@ interface PizzaConfigModalProps {
     pizzaType?: "promo" | "premium" | "duo"
     pizza1?: string  // Nombre de la primera pizza para DUO
     pizza2?: string  // Nombre de la segunda pizza para DUO
+    selectedMenuPizza?: string  // Pizza base seleccionada para Premium/Promo
+    sinOregano?: boolean
+    sinQueso?: boolean
+    sinSalsaTomate?: boolean
   }
 }
 
@@ -83,11 +125,43 @@ export default function PizzaConfigModal({
   currentConfig,
 }: PizzaConfigModalProps) {
   const { addItem, updateItem } = useCart()
-  const { loading, ingredients, itemsMenu, categories } = useFirestorePizzaConfig()
+  const { loading, ingredients, itemsMenu, categories, preciosConfig } = useFirestorePizzaConfig()
+
+  // Convertir preciosConfig a array de PizzaSize[]
+  const pizzaSizes: PizzaSize[] = useMemo(() => {
+    if (!preciosConfig) {
+      // Fallback mientras se cargan los precios
+      return [
+        {
+          id: "mediana",
+          name: "Mediana",
+          simpleBasePrice: 8000,
+          premiumBasePrice: 8000,
+          simpleExtraPrice: 700,
+          premiumExtraPrice: 2500,
+          description: "Perfecta para 1-2 personas",
+        },
+        {
+          id: "familiar",
+          name: "Familiar",
+          simpleBasePrice: 10000,
+          premiumBasePrice: 10000,
+          simpleExtraPrice: 1000,
+          premiumExtraPrice: 3500,
+          description: "Ideal para 3-4 personas",
+        },
+      ]
+    }
+    
+    return [
+      preciosConfig.pizzaSizes.mediana,
+      preciosConfig.pizzaSizes.familiar
+    ]
+  }, [preciosConfig])
 
   // Tipar los datos de Firestore
   type FirestoreIngredient = { id: string, nombre: string, categoria: string, clase?: string }
-  type FirestoreItem = { id: string, nombre: string, precio: number, precioMediana?: number, categoria: string, imagen?: string }
+  type FirestoreItem = { id: string, nombre: string, precio: number, precioMediana?: number, categoria: string, imagen?: string, activo?: boolean }
 
   // Mapear ingredientes desde Firestore (memoizado)
   // Mapear ingredientes simples desde Firestore (memoizado)
@@ -192,9 +266,15 @@ export default function PizzaConfigModal({
         
         // Si es premium o simple lo incluimos con su categoría respectiva
         if (esPremium || esSimple) {
+          // Mapear "Pollo BBQ" a "Pechuga de Pollo"
+          let nombreFinal = i.nombre;
+          if (i.nombre === "Pollo BBQ") {
+            nombreFinal = "Pechuga de Pollo";
+          }
+          
           return { 
             id: idx + 1, 
-            name: i.nombre, 
+            name: nombreFinal, 
             category: esPremium ? "premium" as const : "simple" as const
           };
         }
@@ -214,13 +294,17 @@ export default function PizzaConfigModal({
     console.log("🔍 DEBUG: itemsMenu completo:", itemsMenu);
     console.log("🔍 DEBUG: Total items en itemsMenu:", (itemsMenu as FirestoreItem[]).length);
     
-    const salsas = (itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Acompañamientos" && i.nombre.toLowerCase().includes("salsa"));
+    // FILTRAR SOLO ITEMS ACTIVOS
+    const activeItemsMenu = (itemsMenu as FirestoreItem[]).filter((i) => i.activo !== false);
+    console.log("🔍 DEBUG: Items activos:", activeItemsMenu.length);
+    
+    const salsas = activeItemsMenu.filter((i) => i.categoria === "Acompañamientos" && i.nombre.toLowerCase().includes("salsa"));
     console.log("🔍 DEBUG: Salsas encontradas:", salsas.length, salsas.map(s => s.nombre));
     
-    const bebidas = (itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Bebidas");
+    const bebidas = activeItemsMenu.filter((i) => i.categoria === "Bebidas");
     console.log("🔍 DEBUG: Bebidas encontradas:", bebidas.length, bebidas.map(b => b.nombre));
     
-    const otrosAcompañamientos = (itemsMenu as FirestoreItem[]).filter((i) => i.categoria === "Acompañamientos" && !i.nombre.toLowerCase().includes("salsa"));
+    const otrosAcompañamientos = activeItemsMenu.filter((i) => i.categoria === "Acompañamientos" && !i.nombre.toLowerCase().includes("salsa"));
     console.log("🔍 DEBUG: Otros acompañamientos:", otrosAcompañamientos.length, otrosAcompañamientos.map(a => a.nombre));
     
     const resultado = [
@@ -259,22 +343,43 @@ export default function PizzaConfigModal({
       normalizar(pizzaName) === normalizar(excluida));
   };
 
+  // Función para verificar si la pizza es solo familiar
+  const isPizzaSoloFamiliar = (pizzaName: string) => {
+    const normalizar = (texto: string) => 
+      texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    const pizzasSoloFamiliar = ["4 Quesos", "Entre Ríos"];
+    return pizzasSoloFamiliar.some(pizza => 
+      normalizar(pizzaName) === normalizar(pizza));
+  };
+
+  // Función para verificar si la pizza es "4 Estaciones"
+  const is4Estaciones = (pizzaName: string) => {
+    const normalizar = (texto: string) => 
+      texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    return normalizar(pizzaName) === normalizar("4 Estaciones");
+  };
+
   // Pizzas para DUO (memoizado)
   const palermoTradicionalPizzas = useMemo(() => {
     console.log("Pizzas a excluir:", PIZZAS_EXCLUIDAS);
     
-    const pizzasAntesDeFiltar = (itemsMenu as FirestoreItem[])
+    // FILTRAR SOLO PIZZAS ACTIVAS
+    const activePizzas = (itemsMenu as FirestoreItem[])
+      .filter((i) => i.activo !== false)
       .filter((i) => i.categoria.includes("Pizza"))
       .map((item, idx) => ({
         id: idx + 1,
         name: item.nombre,
         familiarPrice: item.precio,
-        medianaPrice: item.precioMediana ?? item.precio
+        medianaPrice: item.precioMediana ?? item.precio,
+        image: item.imagen || "/placeholder.svg"
       }));
     
-    console.log("Pizzas antes de filtrar:", pizzasAntesDeFiltar.map(p => p.name));
+    console.log("Pizzas activas antes de filtrar:", activePizzas.map(p => p.name));
     
-    const pizzas = pizzasAntesDeFiltar
+    const pizzas = activePizzas
       // Filtrar las pizzas excluidas usando la función mejorada
       .filter(pizza => !isPizzaExcluida(pizza.name));
     
@@ -290,10 +395,14 @@ export default function PizzaConfigModal({
   const [selectedExtras, setSelectedExtras] = useState<{ [key: number]: number }>({})
   const [comments, setComments] = useState("")
   const [isAdding, setIsAdding] = useState(false)
+  const [sinOregano, setSinOregano] = useState(false)
+  const [sinQueso, setSinQueso] = useState(false)
+  const [sinSalsaTomate, setSinSalsaTomate] = useState(false)
 
   // Agregar después de los estados existentes
   const [selectedPizza1, setSelectedPizza1] = useState<number | null>(null)
   const [selectedPizza2, setSelectedPizza2] = useState<number | null>(null)
+  const [selectedMenuPizza, setSelectedMenuPizza] = useState<string>("")
 
   // Función para extraer nombre y cantidad de un string como "Jamón (2)"
   const parseItemString = (itemString: string): { name: string; quantity: number } => {
@@ -320,6 +429,10 @@ export default function PizzaConfigModal({
     setSelectedSize(pizzaSizes[1]) // Familiar por defecto
     setSelectedPizza1(null)
     setSelectedPizza2(null)
+    setSelectedMenuPizza("") // Resetear pizza base seleccionada
+    setSinOregano(false)
+    setSinQueso(false)
+    setSinSalsaTomate(false)
   }
 
   // Verificar selecciones cuando cambia el tamaño
@@ -499,6 +612,17 @@ export default function PizzaConfigModal({
 
         // Set comments
         setComments(currentConfig.comments || "")
+        
+        // Set personalization options
+        setSinOregano(currentConfig.sinOregano || false)
+        setSinQueso(currentConfig.sinQueso || false)
+        setSinSalsaTomate(currentConfig.sinSalsaTomate || false)
+        
+        // Set selected menu pizza for Premium/Promo
+        if (currentConfig.selectedMenuPizza) {
+          setSelectedMenuPizza(currentConfig.selectedMenuPizza)
+          console.log(`[EDIT MODE] Selected menu pizza: ${currentConfig.selectedMenuPizza}`)
+        }
 
         // Set DUO pizzas if applicable
         if (activePizzaType === "duo") {
@@ -592,7 +716,18 @@ export default function PizzaConfigModal({
       return basePrice + extrasCost
     }
 
-    const basePrice = activePizzaType === "promo" ? selectedSize.simpleBasePrice : selectedSize.premiumBasePrice
+    // Si hay una pizza del menú seleccionada, usar su precio como base
+    let basePrice = activePizzaType === "promo" ? selectedSize.simpleBasePrice : selectedSize.premiumBasePrice
+    
+    if (selectedMenuPizza && selectedMenuPizza !== "base") {
+      const pizzaDelMenu = itemsMenu.find((item) => item.nombre === selectedMenuPizza)
+      if (pizzaDelMenu) {
+        // Usar precioMediana si el tamaño es mediana, de lo contrario usar precio (familiar)
+        basePrice = selectedSize.id === "mediana" 
+          ? (pizzaDelMenu.precioMediana ?? pizzaDelMenu.precio) 
+          : pizzaDelMenu.precio
+      }
+    }
 
     let ingredientsCost = 0
     const currentDisplayIngredients = getAvailableIngredients(activePizzaType)
@@ -615,8 +750,7 @@ export default function PizzaConfigModal({
         else if (ing?.category === "premium") premiumCount += quantity
       })
       ingredientsCost += simpleCount * selectedSize.simpleExtraPrice
-      const extraPremium = Math.max(0, premiumCount - 1)
-      ingredientsCost += extraPremium * selectedSize.premiumExtraPrice
+      ingredientsCost += premiumCount * selectedSize.premiumExtraPrice
     }
 
     const extrasCost = Object.entries(selectedExtras).reduce((sum, [id, quantity]) => {
@@ -652,6 +786,10 @@ export default function PizzaConfigModal({
   }
 
   const handleSave = async () => {
+    console.log("🎯 [INICIO HANDLE SAVE]")
+    console.log("🎯 activePizzaType:", activePizzaType)
+    console.log("🎯 selectedMenuPizza:", selectedMenuPizza)
+    console.log("🎯 selectedSize:", selectedSize.name)
     setIsAdding(true)
 
     if (activePizzaType === "duo") {
@@ -663,13 +801,14 @@ export default function PizzaConfigModal({
 
       const pizza1Name = palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.name || "Mitad 1"
       const pizza2Name = palermoTradicionalPizzas.find((p) => p.id === selectedPizza2)?.name || "Mitad 2"
+      const pizza1Image = palermoTradicionalPizzas.find((p) => p.id === selectedPizza1)?.image
       const pizzaName = `Pizza Duo ${selectedSize.name} (${pizza1Name} / ${pizza2Name})`
 
       const cartItemPayload = {
         id: isEditing && currentConfig?.id ? String(currentConfig.id) : String(Date.now()),
         name: pizzaName,
         price: calculateTotal(), // Ahora incluye extras
-        image: "/pizza-duo-bg.png",
+        image: getPizzaImagePath(pizza1Image, pizza1Name),
         quantity: 1,
         size: selectedSize.name,
         pizzaType: "duo" as const,
@@ -698,6 +837,9 @@ export default function PizzaConfigModal({
           .filter(Boolean) as string[],
         comments: comments,
         basePrice: calculateDuoPrice(), // Agregar esta línea
+        sinOregano: sinOregano,
+        sinQueso: sinQueso,
+        sinSalsaTomate: sinSalsaTomate,
       }
 
       if (isEditing) {
@@ -724,11 +866,46 @@ export default function PizzaConfigModal({
         })
         .filter(Boolean)
 
+      // Para pizzas Premium/Promo, usar imagen de la pizza del menú si está seleccionada, sino imagen genérica
       const cartItemPayload = {
         id: isEditing && currentConfig?.id ? String(currentConfig.id) : String(Date.now()),
         name: pizzaName,
         price: calculateTotal(),
-        image: activePizzaType === "promo" ? "/pizza-promo-bg.png" : "/pizza-premium-bg.png",
+        image: (() => {
+          console.log("🍕 [DEBUG IMAGEN] selectedMenuPizza:", selectedMenuPizza)
+          console.log("🍕 [DEBUG IMAGEN] activePizzaType:", activePizzaType)
+          console.log("🍕 [DEBUG IMAGEN] itemsMenu.length:", itemsMenu.length)
+          
+          // Si el usuario seleccionó una pizza del menú como base
+          if (selectedMenuPizza && selectedMenuPizza !== "base") {
+            const pizzaDelMenu = itemsMenu.find((item) => item.nombre === selectedMenuPizza)
+            console.log("🍕 [DEBUG IMAGEN] Buscando pizza:", selectedMenuPizza)
+            console.log("🍕 [DEBUG IMAGEN] pizzaDelMenu encontrada:", pizzaDelMenu?.nombre)
+            console.log("🍕 [DEBUG IMAGEN] pizzaDelMenu.imagen:", pizzaDelMenu?.imagen)
+            
+            if (pizzaDelMenu && pizzaDelMenu.imagen) {
+              const finalPath = getPizzaImagePath(pizzaDelMenu.imagen, pizzaDelMenu.nombre)
+              console.log("🍕 [DEBUG IMAGEN] Path final generado:", finalPath)
+              return finalPath
+            } else if (pizzaDelMenu) {
+              // Si encontramos la pizza pero no tiene imagen, usar el nombre para buscar en imageMap
+              console.log("⚠️ [DEBUG IMAGEN] Pizza encontrada sin imagen, buscando por nombre")
+              const finalPath = getPizzaImagePath(undefined, pizzaDelMenu.nombre)
+              console.log("🍕 [DEBUG IMAGEN] Path fallback por nombre:", finalPath)
+              return finalPath
+            } else {
+              // Si no encontramos la pizza en itemsMenu, intentar buscar directamente por el nombre seleccionado
+              console.log("⚠️ [DEBUG IMAGEN] Pizza no encontrada en itemsMenu, buscando por selectedMenuPizza")
+              const finalPath = getPizzaImagePath(undefined, selectedMenuPizza)
+              console.log("🍕 [DEBUG IMAGEN] Path fallback directo:", finalPath)
+              return finalPath
+            }
+          }
+          // Si es completamente personalizada, usar imagen genérica
+          const genericPath = activePizzaType === "promo" ? "/pizza-promo-bg.png" : "/pizza-premium-bg.png"
+          console.log("🍕 [DEBUG IMAGEN] Usando imagen genérica:", genericPath)
+          return genericPath
+        })(),
         quantity: 1, // Assuming quantity 1 for simplicity, or get from currentConfig if editing
         size: selectedSize.name,
         ingredients: ingredientsForCart.filter((i) => i!.category === "simple").map((i) => i!.name),
@@ -755,9 +932,25 @@ export default function PizzaConfigModal({
           })
           .filter(Boolean) as string[],
         comments: comments,
-        basePrice: activePizzaType === "promo" ? selectedSize.simpleBasePrice : selectedSize.premiumBasePrice,
+        basePrice: (() => {
+          // Si hay pizza base seleccionada, usar su precio
+          if (selectedMenuPizza && selectedMenuPizza !== "base") {
+            const pizzaDelMenu = itemsMenu.find((item) => item.nombre === selectedMenuPizza)
+            if (pizzaDelMenu) {
+              return selectedSize.id === "mediana" 
+                ? (pizzaDelMenu.precioMediana ?? pizzaDelMenu.precio) 
+                : pizzaDelMenu.precio
+            }
+          }
+          // Sino, usar precio genérico
+          return activePizzaType === "promo" ? selectedSize.simpleBasePrice : selectedSize.premiumBasePrice
+        })(),
         // ingredientsPrice and extrasPrice can be recalculated or stored if needed
         pizzaType: activePizzaType,
+        selectedMenuPizza: selectedMenuPizza || null, // Guardar la pizza base seleccionada
+        sinOregano: sinOregano,
+        sinQueso: sinQueso,
+        sinSalsaTomate: sinSalsaTomate,
       }
 
       if (isEditing) {
@@ -769,8 +962,16 @@ export default function PizzaConfigModal({
         console.log("[EDIT MODE] Updating item:", cartItemPayload)
       } else {
         console.log("[NEW] Adding new regular item")
+        console.log("🛒 [CARRITO] Item completo a agregar:")
+        console.table({
+          id: cartItemPayload.id,
+          name: cartItemPayload.name,
+          image: cartItemPayload.image,
+          price: cartItemPayload.price,
+          selectedMenuPizza: cartItemPayload.selectedMenuPizza
+        })
         addItem(cartItemPayload)
-        console.log("Adding new item:", cartItemPayload)
+        console.log("✅ Item agregado al carrito")
       }
     }
 
@@ -790,11 +991,6 @@ export default function PizzaConfigModal({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-md mx-auto h-[95vh] flex flex-col p-0 [&>button]:hidden">
-        <div className="p-4 border-b">
-          <DialogTitle>
-            {isEditing ? "Editar Pizza" : "Arma tu Pizza"} {activePizzaType === "premium" ? "Premium" : activePizzaType === "duo" ? "Duo" : "Promo"}
-          </DialogTitle>
-        </div>
         <div className="relative h-40 bg-gradient-to-br from-pink-400 to-pink-600 flex-shrink-0">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-6xl">🍕</div>
@@ -811,21 +1007,12 @@ export default function PizzaConfigModal({
 
         <div className="p-4 border-b bg-white flex-shrink-0">
           <h2 className="text-lg font-bold text-gray-800 mb-2">
-            {isEditing ? "Editar Pizza" : "Arma tu Pizza"}{" "}
-            {activePizzaType === "premium"
-              ? "Premium"
-              : activePizzaType === "duo"
-              ? "Duo"
-              : "Promo"}
+            {isEditing ? "Editar Pizza" : "BASE DE LA PIZZA"}
           </h2>
           <div className="flex items-start justify-between">
             <div className="flex-1 pr-4">
               <p className="text-gray-600 text-sm mb-1">
-                {activePizzaType === "promo"
-                  ? "Incluye masa, salsa, queso y 2 ingredientes simples"
-                  : activePizzaType === "premium"
-                  ? "Incluye masa, salsa, queso y 1 ingrediente premium"
-                  : "Dos variedades en una pizza"}
+                MASA + SALSA + QUESO + ORÉGANO
               </p>
               {activePizzaType === "duo" && (
                 <p className="text-gray-800 text-sm font-medium">
@@ -845,37 +1032,59 @@ export default function PizzaConfigModal({
           <div className="p-4 space-y-6">
             <div>
               <h3 className="font-semibold text-gray-800 mb-3">ELIGE EL TAMAÑO</h3>
-              {activePizzaType === "duo" ? (
-                <div className="grid grid-cols-2 gap-3">
-                  {pizzaSizes.map((size) => (
+              <div className="grid grid-cols-2 gap-3">
+                {pizzaSizes.map((size) => {
+                  // Deshabilitar Mediana si se seleccionó "4 Quesos" o "Entre Ríos"
+                  const isMedianaDisabled = size.id === "mediana" && isPizzaSoloFamiliar(selectedMenuPizza);
+                  
+                  return (
                     <Button
                       key={size.id}
                       variant={selectedSize.id === size.id ? "default" : "outline"}
-                      className={`p-3 ${selectedSize.id === size.id ? "bg-pink-600 text-white" : "border-gray-200 hover:border-pink-300"}`}
-                      onClick={() => setSelectedSize(size)}
+                      className={`p-3 ${selectedSize.id === size.id ? "bg-pink-600 text-white" : "border-gray-200 hover:border-pink-300"} ${isMedianaDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                      onClick={() => {
+                        if (!isMedianaDisabled) {
+                          setSelectedSize(size);
+                        }
+                      }}
+                      disabled={isMedianaDisabled}
                     >
                       {size.name}
                     </Button>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {pizzaSizes.map((size) => (
-                    <div
-                      key={size.id}
-                      className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${selectedSize.id === size.id ? "border-pink-500 bg-pink-50" : "border-gray-200 hover:border-pink-300"}`}
-                      onClick={() => setSelectedSize(size)}
-                    >
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-800">{size.name}</div>
-                        <div className="text-sm text-gray-600">{size.description}</div>
-                      </div>
-                      <div className="w-4 h-4 border-2 rounded-full border-gray-300 flex items-center justify-center">
-                        {selectedSize.id === size.id && <div className="w-2 h-2 bg-pink-500 rounded-full"></div>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">MENU DE VARIEDADES</h3>
+              <p className="text-sm text-red-600 mb-3">Elije la variedad u omite éste paso y continua con la base</p>
+              <Select value={selectedMenuPizza} onValueChange={(value) => {
+                console.log("📌 [SELECTOR] Pizza seleccionada del menú:", value);
+                setSelectedMenuPizza(value);
+                // Si se selecciona "4 Quesos" o "Entre Ríos", cambiar automáticamente a Familiar
+                if (isPizzaSoloFamiliar(value) && selectedSize.id === "mediana") {
+                  setSelectedSize(pizzaSizes[1]); // Familiar
+                }
+              }}>
+                <SelectTrigger className="w-full text-sm">
+                  <SelectValue placeholder="Selecciona una variedad como base" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="base">Solo valor base</SelectItem>
+                  {itemsMenu
+                    .filter((item) => item.activo !== false)
+                    .filter((item) => item.categoria.includes("Pizza"))
+                    .filter((item) => !is4Estaciones(item.nombre))
+                    .map((pizza, index) => (
+                      <SelectItem key={index} value={pizza.nombre}>
+                        {pizza.nombre}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {selectedMenuPizza && isPizzaSoloFamiliar(selectedMenuPizza) && (
+                <p className="text-sm text-amber-600 mt-2">⚠️ Esta pizza solo está disponible en tamaño Familiar</p>
               )}
             </div>
 
@@ -974,7 +1183,7 @@ export default function PizzaConfigModal({
                               <div key={ingredient.id} className="flex items-center justify-between py-2 border-b border-gray-100">
                                 <div className="flex items-center space-x-3">
                                   <span className="text-gray-800 text-sm">{ingredient.name}</span>
-                                  <Badge className="bg-yellow-500 text-white text-xs">Premium</Badge>
+                                  <span className="text-pink-600 font-semibold text-xs">${selectedSize.premiumExtraPrice.toLocaleString('es-CL')}</span>
                                 </div>
                                 <div className="flex items-center space-x-2">
                                   <Button
@@ -1022,6 +1231,7 @@ export default function PizzaConfigModal({
                               <div key={ingredient.id} className="flex items-center justify-between py-2 border-b border-gray-100">
                                 <div className="flex items-center space-x-3">
                                   <span className="text-gray-800 text-sm">{ingredient.name}</span>
+                                  <span className="text-pink-600 font-semibold text-xs">${selectedSize.simpleExtraPrice.toLocaleString('es-CL')}</span>
                                 </div>
                                 <div className="flex items-center space-x-2">
                                   <Button
@@ -1163,13 +1373,44 @@ export default function PizzaConfigModal({
             })}
 
             <div>
-              <h3 className="font-semibold text-gray-800 mb-3">Comentarios</h3>
-              <Textarea
-                placeholder="Agrega comentarios especiales para tu pizza..."
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                className="min-h-[60px] resize-none text-sm"
-              />
+              <h3 className="font-semibold text-gray-800 mb-3">Opciones de Personalización</h3>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSinOregano(!sinOregano)}
+                  className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
+                    sinOregano
+                      ? 'bg-pink-600 text-white border-pink-600 font-semibold'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                  }`}
+                >
+                  Sin Orégano
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setSinQueso(!sinQueso)}
+                  className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
+                    sinQueso
+                      ? 'bg-pink-600 text-white border-pink-600 font-semibold'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                  }`}
+                >
+                  Sin Queso
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={() => setSinSalsaTomate(!sinSalsaTomate)}
+                  className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
+                    sinSalsaTomate
+                      ? 'bg-pink-600 text-white border-pink-600 font-semibold'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                  }`}
+                >
+                  Sin Salsa Tomate
+                </button>
+              </div>
             </div>
             <div className="h-4"></div>
           </div>
@@ -1178,11 +1419,13 @@ export default function PizzaConfigModal({
         <div className="border-t bg-gray-50 p-4 flex-shrink-0">
           <Button
             onClick={handleSave}
-            disabled={isAdding}
+            disabled={isAdding || loading}
             className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 rounded-lg text-base"
           >
             {isAdding ? (
               "Guardando..."
+            ) : loading ? (
+              "Cargando datos..."
             ) : (
               <>
                 <ShoppingCart className="w-4 h-4 mr-2" />

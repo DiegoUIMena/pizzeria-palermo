@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
 import { Clock, Upload, X, Check, AlertCircle } from "lucide-react"
 import { doc, getDoc, setDoc } from "firebase/firestore"
 import { ref, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"
@@ -14,6 +15,7 @@ import Image from "next/image"
 interface BusinessHoursConfig {
   openingTime: string // formato HH:MM
   closingTime: string // formato HH:MM
+  isOpen: boolean // Control manual: true = abierto, false = cerrado forzado
   closedBannerImages: BannerImage[]
   activeBannerId: string | null
 }
@@ -29,6 +31,7 @@ export default function BusinessHoursManager() {
   const [config, setConfig] = useState<BusinessHoursConfig>({
     openingTime: "18:00",
     closingTime: "23:30",
+    isOpen: true,
     closedBannerImages: [],
     activeBannerId: null,
   })
@@ -49,7 +52,15 @@ export default function BusinessHoursManager() {
       const docSnap = await getDoc(docRef)
       
       if (docSnap.exists()) {
-        setConfig(docSnap.data() as BusinessHoursConfig)
+        const data = docSnap.data()
+        // Asegurar que closedBannerImages sea siempre un array
+        setConfig({
+          openingTime: data.openingTime || "18:00",
+          closingTime: data.closingTime || "23:30",
+          isOpen: data.isOpen !== undefined ? data.isOpen : true,
+          closedBannerImages: Array.isArray(data.closedBannerImages) ? data.closedBannerImages : [],
+          activeBannerId: data.activeBannerId || null,
+        })
       }
     } catch (error) {
       console.error("Error al cargar configuración:", error)
@@ -209,6 +220,44 @@ export default function BusinessHoursManager() {
           </div>
         )}
 
+        {/* Control Manual de Apertura/Cierre */}
+        <div className="space-y-4 p-4 bg-gradient-to-r from-gray-800 to-gray-900 rounded-lg border-2 border-gray-700">
+          <div className="flex items-center justify-between">
+            <div className="space-y-1">
+              <Label htmlFor="manual-open" className="text-lg font-semibold flex items-center gap-2 text-white">
+                <Clock className="h-5 w-5" />
+                Estado del Local
+              </Label>
+              <p className="text-sm text-gray-300">
+                {config.isOpen 
+                  ? "El local está ABIERTO y acepta pedidos (respeta horario configurado)" 
+                  : "El local está CERRADO MANUALMENTE - No se aceptan pedidos"}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`font-semibold ${config.isOpen ? 'text-green-400' : 'text-red-400'}`}>
+                {config.isOpen ? 'ABIERTO' : 'CERRADO'}
+              </span>
+              <Switch
+                id="manual-open"
+                checked={config.isOpen}
+                onCheckedChange={(checked) => 
+                  setConfig((prev) => ({ ...prev, isOpen: checked }))
+                }
+                className="data-[state=checked]:bg-green-500"
+              />
+            </div>
+          </div>
+          {!config.isOpen && (
+            <div className="flex items-start gap-2 p-3 bg-red-950/50 border border-red-900 rounded-md">
+              <AlertCircle className="h-5 w-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-300">
+                <strong>Atención:</strong> Con el local cerrado manualmente, los clientes NO podrán realizar pedidos sin importar el horario configurado.
+              </p>
+            </div>
+          )}
+        </div>
+
         {/* Configuración de horarios */}
         <div className="space-y-4">
           <h3 className="text-lg font-semibold">Horarios de Atención</h3>
@@ -266,7 +315,7 @@ export default function BusinessHoursManager() {
             />
           </div>
 
-          {config.closedBannerImages.length === 0 ? (
+          {(!config.closedBannerImages || config.closedBannerImages.length === 0) ? (
             <div className="p-8 border-2 border-dashed border-gray-300 rounded-lg text-center">
               <Upload className="h-12 w-12 mx-auto text-gray-400 mb-3" />
               <p className="text-sm text-gray-500">

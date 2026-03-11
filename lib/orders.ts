@@ -32,6 +32,11 @@ export interface OrderItem {
   pizzaType?: string
   pizza1?: string  // Para pizzas DUO
   pizza2?: string  // Para pizzas DUO
+  selectedMenuPizza?: string | null  // Pizza base seleccionada para Premium/Promo
+  // Opciones de personalización
+  sinOregano?: boolean
+  sinQueso?: boolean
+  sinSalsaTomate?: boolean
 }
 
 export interface Order {
@@ -524,8 +529,12 @@ export const listenToRecentOrders = (
         ...doc.data()
       } as Order
       
-      // Si no hay filtro o filtro es "todos" o "activos", mostrar solo activos
-      if (!estadoFiltro || estadoFiltro === 'todos' || estadoFiltro === 'activos') {
+      // Si filtro es "todos", mostrar TODOS los pedidos
+      if (estadoFiltro === 'todos') {
+        orders.push(orderData)
+      }
+      // Si no hay filtro o filtro es "activos", mostrar solo activos
+      else if (!estadoFiltro || estadoFiltro === 'activos') {
         const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
         if (estadosActivos.includes(orderData.estado)) {
           orders.push(orderData)

@@ -10,6 +10,7 @@
  * - initWebpayTransaction: Iniciar transacción de pago Webpay
  * - confirmWebpayTransaction: Confirmar pago Webpay (TRANSACCIÓN ATÓMICA)
  * - cleanupAbandonedOrders: Limpiar pedidos huérfanos (SCHEDULED)
+ * - refundOrder: Reembolsar pedido Webpay (Solo admin)
  */
 
 import * as admin from "firebase-admin";
@@ -21,6 +22,7 @@ import * as logger from "firebase-functions/logger";
 import {
   validateInventoryForOrder,
   consumeInventoryForOrder,
+  restoreInventoryForOrder,
 } from "./services/inventory.service";
 import {
   calculateOrderTotal,
@@ -28,9 +30,10 @@ import {
 import {
   createWebpayTransaction,
   confirmWebpayTransaction as confirmWebpayService,
+  refundWebpayTransaction,
 } from "./services/webpay.service";
-import {sendWelcomeEmail} from "./services/email.service";
-import {sendWelcomeWhatsApp, isValidPhoneNumber} from "./services/whatsapp.service";
+import {sendWelcomeEmail, sendRefundNotificationEmail} from "./services/email.service";
+import {sendWelcomeWhatsApp, sendRefundNotificationWhatsApp, isValidPhoneNumber} from "./services/whatsapp.service";
 import {CreateOrderData} from "./types/orders";
 
 // Inicializar Firebase Admin (solo una vez)
@@ -97,7 +100,76 @@ export const createOrder = onCall(async (request) => {
     itemsCount: orderData.items?.length,
   });
 
-  // 2. Validar datos básicos
+  // 2. VALIDACIÓN CRÍTICA: Verificar horario comercial
+  try {
+    const db = admin.firestore();
+    const businessHoursRef = db.collection("settings").doc("businessHours");
+    const businessHoursDoc = await businessHoursRef.get();
+
+    if (businessHoursDoc.exists) {
+      const businessHours = businessHoursDoc.data();
+      
+      // PRIMERO: Verificar si está cerrado manualmente (control del administrador)
+      if (businessHours?.isOpen === false) {
+        logger.warn("Order rejected - manually closed by admin");
+        
+        throw new HttpsError(
+          "failed-precondition",
+          "El local está cerrado temporalmente. Por favor intenta más tarde."
+        );
+      }
+      
+      // SEGUNDO: Verificar horario configurado (solo si está abierto manualmente)
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentTimeInMinutes = currentHour * 60 + currentMinute;
+
+      const [openHour, openMinute] = (businessHours?.openingTime || "18:00")
+        .split(":")
+        .map(Number);
+      const [closeHour, closeMinute] = (businessHours?.closingTime || "23:30")
+        .split(":")
+        .map(Number);
+
+      const openingTime = openHour * 60 + openMinute;
+      const closingTime = closeHour * 60 + closeMinute;
+
+      let isOpen = false;
+
+      if (closingTime > openingTime) {
+        // Horario normal (no cruza medianoche)
+        isOpen =
+          currentTimeInMinutes >= openingTime &&
+          currentTimeInMinutes < closingTime;
+      } else {
+        // Horario que cruza medianoche
+        isOpen =
+          currentTimeInMinutes >= openingTime ||
+          currentTimeInMinutes < closingTime;
+      }
+
+      if (!isOpen) {
+        logger.warn("Order rejected - outside business hours", {
+          currentTime: `${currentHour}:${currentMinute}`,
+          businessHours: `${businessHours?.openingTime} - ${businessHours?.closingTime}`,
+        });
+
+        throw new HttpsError(
+          "failed-precondition",
+          `Fuera de horario comercial. Horario de atención: ${businessHours?.openingTime} - ${businessHours?.closingTime}`
+        );
+      }
+    }
+  } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error; // Re-throw si ya es un HttpsError
+    }
+    logger.error("Error checking business hours:", error);
+    // Si hay error leyendo horarios, permitir el pedido (fail-safe)
+  }
+
+  // 3. Validar datos básicos
   if (!orderData.items || orderData.items.length === 0) {
     throw new HttpsError("invalid-argument", "El pedido no tiene items");
   }
@@ -109,7 +181,7 @@ export const createOrder = onCall(async (request) => {
     );
   }
 
-  // 3. Validar que el userId coincida con el autenticado
+  // 4. Validar que el userId coincida con el autenticado
   if (orderData.userId !== request.auth.uid) {
     throw new HttpsError(
       "permission-denied",
@@ -124,7 +196,7 @@ export const createOrder = onCall(async (request) => {
     const result = await db.runTransaction(async (transaction) => {
       logger.info("Starting atomic transaction for order creation...");
 
-      // 4. PRIMERO: Hacer todas las lecturas necesarias
+      // 5. PRIMERO: Hacer todas las lecturas necesarias
       // Validar inventario DENTRO de la transacción
       // Esto asegura que nadie más pueda modificar el stock mientras validamos
       const inventoryValidation = await validateInventoryForOrder(
@@ -141,7 +213,7 @@ export const createOrder = onCall(async (request) => {
         );
       }
 
-      // 5. Calcular precio real en el servidor (NO requiere transaction)
+      // 6. Calcular precio real en el servidor (NO requiere transaction)
       logger.info("Calculating server-side price...");
       const priceCalculation = await calculateOrderTotal(
         orderData.items,
@@ -176,8 +248,10 @@ export const createOrder = onCall(async (request) => {
         timestamps: {
           created: now.toISOString(),
         },
-        inventoryProcessed: initialEstado === "Pendiente", // Procesado si es pago inmediato
-        inventoryStatus: initialEstado === "Pendiente" ? "processed" : "pending",
+        // ✅ NUEVO: Inventario NO se procesa al crear el pedido
+        // Se procesará cuando el admin ACEPTE el pedido (click en "Aceptar")
+        inventoryProcessed: false,
+        inventoryStatus: "pending",
         priceCalculation: {
           subtotal: priceCalculation.subtotal,
           deliveryFee: priceCalculation.deliveryFee,
@@ -185,13 +259,9 @@ export const createOrder = onCall(async (request) => {
         },
       };
 
-      // 9. Si no es Webpay, consumir inventario INMEDIATAMENTE en la transacción
-      // Si es Webpay, el inventario se consumirá cuando se confirme el pago
-      if (initialEstado === "Pendiente") {
-        logger.info("Consuming inventory within transaction...");
-        // Pasar también los datos leídos para evitar nuevas lecturas
-        await consumeInventoryForOrder(orderData.items, transaction);
-      }
+      // ✅ CAMBIO IMPORTANTE: Ya NO consumimos inventario aquí
+      // El inventario se consumirá cuando el admin haga clic en "Aceptar"
+      // Esto permite rechazar pedidos sin afectar el stock
 
       // ✅ CRÍTICO: Escribir pedido en la transacción AL FINAL
       transaction.set(orderRef, newOrder);
@@ -242,7 +312,7 @@ export const updateOrderStatus = onCall(async (request) => {
     throw new HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const {orderId, newStatus, consumeInventory} = request.data;
+  const {orderId, newStatus} = request.data;
 
   logger.info("updateOrderStatus called", {
     orderId,
@@ -317,24 +387,95 @@ export const updateOrderStatus = onCall(async (request) => {
       break;
     }
 
-    // 5. Si se confirma el pedido y se debe consumir inventario
+    // 5. ✅ CONSUMIR INVENTARIO cuando el admin ACEPTA el pedido
+    // Esto sucede cuando:
+    // - Se hace clic en "Aceptar" (cambia a "En preparación")
+    // - O cuando se confirma un pago de Webpay
     if (
-      consumeInventory &&
       newStatus === "En preparación" &&
       !orderData?.inventoryProcessed
     ) {
-      logger.info("Consuming inventory for order...", {orderId});
+      logger.info("🍕 Admin aceptó el pedido - Consumiendo inventario...", {orderId});
 
       const consumeResult = await consumeInventoryForOrder(
+        orderData?.items || [],
         orderId,
-        orderData?.items || []
+        orderData?.orderNumber
       );
 
       if (!consumeResult.success) {
+        logger.error("❌ Error al consumir inventario:", consumeResult.error);
         throw new HttpsError(
           "failed-precondition",
-          "Error al consumir inventario"
+          "Error al consumir inventario: " + (consumeResult.error || "Error desconocido")
         );
+      }
+      
+      // Marcar inventario como procesado
+      updates["inventoryProcessed"] = true;
+      updates["inventoryStatus"] = "processed";
+      logger.info("✅ Inventario consumido exitosamente");
+    }
+    
+    // 6. Si se CANCELA el pedido, marcar inventario como cancelado (sin consumir)
+    if (newStatus === "Cancelado" && !orderData?.inventoryProcessed) {
+      updates["inventoryStatus"] = "cancelled_before_processing";
+      logger.info("❌ Pedido cancelado - Inventario NO consumido");
+    }
+
+    // Al cancelar un pedido pagado CON WEBPAY, ejecutar reembolso antes de cambiar estado
+    if (
+      newStatus === "Cancelado" && 
+      orderData?.paymentStatus === "paid" &&
+      orderData?.webpay?.token // ✅ SOLO reembolsar si fue pagado con Webpay
+    ) {
+      // Ejecutar reembolso
+      // (Solo admin puede cancelar)
+      try {
+        const {refundType, response} = await refundWebpayTransaction(
+          orderData.webpay.token,
+          orderData.orderNumber.toString(),
+          orderData.webpay.amount || orderData.total
+        );
+        updates["webpay.refund"] = {
+          refundType,
+          response,
+          refundedAt: new Date().toISOString(),
+          refundedBy: request.auth.uid,
+        };
+        updates["paymentStatus"] = "refunded";
+
+        // 📧 ENVIAR NOTIFICACIÓN DE REEMBOLSO AL CLIENTE
+        if (orderData.cliente?.email && orderData.cliente?.nombre) {
+          // Enviar email de reembolso (no bloqueante)
+          sendRefundNotificationEmail(
+            orderData.cliente.email,
+            orderData.cliente.nombre,
+            orderData.orderNumber,
+            orderData.total,
+            orderData.webpay.token,
+            refundType
+          ).catch((err) => {
+            logger.error("Error enviando email de reembolso:", err);
+          });
+
+          // Enviar WhatsApp de reembolso (no bloqueante)
+          if (orderData.cliente?.telefono && isValidPhoneNumber(orderData.cliente.telefono)) {
+            sendRefundNotificationWhatsApp(
+              orderData.cliente.telefono,
+              orderData.cliente.nombre,
+              orderData.orderNumber,
+              orderData.total,
+              orderData.webpay.token,
+              refundType
+            ).catch((err) => {
+              logger.error("Error enviando WhatsApp de reembolso:", err);
+            });
+          }
+        }
+      } catch (error) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        throw new HttpsError("internal", "Error al reembolsar: " + errMsg);
       }
     }
 
@@ -354,9 +495,10 @@ export const updateOrderStatus = onCall(async (request) => {
       throw error;
     }
 
+    const errMsg = error instanceof Error ? error.message : String(error);
     throw new HttpsError(
       "internal",
-      "Error al actualizar el pedido"
+      "Error al actualizar el pedido: " + errMsg
     );
   }
 });
@@ -512,6 +654,8 @@ export const confirmWebpayTransaction = onCall(async (request) => {
 
     // 4. Actualizar estado del pedido Y consumir inventario (si exitoso) en transacción atómica
     await db.runTransaction(async (transaction) => {
+      // ✅ PASO 1: TODAS LAS LECTURAS PRIMERO (antes de cualquier escritura)
+      
       // Re-read order dentro de la transacción para evitar condiciones de carrera
       const freshOrderDoc = await transaction.get(orderRef);
       
@@ -527,6 +671,16 @@ export const confirmWebpayTransaction = onCall(async (request) => {
         return;
       }
 
+      // Si el pago fue exitoso, leer ingredientes e items_menu AHORA (antes de writes)
+      let inventorySnapshot: any = null;
+      let itemsMenuSnapshot: any = null;
+      
+      if (transactionResult.success && freshOrderData && freshOrderData.items) {
+        logger.info("Reading inventory and menu items for consumption...");
+        inventorySnapshot = await transaction.get(db.collection("ingredientes"));
+        itemsMenuSnapshot = await transaction.get(db.collection("items_menu"));
+      }
+
       const now = new Date();
       const updateData: any = {
         "webpay.confirmedAt": now.toISOString(),
@@ -539,6 +693,8 @@ export const confirmWebpayTransaction = onCall(async (request) => {
         "webpay.paymentTypeCode": transactionResult.paymentTypeCode,
       };
 
+      // ✅ PASO 2: TODAS LAS ESCRITURAS DESPUÉS
+      
       if (transactionResult.success) {
         // ✅ Pago exitoso - actualizar estado Y consumir inventario ATÓMICAMENTE
         updateData.paymentStatus = "paid";
@@ -547,13 +703,126 @@ export const confirmWebpayTransaction = onCall(async (request) => {
         updateData.inventoryProcessed = true;
         updateData.inventoryStatus = "processed";
 
-        // Actualizar pedido primero
+        // Actualizar pedido
         transaction.update(orderRef, updateData);
 
-        // Consumir inventario DENTRO de la misma transacción
-        logger.info("Consuming inventory for paid order within transaction...");
-        if (freshOrderData && freshOrderData.items) {
-          await consumeInventoryForOrder(freshOrderData.items, transaction);
+        // Consumir inventario usando los datos ya leídos
+        if (freshOrderData && freshOrderData.items && inventorySnapshot && itemsMenuSnapshot) {
+          logger.info("Processing inventory consumption with pre-read data...");
+          
+          // Procesar inventario sin hacer más lecturas
+          const inventory: Record<string, any> = {};
+          inventorySnapshot.forEach((doc: any) => {
+            const data = doc.data();
+            inventory[data.nombre.toLowerCase()] = {
+              ref: doc.ref,
+              stockActual: data.stockActual || 0,
+            };
+          });
+
+          const pizzasConReceta: Record<string, any> = {};
+          itemsMenuSnapshot.forEach((doc: any) => {
+            const data = doc.data();
+            const nombrePizza = (data.nombre || "").toLowerCase();
+            pizzasConReceta[nombrePizza] = {
+              nombre: data.nombre,
+              receta: data.receta || [],
+              recetaMediana: data.recetaMediana || data.receta || [],
+            };
+          });
+
+          // Calcular y aplicar consumo (lógica extraída de consumeInventoryForOrder)
+          const consumption: Record<string, number> = {};
+          
+          logger.info(`🍕 Processing ${freshOrderData.items.length} items for inventory consumption`);
+          
+          for (const item of freshOrderData.items) {
+            // Limpiar el nombre quitando el tamaño entre paréntesis si existe
+            // Ejemplo: "amalfitana (familiar)" -> "amalfitana"
+            let itemNombre = (item.nombre || "").toLowerCase();
+            itemNombre = itemNombre.replace(/\s*\([^)]*\)\s*$/g, '').trim();
+            
+            const cantidad = item.cantidad || 1;
+            const size = (item.size || "Familiar").toLowerCase();
+            
+            logger.info(`📦 Processing item: ${item.nombre} -> cleaned: "${itemNombre}", size: ${size}, cantidad: ${cantidad}, pizzaType: ${item.pizzaType}`);
+            
+            const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
+            
+            if (isDuoPizza) {
+              // Pizza Dúo: procesar ambas mitades al 50%
+              const pizza1Nombre = item.pizza1.toLowerCase();
+              const pizza2Nombre = item.pizza2.toLowerCase();
+              const pizza1 = pizzasConReceta[pizza1Nombre];
+              const pizza2 = pizzasConReceta[pizza2Nombre];
+              
+              if (pizza1 && pizza2) {
+                const receta1 = size === "mediana" ? pizza1.recetaMediana : pizza1.receta;
+                const receta2 = size === "mediana" ? pizza2.recetaMediana : pizza2.receta;
+                
+                if (receta1) {
+                  receta1.forEach((ing: any) => {
+                    const nombreIngrediente = ing.nombre.toLowerCase();
+                    const cantidadPorPizza = (ing.cantidad || 0) * 0.5;
+                    consumption[nombreIngrediente] = (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
+                  });
+                }
+                
+                if (receta2) {
+                  receta2.forEach((ing: any) => {
+                    const nombreIngrediente = ing.nombre.toLowerCase();
+                    const cantidadPorPizza = (ing.cantidad || 0) * 0.5;
+                    consumption[nombreIngrediente] = (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
+                  });
+                }
+              }
+            } else {
+              // Pizza normal
+              const pizzaEncontrada = pizzasConReceta[itemNombre];
+              
+              logger.info(`🔍 Buscando pizza "${itemNombre}" en menú. Encontrada: ${!!pizzaEncontrada}`);
+              
+              if (pizzaEncontrada) {
+                const receta = size === "mediana" ? pizzaEncontrada.recetaMediana : pizzaEncontrada.receta;
+                
+                logger.info(`📋 Receta para ${pizzaEncontrada.nombre} (${size}): ${receta ? receta.length : 0} ingredientes`);
+                
+                if (receta) {
+                  receta.forEach((ing: any) => {
+                    const nombreIngrediente = ing.nombre.toLowerCase();
+                    const cantidadPorPizza = ing.cantidad || 0;
+                    consumption[nombreIngrediente] = (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
+                    logger.info(`  ➕ ${nombreIngrediente}: +${cantidadPorPizza * cantidad}gr`);
+                  });
+                } else {
+                  logger.warn(`⚠️ Pizza ${pizzaEncontrada.nombre} no tiene receta para tamaño ${size}`);
+                }
+              } else {
+                logger.warn(`⚠️ Pizza "${itemNombre}" no encontrada en menú. Pizzas disponibles: ${Object.keys(pizzasConReceta).join(', ')}`);
+              }
+            }
+          }
+
+          logger.info(`📊 Total consumption calculated: ${JSON.stringify(consumption)}`);
+          logger.info(`📊 Total unique ingredients to update: ${Object.keys(consumption).length}`);
+
+          // Aplicar actualizaciones de inventario
+          Object.entries(consumption).forEach(([ingredientName, quantity]) => {
+            const invItem = inventory[ingredientName];
+            if (invItem) {
+              const newStock = invItem.stockActual - quantity;
+              logger.info(`Updating ${ingredientName}: ${invItem.stockActual}gr -> ${newStock}gr (-${quantity}gr)`);
+              
+              transaction.update(invItem.ref, {
+                stockActual: newStock,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            } else {
+              logger.warn(`Ingredient not found in inventory: ${ingredientName}`);
+            }
+          });
+
+          logger.info("✅ Inventory consumption processed successfully");
         }
       } else {
         // Pago rechazado
@@ -752,5 +1021,281 @@ export const sendWelcomeWhatsAppToUser = onCall(async (request) => {
       "internal",
       "Error al enviar WhatsApp de bienvenida"
     );
+  }
+});
+
+// ==================================================
+// CHATBOT FUNCTIONS
+// ==================================================
+
+import { handleChatbotMessage } from './routes/chatbot';
+import * as adminChatbot from './routes/adminChatbot';
+import * as analytics from './routes/analytics';
+import * as unansweredQuestions from './routes/unansweredQuestions';
+
+/**
+ * Endpoint principal del chatbot
+ * Procesa mensajes de usuarios
+ */
+export const chatbot = onCall(async (request) => {
+  const { tenantId, sessionId, message } = request.data;
+
+  return await handleChatbotMessage({ tenantId, sessionId, message });
+});
+
+/**
+ * Listar intents del chatbot
+ */
+export const chatbotListIntents = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId } = request.data;
+  return await adminChatbot.listIntents(request.auth.uid, tenantId);
+});
+
+/**
+ * Crear intent
+ */
+export const chatbotCreateIntent = onCall(
+  { memory: '256MiB', timeoutSeconds: 30, maxInstances: 10 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const { tenantId, intentData } = request.data;
+    return await adminChatbot.createIntent(request.auth.uid, tenantId, intentData);
+  }
+);
+
+/**
+ * Actualizar intent
+ */
+export const chatbotUpdateIntent = onCall(
+  { memory: '256MiB', timeoutSeconds: 30, maxInstances: 10 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const { tenantId, intentId, updates } = request.data;
+    return await adminChatbot.updateIntent(request.auth.uid, tenantId, intentId, updates);
+  }
+);
+
+/**
+ * Eliminar intent
+ */
+export const chatbotDeleteIntent = onCall(
+  { memory: '256MiB', timeoutSeconds: 30, maxInstances: 10 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const { tenantId, intentId } = request.data;
+    return await adminChatbot.deleteIntent(request.auth.uid, tenantId, intentId);
+  }
+);
+
+/**
+ * Actualizar configuración del chatbot
+ */
+export const chatbotUpdateConfig = onCall(
+  { memory: '256MiB', timeoutSeconds: 30, maxInstances: 10 },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+    }
+
+    const { tenantId, config } = request.data;
+    return await adminChatbot.updateChatbotConfig(request.auth.uid, tenantId, config);
+  }
+);
+
+/**
+ * Obtener configuración del chatbot
+ */
+export const chatbotGetConfig = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId } = request.data;
+  return await adminChatbot.getChatbotConfig(request.auth.uid, tenantId);
+});
+
+/**
+ * Obtener métricas del chatbot
+ */
+export const chatbotGetMetrics = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId } = request.data;
+  return await analytics.getChatbotMetrics(request.auth.uid, tenantId);
+});
+
+/**
+ * Obtener logs del chatbot
+ */
+export const chatbotGetLogs = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId, limit } = request.data;
+  return await analytics.getChatbotLogs(request.auth.uid, tenantId, limit);
+});
+
+/**
+ * Exportar logs del chatbot
+ */
+export const chatbotExportLogs = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId, fromDate, toDate } = request.data;
+  return await analytics.exportChatbotLogs(request.auth.uid, tenantId, fromDate, toDate);
+});
+
+/**
+ * Obtener preguntas sin respuesta
+ */
+export const chatbotGetUnansweredQuestions = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId, status, limit } = request.data;
+  return await unansweredQuestions.handleGetUnansweredQuestions({ tenantId, status, limit });
+});
+
+/**
+ * Actualizar estado de pregunta sin respuesta
+ */
+export const chatbotUpdateQuestionStatus = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId, questionId, status } = request.data;
+  return await unansweredQuestions.handleUpdateQuestionStatus({ tenantId, questionId, status });
+});
+
+/**
+ * Obtener estadísticas de preguntas sin respuesta
+ */
+export const chatbotGetUnansweredStats = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Usuario no autenticado');
+  }
+
+  const { tenantId } = request.data;
+  return await unansweredQuestions.handleGetUnansweredStats({ tenantId });
+});
+
+/**
+ * Cloud Function para reembolsar pedido Webpay
+ * Solo admin puede ejecutar
+ * Guarda tipo de reembolso y detalles en el pedido
+ */
+export const refundOrder = onCall(async (request) => {
+  // 1. Verificar autenticación y permisos
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+  const db = admin.firestore();
+  const userDoc = await db.collection("users").doc(request.auth.uid).get();
+  const userData = userDoc.data();
+  if (!userData || (userData.role !== "admin" && userData.role !== "staff")) {
+    throw new HttpsError("permission-denied", "Solo admin puede reembolsar pedidos");
+  }
+
+  const {orderId} = request.data;
+  if (!orderId) {
+    throw new HttpsError("invalid-argument", "orderId requerido");
+  }
+
+  // 2. Buscar pedido
+  const orderRef = db.collection("orders").doc(orderId);
+  const orderDoc = await orderRef.get();
+  if (!orderDoc.exists) {
+    throw new HttpsError("not-found", "Pedido no encontrado");
+  }
+  const orderData = orderDoc.data();
+  if (!orderData?.webpay?.token) {
+    throw new HttpsError("failed-precondition", "Pedido no tiene transacción Webpay");
+  }
+
+  // 3. Ejecutar reembolso
+  try {
+    const {refundType, response} = await refundWebpayTransaction(
+      orderData.webpay.token,
+      orderData.orderNumber.toString(),
+      orderData.webpay.amount || orderData.total
+    );
+    // 4. Guardar resultado en pedido
+    await orderRef.update({
+      "webpay.refund": {
+        refundType,
+        response,
+        refundedAt: new Date().toISOString(),
+        refundedBy: request.auth.uid,
+      },
+      paymentStatus: "refunded",
+      estado: "Cancelado",
+    });
+    // 5. Restaurar inventario si corresponde
+    // (Solo si inventoryProcessed)
+    if (orderData.inventoryProcessed) {
+      try {
+        await restoreInventoryForOrder(orderData.items);
+      } catch (err) {
+        logger.error("Error restaurando inventario:", err);
+      }
+    }
+
+    // 6. 📧 ENVIAR NOTIFICACIÓN DE REEMBOLSO AL CLIENTE
+    if (orderData.cliente?.email && orderData.cliente?.nombre) {
+      // Enviar email de reembolso (no bloqueante)
+      sendRefundNotificationEmail(
+        orderData.cliente.email,
+        orderData.cliente.nombre,
+        orderData.orderNumber,
+        orderData.total,
+        orderData.webpay.token,
+        refundType
+      ).catch((err) => {
+        logger.error("Error enviando email de reembolso:", err);
+      });
+
+      // Enviar WhatsApp de reembolso (no bloqueante)
+      if (orderData.cliente?.telefono && isValidPhoneNumber(orderData.cliente.telefono)) {
+        sendRefundNotificationWhatsApp(
+          orderData.cliente.telefono,
+          orderData.cliente.nombre,
+          orderData.orderNumber,
+          orderData.total,
+          orderData.webpay.token,
+          refundType
+        ).catch((err) => {
+          logger.error("Error enviando WhatsApp de reembolso:", err);
+        });
+      }
+    }
+
+    return {
+      success: true,
+      refundType,
+      response,
+    };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    throw new HttpsError("internal", "Error al reembolsar: " + errMsg);
   }
 });

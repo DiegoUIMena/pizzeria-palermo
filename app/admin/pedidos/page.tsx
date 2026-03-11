@@ -29,6 +29,8 @@ import { useFormattedAdminOrders } from "../../../hooks/useAdminOrders"
 import { useAlarms } from "../context/AlarmsContext"
 import { db } from "@/lib/firebase"
 import { doc, updateDoc } from "firebase/firestore"
+import { getFunctions, httpsCallable } from "firebase/functions"
+import { useToast } from "../../../hooks/use-toast"
 
 interface Pedido {
   id: string
@@ -49,11 +51,15 @@ interface Pedido {
     size?: string;
     ingredients?: string[];
     premiumIngredients?: string[];
+    selectedMenuPizza?: string | null;
     sauces?: string[];
     drinks?: string[];
     extras?: string[];
     comments?: string;
     pizzaType?: string;
+    sinOregano?: boolean;
+    sinQueso?: boolean;
+    sinSalsaTomate?: boolean;
   }>
   total: number
   estado: "Pago Pendiente" | "Pago Rechazado" | "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
@@ -68,6 +74,8 @@ interface Pedido {
   valorDelivery?: number
   requiereVuelto?: boolean
   montoVuelto?: number
+  paymentStatus?: "paid" | "pending" | "refunded" | "failed" | null
+  webpay?: any
 }
 
 // Claves para almacenamiento en localStorage (mismas que usa GlobalOrderMonitor)
@@ -95,6 +103,7 @@ export default function AdminPedidos() {
   const whatsappWindowRef = useRef<Window | null>(null);
 
   const { pedidos, isLoading, error, actualizarEstado: actualizarEstadoOriginal } = useFormattedAdminOrders(filtroEstado)
+  const { toast } = useToast()
   
   // Usar el contexto global de alarmas
   const { 
@@ -102,19 +111,30 @@ export default function AdminPedidos() {
     reproducirAlarmaTiempoAgotandose, 
     iniciarAlarmaRepetitiva, 
     detenerAlarmaRepetitiva,
+    detenerAudiosInmediatamente,
     alarmaActiva 
   } = useAlarms();
   // Función para marcar un pedido como atendido (actualiza la visualización)
   const marcarPedidoAtendido = useCallback((pedidoId: string) => {
+    // Actualizar el conjunto de pedidos sin atender
     setPedidosNuevosSinAtender(prev => {
       const nuevos = new Set(prev);
       nuevos.delete(pedidoId);
+      
+      // 🔇 DETENER AUDIOS SOLO SI NO QUEDAN MÁS PEDIDOS SIN ATENDER
+      if (nuevos.size === 0) {
+        console.log('✅ Último pedido atendido - deteniendo alarmas');
+        detenerAudiosInmediatamente();
+      } else {
+        console.log(`⏳ Quedan ${nuevos.size} pedido(s) sin atender - alarmas continúan`);
+      }
+      
       return nuevos;
     });
     
     // Eliminar de los pedidos notificados localmente
     pedidosNotificadosRef.current.delete(pedidoId);
-  }, []);
+  }, [detenerAudiosInmediatamente]);
   
   // Función para actualizar estado con atención automática y feedback instantáneo
   const actualizarEstado = useCallback(async (pedidoId: string, nuevoEstado: Pedido['estado']) => {
@@ -143,6 +163,25 @@ export default function AdminPedidos() {
       // El listener en tiempo real revertirá si hay error
     });
   }, [actualizarEstadoOriginal, marcarPedidoAtendido]);
+
+  // Función para reembolsar pedido Webpay
+  const reembolsarPedidoWebpay = async (pedidoId: string) => {
+    try {
+      const functions = getFunctions()
+      const refundOrder = httpsCallable(functions, "refundOrder")
+      await refundOrder({ orderId: pedidoId })
+      toast({
+        title: "Reembolso exitoso",
+        description: "El pedido fue reembolsado correctamente. El inventario ha sido restaurado.",
+      })
+    } catch (error: any) {
+      toast({
+        title: "Error al reembolsar",
+        description: error?.message || "No se pudo procesar el reembolso.",
+        variant: "destructive",
+      })
+    }
+  }
 
   // Funciones auxiliares
   const getStatusIcon = (status: string) => {
@@ -259,26 +298,6 @@ export default function AdminPedidos() {
 
   // Función para imprimir la comanda
   const imprimirComanda = (pedido: Pedido) => {
-    console.log("Preparando comanda para pedido:", pedido.id)
-    console.log("Detalles completos del pedido:", pedido)
-    console.log("Items del pedido:", pedido.items)
-    
-    // Verificar si los items tienen todos los detalles necesarios
-    pedido.items.forEach((item, index) => {
-      console.log(`Item #${index+1}:`, item)
-      console.log(`- Nombre: ${item.nombre}`)
-      console.log(`- Cantidad: ${item.cantidad}`)
-      console.log(`- Precio: ${item.precio}`)
-      console.log(`- Tamaño: ${item.size || 'No especificado'}`)
-      console.log(`- Tipo de Pizza: ${item.pizzaType || 'No especificado'}`)
-      console.log(`- Ingredientes: ${item.ingredients?.join(', ') || 'Ninguno'}`)
-      console.log(`- Ingredientes Premium: ${item.premiumIngredients?.join(', ') || 'Ninguno'}`)
-      console.log(`- Salsas: ${item.sauces?.join(', ') || 'Ninguna'}`)
-      console.log(`- Bebidas: ${item.drinks?.join(', ') || 'Ninguna'}`)
-      console.log(`- Extras: ${item.extras?.join(', ') || 'Ninguno'}`)
-      console.log(`- Comentarios: ${item.comments || 'Ninguno'}`)
-    });
-    
     // Guardar el pedido en el estado y abrir el modal
     setPedidoAImprimir(pedido)
     setModalImpresionAbierto(true)
@@ -394,11 +413,20 @@ export default function AdminPedidos() {
     // Construir el detalle de los productos
     const detalleProductos = pedido.items.map(item => 
       `${item.cantidad}x ${item.nombre}${item.size ? ` (${item.size})` : ''}${
+        item.selectedMenuPizza && item.selectedMenuPizza !== 'base' ? `\n   - Base: ${item.selectedMenuPizza}` : ''
+      }${
         item.ingredients?.length ? `\n   - Ingredientes: ${item.ingredients.join(', ')}` : ''
       }${
         item.premiumIngredients?.length ? `\n   - Premium: ${item.premiumIngredients.join(', ')}` : ''
       }${
         item.sauces?.length ? `\n   - Salsas: ${item.sauces.join(', ')}` : ''
+      }${
+        (item.sinOregano || item.sinQueso || item.sinSalsaTomate) ? 
+          `\n   ⚠️ PERSONALIZACIÓN: ${[
+            item.sinOregano && 'SIN ORÉGANO',
+            item.sinQueso && 'SIN QUESO',
+            item.sinSalsaTomate && 'SIN SALSA TOMATE'
+          ].filter(Boolean).join(', ')}` : ''
       }${
         item.comments ? `\n   - Notas: ${item.comments}` : ''
       }`
@@ -793,6 +821,7 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                 className="border rounded px-2 py-1"
               >
                 <option value="activos">Activos</option>
+                <option value="todos">Todos</option>
                 <option value="Pendiente">Pendiente</option>
                 <option value="En preparación">En preparación</option>
                 <option value="En camino">En camino</option>
@@ -817,7 +846,18 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       </span>
                     )}
                   </div>
-                  <div className="text-lg font-mono font-bold bg-gray-100 dark:bg-gray-800 dark:text-white px-3 py-1 rounded-md">{pedido.id}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-lg font-mono font-bold bg-gray-100 dark:bg-gray-800 dark:text-white px-3 py-1 rounded-md">{pedido.id}</div>
+                    {pedido.estado === "Pendiente" && (
+                      <Button 
+                        onClick={() => actualizarEstado(pedido.documentId, "En preparación")}
+                        className="bg-green-600 hover:bg-green-700 text-white font-semibold"
+                        size="sm"
+                      >
+                        Aceptar
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center space-x-4 text-xs text-gray-600 dark:text-gray-300 mt-1">
                   <Calendar className="w-4 h-4"/><span>{pedido.fechaCreacion}</span>
@@ -905,18 +945,42 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                     {/* Solo mostrar cuenta regresiva si el pedido no está entregado o cancelado */}
                     {cuentasRegresivas[pedido.documentId] !== undefined && !["Entregado", "Cancelado"].includes(pedido.estado) && (
                       <>
-                        <div className={`font-mono text-2xl font-bold text-center py-2 px-3 ${
-                          pedidosConPocoTiempo.has(pedido.documentId) 
-                            ? "bg-pink-300 dark:bg-pink-800 border-2 border-red-500 dark:border-red-600 text-red-900 dark:text-red-100 animate-pulse" 
-                            : "bg-pink-50 dark:bg-pink-900 border border-pink-200 dark:border-pink-700 dark:text-pink-100"
-                        } rounded-md shadow-sm transition-colors duration-300`}>
-                          {formatearTiempo(cuentasRegresivas[pedido.documentId])}
-                        </div>
-                        {pedidosConPocoTiempo.has(pedido.documentId) && (
-                          <div className="text-center mt-1 text-red-600 dark:text-red-400 font-bold text-sm animate-pulse">
-                            ¡TIEMPO CRÍTICO!
-                          </div>
-                        )}
+                        {(() => {
+                          const tiempoRestante = cuentasRegresivas[pedido.documentId]
+                          const tiempoTotal = (tiemposEstimados[pedido.documentId] || 0) * 60 // convertir minutos a segundos
+                          const porcentaje = tiempoTotal > 0 ? Math.max(0, Math.min(100, (tiempoRestante / tiempoTotal) * 100)) : 0
+                          const esTiempoCritico = pedidosConPocoTiempo.has(pedido.documentId)
+                          
+                          return (
+                            <div className="space-y-2">
+                              {/* Barra de progreso invertida */}
+                              <div className="relative h-12 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden shadow-inner">
+                                {/* Barra de progreso que se vacía */}
+                                <div 
+                                  className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-linear ${
+                                    esTiempoCritico 
+                                      ? "bg-gradient-to-r from-red-500 to-red-600 animate-pulse" 
+                                      : "bg-gradient-to-r from-green-500 to-green-600"
+                                  }`}
+                                  style={{ width: `${porcentaje}%` }}
+                                />
+                                {/* Texto del tiempo sobre la barra */}
+                                <div className="absolute inset-0 flex items-center justify-center">
+                                  <span className={`font-mono text-2xl font-bold z-10 ${
+                                    porcentaje > 50 ? 'text-white' : 'text-gray-800 dark:text-gray-200'
+                                  }`}>
+                                    {formatearTiempo(tiempoRestante)}
+                                  </span>
+                                </div>
+                              </div>
+                              {esTiempoCritico && (
+                                <div className="text-center text-red-600 dark:text-red-400 font-bold text-sm animate-pulse">
+                                  ¡TIEMPO CRÍTICO!
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </>
                     )}
                     {/* Mensaje de estado completado para pedidos finalizados */}
@@ -955,6 +1019,18 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                             <path fillRule="evenodd" clipRule="evenodd" d="M20.463 3.488C18.217 1.24 15.231 0.001 12.05 0C5.495 0 0.16 5.334 0.157 11.892C0.156 13.988 0.67 16.035 1.651 17.855L0.059 24L6.345 22.445C8.089 23.33 10.042 23.794 12.04 23.795H12.05C18.603 23.795 23.94 18.461 23.943 11.901C23.944 8.738 22.71 5.735 20.463 3.488ZM12.05 21.784H12.041C10.264 21.784 8.524 21.341 6.999 20.513L6.63 20.296L2.864 21.219L3.804 17.56L3.567 17.178C2.66 15.6 2.177 13.772 2.178 11.893C2.18 6.443 6.601 2.011 12.059 2.011C14.686 2.012 17.156 3.043 19.022 4.911C20.888 6.778 21.922 9.258 21.921 11.9C21.919 17.351 17.498 21.784 12.05 21.784ZM17.472 14.382C17.17 14.231 15.697 13.508 15.416 13.407C15.136 13.307 14.934 13.256 14.732 13.558C14.529 13.86 13.96 14.534 13.782 14.736C13.604 14.939 13.426 14.964 13.125 14.813C12.823 14.662 11.886 14.342 10.769 13.35C9.892 12.573 9.309 11.622 9.131 11.32C8.953 11.019 9.113 10.851 9.265 10.697C9.402 10.558 9.57 10.336 9.723 10.158C9.875 9.98 9.927 9.854 10.027 9.652C10.127 9.449 10.076 9.271 10.001 9.12C9.927 8.969 9.344 7.494 9.091 6.891C8.847 6.304 8.599 6.388 8.412 6.378C8.234 6.369 8.031 6.367 7.829 6.367C7.626 6.367 7.295 6.442 7.015 6.744C6.734 7.045 5.961 7.768 5.961 9.244C5.961 10.719 7.04 12.145 7.193 12.347C7.345 12.55 9.307 15.583 12.297 16.883C13.006 17.192 13.559 17.388 13.991 17.533C14.716 17.77 15.378 17.738 15.901 17.661C16.481 17.576 17.674 16.941 17.927 16.236C18.18 15.532 18.18 14.928 18.105 14.736C18.031 14.544 17.775 14.432 17.472 14.382Z" fill="currentColor"/>
                           </svg>
                           <Truck className="w-4 h-4" />
+                        </Button>
+                      )}
+                      
+                      {/* Botón de reembolso Webpay */}
+                      {pedido.paymentStatus === "paid" && pedido.estado !== "Cancelado" && pedido.estado !== "Entregado" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="bg-blue-600 text-white hover:bg-blue-700"
+                          onClick={() => reembolsarPedidoWebpay(pedido.documentId)}
+                        >
+                          💳 Reembolsar
                         </Button>
                       )}
                       
@@ -1110,6 +1186,13 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       </div>
                     )}
                     
+                    {/* Pizza base seleccionada (para Premium/Promo) */}
+                    {item.selectedMenuPizza && item.selectedMenuPizza !== 'base' && (
+                      <div className="mb-1">
+                        <span className="font-semibold">🍕 Pizza Base:</span> <span className="font-bold text-blue-600">{item.selectedMenuPizza}</span>
+                      </div>
+                    )}
+                    
                     {/* Ingredientes - con mejor formato */}
                     {item.ingredients && item.ingredients.length > 0 && (
                       <div className="mb-1">
@@ -1166,6 +1249,18 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                           {item.extras.map((extra, i) => (
                             <li key={i}>{extra}</li>
                           ))}
+                        </ul>
+                      </div>
+                    )}
+                    
+                    {/* Personalizaciones - SIN orégano, queso o salsa */}
+                    {(item.sinOregano || item.sinQueso || item.sinSalsaTomate) && (
+                      <div className="mb-1 mt-2 p-2 bg-yellow-50 border border-yellow-300 rounded">
+                        <span className="font-semibold text-yellow-800">⚠️ PERSONALIZACIÓN:</span>
+                        <ul className="list-disc ml-5 mt-1 text-yellow-900 font-medium">
+                          {item.sinOregano && <li>🚫 SIN ORÉGANO</li>}
+                          {item.sinQueso && <li>🚫 SIN QUESO</li>}
+                          {item.sinSalsaTomate && <li>🚫 SIN SALSA TOMATE</li>}
                         </ul>
                       </div>
                     )}

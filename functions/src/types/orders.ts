@@ -17,6 +17,7 @@ export interface OrderItem {
   pizzaType?: string;
   pizza1?: string;  // Para pizzas DUO
   pizza2?: string;  // Para pizzas DUO
+  selectedMenuPizza?: string | null;  // Pizza base seleccionada para Premium/Promo
 }
 
 export interface OrderAddress {

@@ -11,41 +11,7 @@ import Footer from "../components/Footer"
 import { useAuth } from "../context/AuthContext"
 import { useRouter } from "next/navigation"
 import { useFormattedOrders } from "../../hooks/useUserOrders"
-
-// Tipos para los pedidos
-interface OrderItem {
-  name: string
-  quantity: number
-  price: number
-  size?: string
-  ingredients?: string[]
-  premiumIngredients?: string[]
-  sauces?: string[]
-  drinks?: string[]
-  extras?: string[]
-  comments?: string
-  pizzaType?: string
-}
-
-interface Order {
-  id: string
-  documentId?: string
-  date: string
-  status: "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
-  items: OrderItem[]
-  total: number
-  estimatedTime?: string
-  hasEstimatedTime: boolean
-  deliveryType: "Delivery" | "Retiro"
-  deliveryAddress?: {
-    calle: string
-    numero: string
-    comuna: string
-    referencia?: string
-  }
-  paymentMethod?: string
-  notes?: string
-}
+import { FormattedOrder as Order, OrderItem } from "../../lib/types"
 
 export default function PedidosPage() {
   const router = useRouter()
@@ -82,6 +48,10 @@ export default function PedidosPage() {
 
   const getStatusIcon = (status: Order["status"]) => {
     switch (status) {
+      case "Pago Pendiente":
+        return <Clock className="w-5 h-5 text-yellow-500" />
+      case "Pago Rechazado":
+        return <Clock className="w-5 h-5 text-red-700" />
       case "Pendiente":
         return <Clock className="w-5 h-5 text-gray-500" />
       case "En preparación":
@@ -101,6 +71,10 @@ export default function PedidosPage() {
 
   const getStatusColor = (status: Order["status"]) => {
     switch (status) {
+      case "Pago Pendiente":
+        return "bg-yellow-500"
+      case "Pago Rechazado":
+        return "bg-red-700"
       case "Pendiente":
         return "bg-gray-500"
       case "En preparación":
@@ -178,6 +152,40 @@ export default function PedidosPage() {
                       <div className="text-gray-500 text-sm">{order.date}</div>
                     </CardHeader>
                     <CardContent className="pt-4">
+                      {/* 💳 NOTIFICACIÓN DE REEMBOLSO */}
+                      {order.paymentStatus === "refunded" && order.refundInfo && (
+                        <div className="mb-4 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-md">
+                          <div className="flex items-start">
+                            <div className="flex-shrink-0">
+                              <svg className="h-5 w-5 text-blue-500 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                              </svg>
+                            </div>
+                            <div className="ml-3 flex-1">
+                              <h3 className="text-sm font-medium text-blue-800">
+                                💳 Pedido Reembolsado
+                              </h3>
+                              <div className="mt-2 text-sm text-blue-700">
+                                <p className="mb-2">Este pedido fue cancelado y se procesó el reembolso automáticamente:</p>
+                                <ul className="list-disc list-inside space-y-1 text-xs">
+                                  <li><strong>Monto:</strong> ${order.refundInfo.amount.toLocaleString("es-CL")}</li>
+                                  <li><strong>Fecha:</strong> {new Date(order.refundInfo.refundedAt).toLocaleString("es-CL", {
+                                    dateStyle: "long",
+                                    timeStyle: "short"
+                                  })}</li>
+                                  <li><strong>Método:</strong> {order.refundInfo.refundType === "production" ? "Transbank" : "Desarrollo"}</li>
+                                </ul>
+                                <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
+                                  <p className="font-medium text-yellow-800">⏱️ Tiempos estimados de devolución:</p>
+                                  <p className="text-yellow-700 mt-1">• Tarjeta de Crédito: 1-3 días hábiles</p>
+                                  <p className="text-yellow-700">• Tarjeta de Débito: 1-2 días hábiles</p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
                       <div className="space-y-3">
                         {/* Productos */}
                         <div className="space-y-2">
@@ -296,6 +304,18 @@ export default function PedidosPage() {
                                       <div>
                                         <span className="font-medium text-gray-700">Extras:</span>{" "}
                                         {item.extras.join(", ")}
+                                      </div>
+                                    )}
+                                    
+                                    {/* Personalizaciones - SIN orégano, queso o salsa */}
+                                    {(item.sinOregano || item.sinQueso || item.sinSalsaTomate) && (
+                                      <div className="mt-2 p-2 bg-yellow-50 border border-yellow-300 rounded">
+                                        <span className="font-semibold text-yellow-800">⚠️ PERSONALIZACIÓN:</span>
+                                        <ul className="list-disc ml-5 mt-1 text-yellow-900 font-medium">
+                                          {item.sinOregano && <li>🚫 SIN ORÉGANO</li>}
+                                          {item.sinQueso && <li>🚫 SIN QUESO</li>}
+                                          {item.sinSalsaTomate && <li>🚫 SIN SALSA TOMATE</li>}
+                                        </ul>
                                       </div>
                                     )}
                                     

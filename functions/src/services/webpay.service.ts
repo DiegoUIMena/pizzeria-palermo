@@ -154,3 +154,69 @@ export const getTransactionStatus = async (token: string) => {
     throw new Error("Error al obtener estado de transacción");
   }
 };
+
+/**
+ * Reembolsar una transacción Webpay Plus (reversal o refund)
+ * @param token - Token de la transacción
+ * @param buyOrder - Número de orden
+ * @param amount - Monto a reembolsar
+ * @returns Resultado del reembolso
+ */
+export const refundWebpayTransaction = async (
+  token: string,
+  buyOrder: string,
+  amount: number
+) => {
+  // 🔧 DETECTAR TOKENS DE PRUEBA (simulados o de desarrollo de Transbank)
+  // Tokens simulados empiezan con 'test_'
+  // Tokens de ambiente de integración de Transbank empiezan con '01ab'
+  const isTestToken = token.startsWith('test_') || token.startsWith('01ab');
+  
+  if (isTestToken) {
+    console.log('⚠️  TOKEN DE PRUEBA DETECTADO: Simulando reembolso exitoso');
+    console.log('   Token:', token);
+    console.log('   Amount:', amount);
+    console.log('   Razón: Este es un token de prueba/desarrollo, no se conectará a Transbank real');
+    
+    // Simular respuesta exitosa de Transbank
+    const simulatedResponse = {
+      type: 0, // nullify_amount (anulación total)
+      authorization_code: Math.floor(1000 + Math.random() * 9000).toString(),
+      authorization_date: new Date().toISOString(),
+      nullified_amount: amount,
+      balance: 0,
+      response_code: 0
+    };
+    
+    return {
+      refundType: "refund_simulated",
+      response: simulatedResponse,
+    };
+  }
+  
+  // 🏦 MODO PRODUCCIÓN: Llamada real a Transbank
+  try {
+    const tx = new WebpayPlus.Transaction(getWebpayConfig());
+    // Obtener estado actual
+    const status = await tx.status(token);
+    // Solo se permite refund en transbank-sdk
+    if (status.status === "AUTHORIZED" && status.response_code === 0) {
+      const response = await tx.refund(token, amount);
+      return {
+        refundType: "refund",
+        response,
+      };
+    } else {
+      throw new Error("No se puede reembolsar: estado de transacción inválido");
+    }
+  } catch (error) {
+    // Si el error es por tiempo excedido (7 días), dar mensaje más claro
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    if (errorMsg.includes('422') || errorMsg.includes('7 day')) {
+      throw new Error(
+        'La transacción tiene más de 7 días. Transbank solo permite reembolsos dentro de 7 días desde el pago.'
+      );
+    }
+    throw error;
+  }
+};

@@ -60,7 +60,7 @@ export default function AdminReportes() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
       <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
+        <div className="no-print flex justify-between items-center mb-8">
           <div>
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Reportes y Análisis</h1>
             <p className="text-gray-600 dark:text-gray-400">Estadísticas y métricas de rendimiento del negocio</p>
@@ -72,7 +72,7 @@ export default function AdminReportes() {
         </div>
 
         {/* KPIs Principales */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="no-print grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium dark:text-gray-200">Ventas Totales</CardTitle>
@@ -168,7 +168,7 @@ export default function AdminReportes() {
 
         {/* Tabs de Reportes */}
         <Tabs defaultValue="ventas" className="space-y-6" onValueChange={setReporteActivo}>
-          <TabsList className="grid grid-cols-4 md:w-[600px] bg-gray-100 dark:bg-gray-800">
+          <TabsList className="no-print grid grid-cols-4 md:w-[600px] bg-gray-100 dark:bg-gray-800">
             <TabsTrigger value="ventas" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <BarChart3 className="w-4 h-4" />
               <span className="hidden sm:inline">Ventas</span>
@@ -189,7 +189,7 @@ export default function AdminReportes() {
 
           {/* Reporte de Ventas */}
           <TabsContent value="ventas">
-            <Card>
+            <Card className="no-print">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-xl">Reporte de Ventas</CardTitle>
@@ -243,7 +243,7 @@ export default function AdminReportes() {
           </TabsContent>
 
           {/* Reporte de Productos */}
-          <TabsContent value="productos">
+          <TabsContent value="productos" className="no-print">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
@@ -300,7 +300,7 @@ export default function AdminReportes() {
           </TabsContent>
 
           {/* Reporte de Inventario */}
-          <TabsContent value="inventario">
+          <TabsContent value="inventario" className="no-print">
             <Card>
               <CardHeader>
                 <CardTitle className="text-xl">Análisis de Inventario</CardTitle>
@@ -346,7 +346,7 @@ export default function AdminReportes() {
           </TabsContent>
 
           {/* Reporte de Clientes */}
-          <TabsContent value="clientes">
+          <TabsContent value="clientes" className="no-print">
             <Card>
               <CardHeader>
                 <CardTitle className="text-xl">Análisis de Clientes</CardTitle>

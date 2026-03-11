@@ -5,6 +5,7 @@ import { db } from '@/lib/firebase'
 interface BusinessHoursConfig {
   openingTime: string
   closingTime: string
+  isOpen: boolean // Control manual del administrador
   closedBannerImages: any[]
   activeBannerId: string | null
 }
@@ -47,6 +48,7 @@ export function useBusinessHours() {
         const defaultConfig = {
           openingTime: '18:00',
           closingTime: '23:30',
+          isOpen: true,
           closedBannerImages: [],
           activeBannerId: null,
         }
@@ -74,6 +76,7 @@ export function useBusinessHours() {
         } else {
           const defaultConfig = {
             openingTime: '18:00',
+            isOpen: true,
             closingTime: '23:30',
             closedBannerImages: [],
             activeBannerId: null,
@@ -95,6 +98,14 @@ export function useBusinessHours() {
     if (!config) return
 
     const checkBusinessHours = () => {
+      // PRIMERO: Verificar si está cerrado manualmente por el administrador
+      if (config.isOpen === false) {
+        setIsOpen(false)
+        setNextChange(null)
+        return
+      }
+
+      // SEGUNDO: Si está abierto manualmente, calcular según horario
       const now = new Date()
       const hours = now.getHours()
       const minutes = now.getMinutes()

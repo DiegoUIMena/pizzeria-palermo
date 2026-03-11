@@ -119,6 +119,82 @@ _Pizzería Palermo - Las mejores pizzas artesanales_`;
 }
 
 /**
+ * Enviar notificación de reembolso por WhatsApp
+ */
+export async function sendRefundNotificationWhatsApp(
+  recipientPhone: string,
+  recipientName: string,
+  orderNumber: number,
+  refundAmount: number,
+  refundToken: string,
+  refundType: string
+): Promise<boolean> {
+  try {
+    const client = getTwilioClient();
+    const whatsappNumber = twilioWhatsAppNumber.value();
+
+    if (!whatsappNumber) {
+      throw new Error("Twilio WhatsApp number not configured");
+    }
+
+    const cleanedPhone = cleanPhoneNumber(recipientPhone);
+
+    const message = `💳 *REEMBOLSO PROCESADO*
+
+Hola *${recipientName}*,
+
+Tu pedido ha sido cancelado y se procesó el reembolso automáticamente. ✅
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+📋 *DETALLES DEL REEMBOLSO*
+
+📦 Pedido: *#${orderNumber}*
+💰 Monto: *$${refundAmount.toLocaleString("es-CL")}*
+🔑 Transacción: ${refundToken.substring(0, 20)}...
+📅 Fecha: ${new Date().toLocaleString("es-CL", {
+    dateStyle: "short",
+    timeStyle: "short",
+  })}
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+⏱️ *TIEMPOS ESTIMADOS*
+
+💳 *Tarjeta de Crédito:* 1-3 días hábiles
+💳 *Tarjeta de Débito:* 1-2 días hábiles
+
+_Los plazos pueden variar según tu banco._
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+Lamentamos los inconvenientes. Si tienes consultas, contáctanos.
+
+Esperamos servirte pronto. 🍕
+
+_Pizzería Palermo - Las mejores pizzas artesanales_`;
+
+    const result = await client.messages.create({
+      from: `whatsapp:${whatsappNumber}`,
+      to: `whatsapp:${cleanedPhone}`,
+      body: message,
+    });
+
+    logger.info("WhatsApp de reembolso enviado", {
+      messageSid: result.sid,
+      recipient: cleanedPhone,
+      orderNumber,
+      amount: refundAmount,
+      status: result.status,
+    });
+
+    return true;
+  } catch (error) {
+    logger.error("Error enviando WhatsApp de reembolso:", error);
+    // No lanzar error para no bloquear el reembolso
+    return false;
+  }
+}
+
+/**
  * Validar que un número de teléfono sea válido
  */
 export function isValidPhoneNumber(phone: string): boolean {

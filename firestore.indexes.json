@@ -1,3 +1,111 @@
 {
-  "indexes": []
+  "indexes": [
+    {
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "estado", "order": "ASCENDING"},
+        {"fieldPath": "timestamps.created", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "userId", "order": "ASCENDING"},
+        {"fieldPath": "timestamps.created", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "orders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "paymentStatus", "order": "ASCENDING"},
+        {"fieldPath": "timestamps.created", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "items_menu",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "categoria", "order": "ASCENDING"},
+        {"fieldPath": "activo", "order": "ASCENDING"},
+        {"fieldPath": "nombre", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "items_menu",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "activo", "order": "ASCENDING"},
+        {"fieldPath": "disponible", "order": "ASCENDING"},
+        {"fieldPath": "nombre", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "ingredientes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "categoria", "order": "ASCENDING"},
+        {"fieldPath": "stockActual", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "inventory_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "ingredienteId", "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "inventory_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "pedidoId", "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "estado", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "items_menu",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "categoria", "order": "ASCENDING"},
+        {"fieldPath": "orden", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "pedidos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "inventoryIssue", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "inventory_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "unanswered_questions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "timestamp", "order": "DESCENDING"}
+      ]
+    }
+  ],
+  "fieldOverrides": []
 }

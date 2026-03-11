@@ -53,63 +53,125 @@ export default function FixedMapPicker({
   
   // Obtener zonas de delivery desde Firestore
   const { zones: firestoreZones, loading: loadingZones } = useDeliveryZones();
-  
-  // Cuando el componente se monta, forzar un intento inicial de carga
+
+  // Asegurar que el CSS de Leaflet esté cargado
   useEffect(() => {
-    console.log("FixedMapPicker montado - forzando inicialización del mapa");
-    // Iniciar un intento inmediatamente
-    setInitAttempts(1);
+    // Verificar si el CSS de Leaflet ya está cargado
+    const leafletCssExists = Array.from(document.styleSheets).some(
+      sheet => sheet.href && sheet.href.includes('leaflet.css')
+    );
+    
+    if (!leafletCssExists) {
+      console.log("📌 Añadiendo CSS de Leaflet al documento");
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      link.integrity = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
+      link.crossOrigin = '';
+      document.head.appendChild(link);
+    } else {
+      console.log("✅ CSS de Leaflet ya está cargado");
+    }
   }, []);
 
-  // Inicializar mapa después de que el script esté cargado
+  // Log de montaje del componente
   useEffect(() => {
-    if (!scriptLoaded || !mapContainerRef.current) return;
+    console.log("🎬 FixedMapPicker MONTADO");
+    console.log("📊 Estado inicial:", {
+      scriptLoaded,
+      mapInitialized,
+      initAttempts,
+      hasLeaflet: !!window.L,
+      hasContainer: !!mapContainerRef.current
+    });
+    
+    // Si Leaflet ya está disponible globalmente, marcarlo como cargado
+    if (window.L && !scriptLoaded) {
+      console.log("🔍 Leaflet ya estaba disponible globalmente, marcando script como cargado");
+      setScriptLoaded(true);
+    }
+    
+    return () => {
+      console.log("🔚 FixedMapPicker DESMONTADO");
+    };
+  }, []);
 
-    console.log("Script cargado, programando inicialización del mapa...");
+  // Inicializar mapa cuando el script esté cargado
+  useEffect(() => {
+    // Verificar condiciones básicas
+    if (!scriptLoaded) {
+      console.log(`⏳ Esperando script: scriptLoaded=${scriptLoaded}`);
+      return;
+    }
     
-    // Inicializar el mapa con un retardo para asegurar que el contenedor está correctamente dimensionado
-    const timer = setTimeout(() => {
-      console.log("Inicializando mapa después del retardo...");
+    if (!mapContainerRef.current) {
+      console.log("⏳ Esperando contenedor del mapa...");
+      return;
+    }
+
+    // Si ya está inicializado, no hacer nada
+    if (mapInitialized) {
+      console.log("✅ Mapa ya inicializado, omitiendo");
+      return;
+    }
+
+    console.log("🚀 FixedMapPicker - Todas las condiciones listas, iniciando proceso de carga...");
+    
+    // Si Leaflet ya está disponible globalmente, inicializar directamente
+    if (window.L) {
+      console.log("✅ Leaflet disponible globalmente, inicializando mapa inmediatamente");
       initializeMap();
-    }, 300);
-    
-    return () => clearTimeout(timer);
-  }, [scriptLoaded]);
+    } else {
+      // Si no está disponible, iniciar el sistema de reintentos
+      console.warn("⚠️ Leaflet no disponible aún, iniciando sistema de reintentos");
+      setInitAttempts(1);
+    }
+  }, [scriptLoaded, mapInitialized]); // Depender de scriptLoaded Y mapInitialized
 
   // Función para inicializar el mapa
   const initializeMap = () => {
+    console.log("🔧 initializeMap() llamada");
+    
     // Verificar si Leaflet está disponible
     if (!window.L) {
-      console.error("Leaflet no está disponible después de cargar script");
-      if (initAttempts < 3) {
-        // Intentar de nuevo después de un retraso
+      console.error("❌ Leaflet no está disponible");
+      if (initAttempts < 5) {
+        console.log("⏭️ Programando reintento...");
         setTimeout(() => {
           setInitAttempts(prev => prev + 1);
-        }, 500);
+        }, 300);
       }
       return;
     }
 
     // Verificar que el contenedor del mapa exista
     if (!mapContainerRef.current) {
-      console.error("Contenedor del mapa no disponible");
+      console.error("❌ Contenedor del mapa no disponible");
       return;
     }
 
     // Verificar que el contenedor del mapa tenga dimensiones
     const mapRect = mapContainerRef.current.getBoundingClientRect();
+    console.log("📏 Dimensiones del contenedor:", {
+      width: mapRect.width, 
+      height: mapRect.height,
+      top: mapRect.top,
+      left: mapRect.left
+    });
+    
     if (mapRect.width === 0 || mapRect.height === 0) {
-      console.error("Contenedor del mapa tiene dimensiones cero:", mapRect);
+      console.error("❌ Contenedor tiene dimensiones cero");
       
       // Forzar un reintento después de un pequeño retraso
-      setTimeout(() => {
-        setInitAttempts(prev => prev + 1);
-      }, 500);
+      if (initAttempts < 5) {
+        console.log("⏭️ Programando reintento por dimensiones...");
+        setTimeout(() => {
+          setInitAttempts(prev => prev + 1);
+        }, 300);
+      }
       
       return;
     }
-
-    console.log("Dimensiones del contenedor del mapa:", mapRect.width, "x", mapRect.height);
 
     // Limpiar el mapa existente si hay uno
     if (mapInstanceRef.current) {
@@ -130,16 +192,26 @@ export default function FixedMapPicker({
     }
 
     try {
-      // Crear el mapa
-      const map = window.L.map(mapContainerRef.current).setView(
+      console.log("🗺️ CREANDO NUEVA INSTANCIA DEL MAPA");
+      
+      // Crear el mapa con configuración simple y estable
+      const map = window.L.map(mapContainerRef.current, {
+        minZoom: 12,
+        maxZoom: 18,
+      }).setView(
         [selectedLocation?.lat || LOS_ANDES_CENTER.lat, selectedLocation?.lng || LOS_ANDES_CENTER.lng],
         zoom
       );
 
-      // Añadir la capa de tiles
+      console.log("🗺️ Instancia del mapa creada, añadiendo capa de tiles...");
+
+      // Añadir la capa de tiles con configuración estándar de Leaflet
       window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 18,
       }).addTo(map);
+      
+      console.log("✅ Capa de tiles añadida al mapa");
 
       // Crear capa para zonas de delivery
       zonesLayerRef.current = window.L.layerGroup().addTo(map);
@@ -182,64 +254,21 @@ export default function FixedMapPicker({
 
       // Manejar clics en el mapa
       map.on("click", (e: any) => {
-        console.log("🗺️ Click en mapa detectado, coordenadas:", e.latlng);
-        
         try {
           const { lat, lng } = e.latlng;
-          // Asegurarse de que las coordenadas sean válidas
+          
+          // Validar coordenadas
           if (isNaN(lat) || isNaN(lng)) {
-            console.error("Coordenadas inválidas en el clic del mapa:", e.latlng);
+            console.error("Coordenadas inválidas:", e.latlng);
             return;
           }
           
-          // Crear un punto visible temporalmente para confirmar que el clic funciona
-          const clickPoint = window.L.circleMarker([lat, lng], {
-            radius: 8,
-            color: 'blue',
-            fillColor: 'blue',
-            fillOpacity: 0.7,
-            weight: 2
-          }).addTo(map);
-          
-          // Eliminar el punto después de un momento
-          setTimeout(() => {
-            if (clickPoint) {
-              clickPoint.remove();
-            }
-          }, 800);
-          
-          console.log("Procesando clic en coordenadas:", lat, lng);
-          
-          // PRIMERO: Actualizar el marcador - esto es crítico
+          // Actualizar el marcador visual
           updateMarker(lat, lng);
           
-          // SEGUNDO: Notificar sobre la ubicación seleccionada
+          // Notificar cambio de ubicación
           handleMapClick(lat, lng);
           
-          // TERCERO: Verificación adicional para asegurar que el marcador esté presente
-          setTimeout(() => {
-            if (!redCircleMarkerRef.current || !redCircleMarkerRef.current._map) {
-              console.log("⚠️ Verificación adicional: el marcador no está visible, recreándolo...");
-              redCircleMarkerRef.current = createRedCircleMarker({ lat, lng });
-              
-              // Verificación final
-              setTimeout(() => {
-                if (!redCircleMarkerRef.current || !redCircleMarkerRef.current._map) {
-                  console.log("❗ ALERTA: Último intento de recuperación de marcador");
-                  const icon = window.L.icon({
-                    iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-                    shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-                    iconSize: [25, 41],
-                    iconAnchor: [12, 41]
-                  });
-                  
-                  redCircleMarkerRef.current = window.L.marker([lat, lng], {
-                    icon: icon
-                  }).addTo(map);
-                }
-              }, 300);
-            }
-          }, 1000);
         } catch (error) {
           console.error("Error al procesar clic en mapa:", error);
         }
@@ -256,28 +285,17 @@ export default function FixedMapPicker({
         updateDeliveryZones();
       }
       
-      // Realizar múltiples intentos de ajuste del tamaño del mapa para asegurar que se renderice correctamente
-      // Inmediatamente
-      try {
-        console.log("Ajuste inicial del mapa");
-        map.invalidateSize({animate: false, pan: false});
-      } catch (e) {
-        console.error("Error al ajustar tamaño inicial del mapa:", e);
-      }
-      
-      // Serie de intentos con retrasos crecientes
-      [100, 300, 600, 1000].forEach(delay => {
-        setTimeout(() => {
-          try {
-            if (mapInstanceRef.current) {
-              console.log(`Ajustando tamaño del mapa (${delay}ms)...`);
-              mapInstanceRef.current.invalidateSize({animate: false, pan: false});
-            }
-          } catch (e) {
-            console.error(`Error al ajustar tamaño del mapa (${delay}ms):`, e);
+      // Ajustar tamaño del mapa una sola vez después de un pequeño delay
+      setTimeout(() => {
+        try {
+          if (mapInstanceRef.current) {
+            console.log("Ajustando tamaño del mapa...");
+            mapInstanceRef.current.invalidateSize();
           }
-        }, delay);
-      });
+        } catch (e) {
+          console.error("Error al ajustar tamaño del mapa:", e);
+        }
+      }, 250);
       
       console.log("Mapa inicializado correctamente");
     } catch (error) {
@@ -285,50 +303,30 @@ export default function FixedMapPicker({
     }
   };
 
-  // Inicializar el mapa
+  // Sistema de reintentos si la primera inicialización falla
   useEffect(() => {
-    // Solo intentar inicializar si no está inicializado y tenemos un intento activo
-    if (!mapInitialized && initAttempts > 0) {
-      console.log(`Intento #${initAttempts} de inicialización del mapa`);
-      
-      // Si Leaflet está disponible, inicializar directamente
-      if (window.L) {
-        initializeMap();
-      } 
-      // Si no está disponible, asegurar que el script esté cargado
-      else if (!scriptLoaded) {
-        console.log("Leaflet no disponible, asegurando carga del script...");
-        setScriptLoaded(true);
-      } 
-      // Si el script está cargado pero Leaflet no está disponible, recargar script
-      else {
-        console.log("Script cargado pero Leaflet no disponible, recargando script...");
-        setScriptLoaded(false);
-        setTimeout(() => setScriptLoaded(true), 200);
-      }
-      
-      // Si después de varios intentos aún no se inicializa, intentar medidas más drásticas
-      if (initAttempts >= 3 && !mapInitialized) {
-        console.log("Múltiples intentos fallidos, aplicando medidas de recuperación...");
-        
-        // Limpiar completamente el DOM del mapa y forzar recarga
-        if (mapContainerRef.current) {
-          while (mapContainerRef.current.firstChild) {
-            mapContainerRef.current.removeChild(mapContainerRef.current.firstChild);
-          }
-        }
-        
-        // Recargar Leaflet completamente
-        const leafletScript = document.createElement('script');
-        leafletScript.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-        leafletScript.onload = () => {
-          console.log("Leaflet recargado manualmente");
-          setTimeout(() => initializeMap(), 300);
-        };
-        document.head.appendChild(leafletScript);
-      }
+    // Solo reintentar si no está inicializado y hay reintentos pendientes
+    if (mapInitialized || initAttempts === 0 || initAttempts >= 5) {
+      return;
     }
-  }, [scriptLoaded, mapInitialized, initAttempts]);
+
+    console.log(`🔄 Reintento #${initAttempts} de inicialización del mapa`);
+    
+    // Delay progresivo: 200ms, 400ms, 600ms, 800ms
+    const delay = initAttempts * 200;
+    
+    const timer = setTimeout(() => {
+      if (window.L && scriptLoaded) {
+        console.log(`✅ Intento #${initAttempts}: Leaflet disponible, inicializando...`);
+        initializeMap();
+      } else {
+        console.warn(`⚠️ Intento #${initAttempts}: Leaflet aún no disponible`);
+        setInitAttempts(prev => prev + 1);
+      }
+    }, delay);
+    
+    return () => clearTimeout(timer);
+  }, [initAttempts, mapInitialized, scriptLoaded]);
 
   // Limpieza al desmontar
   useEffect(() => {
@@ -434,109 +432,57 @@ export default function FixedMapPicker({
   // Función para crear un marcador circular rojo para indicar la ubicación seleccionada
   const createRedCircleMarker = (coordinates: { lat: number; lng: number }) => {
     if (!window.L || !mapInstanceRef.current) {
-      console.error("❌ No se puede crear marcador circular rojo - mapa no inicializado");
+      console.error("❌ No se puede crear marcador - mapa no disponible");
       return null;
     }
     
     try {
-      console.log("🔴 Creando marcador rojo PERMANENTE en:", coordinates);
-      
-      // Crear un marcador estándar con icono predeterminado (más visible y confiable)
-      const defaultIcon = window.L.icon({
-        iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-        shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-        iconSize: [25, 41],
-        iconAnchor: [12, 41],
-        popupAnchor: [1, -34],
-        shadowSize: [41, 41]
-      });
-      
-      // Crear un marcador con el icono estándar de Leaflet
-      const marker = window.L.marker([coordinates.lat, coordinates.lng], {
-        icon: defaultIcon,
-        zIndexOffset: 1000 // Asegurarse que esté por encima de otros elementos
-      }).addTo(mapInstanceRef.current);
-      
-      console.log("✅ Marcador estándar creado correctamente");
-      
-      // Verificar que el marcador se haya añadido correctamente al mapa
-      if (!marker._map) {
-        console.error("⚠️ El marcador no se añadió al mapa correctamente, reintentando...");
-        marker.addTo(mapInstanceRef.current);
-      }
-      
+      // Crear marcador con icono predeterminado de Leaflet
+      const marker = window.L.marker([coordinates.lat, coordinates.lng]).addTo(mapInstanceRef.current);
       return marker;
     } catch (error) {
-      console.error("❌ Error al crear marcador rojo:", error);
+      console.error("❌ Error al crear marcador:", error);
       return null;
     }
   };
 
   // Función para actualizar el marcador en el mapa
   const updateMarker = (lat: number, lng: number) => {
-    console.log(`🎯 Actualizando marcador en: [${lat}, ${lng}]`);
-    
-    if (!mapInitialized || !mapInstanceRef.current) {
-      console.error("❌ No se puede actualizar el marcador - mapa no inicializado");
+    if (!mapInstanceRef.current) {
+      console.error("❌ No se puede actualizar marcador - mapa no disponible");
       return;
     }
     
     try {
-      // Guardar las coordenadas actuales
+      // Actualizar coordenadas en el estado
       setSelectedLocation({ lat, lng });
       
-      // Eliminar marcadores existentes para asegurar una limpieza adecuada
+      // Eliminar marcador estándar si existe
       if (markerRef.current) {
-        console.log("Eliminando marcador estándar existente");
         markerRef.current.remove();
         markerRef.current = null;
       }
       
+      // Eliminar marcador rojo si existe
       if (redCircleMarkerRef.current) {
-        console.log("Eliminando marcador rojo existente");
         redCircleMarkerRef.current.remove();
         redCircleMarkerRef.current = null;
       }
       
-      // Crear un nuevo marcador en la posición actualizada
-      console.log("Creando nuevo marcador en:", lat, lng);
-      redCircleMarkerRef.current = createRedCircleMarker({ lat, lng });
+      // Crear nuevo marcador en la posición actual
+      const nuevoMarcador = createRedCircleMarker({ lat, lng });
       
-      // Centrar el mapa en la ubicación seleccionada
+      if (nuevoMarcador) {
+        redCircleMarkerRef.current = nuevoMarcador;
+      } else {
+        console.error("❌ No se pudo crear el marcador");
+      }
+      
+      // Centrar mapa en la nueva ubicación
       mapInstanceRef.current.panTo([lat, lng]);
       
-      console.log("✅ Marcador actualizado correctamente");
-      
-      // Verificación diferida para asegurar que el marcador está visible
-      setTimeout(() => {
-        if (!redCircleMarkerRef.current || !redCircleMarkerRef.current._map) {
-          console.log("⚠️ Verificación: el marcador no está visible, recreándolo...");
-          // Si el marcador no está en el mapa, intentar crearlo de nuevo
-          redCircleMarkerRef.current = createRedCircleMarker({ lat, lng });
-        }
-      }, 500);
     } catch (error) {
       console.error("❌ Error al actualizar marcador:", error);
-      
-      // Intento de recuperación con un marcador estándar como respaldo
-      setTimeout(() => {
-        try {
-          console.log("🔄 Intento de recuperación de emergencia para marcador");
-          // Usar marcador predeterminado de Leaflet como último recurso
-          const defaultIcon = window.L.icon({
-            iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-            shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-            iconSize: [25, 41],
-            iconAnchor: [12, 41]
-          });
-          
-          redCircleMarkerRef.current = window.L.marker([lat, lng], {
-            icon: defaultIcon
-          }).addTo(mapInstanceRef.current);
-        } catch (e) {
-          console.error("Falló el intento de recuperación:", e);
-        }
-      }, 500);
     }
   };
 
@@ -636,7 +582,7 @@ export default function FixedMapPicker({
   // Funciones de zoom
   const handleZoomIn = () => {
     if (mapInitialized && mapInstanceRef.current) {
-      const newZoom = Math.min(zoom + 1, 19);
+      const newZoom = Math.min(zoom + 1, 18); // Límite máximo 18 (antes era 19)
       setZoom(newZoom);
       mapInstanceRef.current.setZoom(newZoom);
     }
@@ -644,7 +590,7 @@ export default function FixedMapPicker({
   
   const handleZoomOut = () => {
     if (mapInitialized && mapInstanceRef.current) {
-      const newZoom = Math.max(zoom - 1, 10);
+      const newZoom = Math.max(zoom - 1, 12); // Límite mínimo 12
       setZoom(newZoom);
       mapInstanceRef.current.setZoom(newZoom);
     }
@@ -722,33 +668,15 @@ export default function FixedMapPicker({
 
   return (
     <div className="flex flex-col h-full rounded-lg overflow-hidden border dark:border-gray-700">
-      {/* Cargar Leaflet CSS */}
-      <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-        crossOrigin=""
-      />
-      
-      {/* Cargar Leaflet JS */}
+      {/* Cargar Leaflet JS - cambiar a lazyOnload para que funcione en componentes dinámicos */}
       <Script
         src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
         crossOrigin=""
-        strategy="beforeInteractive"
+        strategy="lazyOnload"
         onLoad={() => {
           console.log("✅ Script de Leaflet cargado correctamente");
           setScriptLoaded(true);
-          // Iniciar un intento inmediatamente después de cargar el script con un pequeño retraso
-          setTimeout(() => {
-            setInitAttempts(prev => prev + 1);
-            // Verificar que Leaflet esté realmente disponible
-            if (window.L) {
-              console.log("✅ Objeto L de Leaflet confirmado como disponible");
-            } else {
-              console.error("❌ Objeto L de Leaflet NO disponible a pesar de carga exitosa");
-            }
-          }, 200);
         }}
         onError={(e) => {
           console.error("❌ Error al cargar script de Leaflet:", e);
@@ -758,23 +686,11 @@ export default function FixedMapPicker({
           leafletScript.onload = () => {
             console.log("✅ Leaflet cargado manualmente como respaldo");
             setScriptLoaded(true);
-            setTimeout(() => setInitAttempts(prev => prev + 1), 200);
           };
           document.head.appendChild(leafletScript);
         }}
       />
 
-      {/* Botón de reiniciar mapa grande y destacado */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10">
-        <Button 
-          onClick={resetMap} 
-          className="bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-full px-4 py-2 shadow-lg flex items-center"
-        >
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Reiniciar Mapa
-        </Button>
-      </div>
-      
       {/* Controles del mapa - Versión responsiva mejorada */}
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-2">
         <Button 

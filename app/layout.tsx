@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description:
     "Disfruta de nuestras deliciosas pizzas artesanales con ingredientes frescos. Pedidos online con delivery y retiro en local.",
   keywords: "pizza, pizzeria, delivery, comida italiana, pedidos online",
-  generator: "v0.dev"
+  generator: "v0.dev",
 }
 
 export default function RootLayout({

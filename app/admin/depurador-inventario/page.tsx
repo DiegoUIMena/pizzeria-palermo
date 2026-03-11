@@ -35,6 +35,285 @@ export default function DepuradorInventario() {
             .trim();
   };
   
+  // Función para verificar PEDIDOS PENDIENTES (no entregados)
+  const verificarPedidosPendientes = async () => {
+    setLoading(true);
+    clearLogs();
+    addLog("🔍 Buscando pedidos pendientes de procesar...", "info");
+    
+    try {
+      // Buscar pedidos NO entregados
+      addLog("Buscando pedidos en estados activos...", "info");
+      const estadosActivos = ['Pendiente', 'Pago Pendiente', 'En preparación', 'En camino', 'Pedido Listo'];
+      
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        orderBy('timestamps.created', 'desc'),
+        limit(10)
+      );
+      
+      const ordersSnapshot = await getDocs(ordersQuery);
+      const pedidosActivos = ordersSnapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as any))
+        .filter(p => estadosActivos.includes(p.estado));
+      
+      if (pedidosActivos.length === 0) {
+        addLog("⚠️ No hay pedidos pendientes en este momento", "warning");
+        addLog("💡 Si acabas de hacer un pedido, verifica que el pago se haya completado", "info");
+        return;
+      }
+      
+      addLog(`✅ Encontrados ${pedidosActivos.length} pedido(s) pendiente(s)`, "success");
+      
+      // Mostrar cada pedido
+      for (const pedido of pedidosActivos) {
+        addLog(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+        addLog(`📦 Pedido #${pedido.orderNumber}`, "info");
+        addLog(`Estado: ${pedido.estado}`, pedido.estado === 'Pendiente' ? 'warning' : 'info');
+        addLog(`Fecha: ${pedido.fechaCreacion || pedido.timestamps?.created}`, "info");
+        addLog(`Total: $${pedido.total}`, "info");
+        
+        if (pedido.inventoryStatus) {
+          addLog(`Estado inventario: ${pedido.inventoryStatus}`, "info");
+        }
+        if (pedido.inventoryError) {
+          addLog(`❌ Error inventario: ${pedido.inventoryError}`, "error");
+        }
+        
+        // Items
+        addLog("\nProductos:", "info");
+        (pedido.items || []).forEach((item: any, idx: number) => {
+          let itemDesc = `${idx + 1}. ${item.nombre}`;
+          if (item.size) itemDesc += ` (${item.size})`;
+          if (item.cantidad > 1) itemDesc += ` x${item.cantidad}`;
+          addLog(itemDesc, "info");
+          
+          // MOSTRAR ESTRUCTURA COMPLETA DEL ITEM
+          addLog(`   📋 Estructura del item:`, "info");
+          addLog(`   - pizzaType: ${item.pizzaType || '(vacío)'}`, "info");
+          addLog(`   - size: ${item.size || '(vacío)'}`, "info");
+          addLog(`   - cantidad: ${item.cantidad || 0}`, "info");
+          
+          // Mostrar campos adicionales que podrían existir
+          if (item.selectedMenuPizza) {
+            addLog(`   - Base seleccionada: ${item.selectedMenuPizza}`, "info");
+          }
+          if (item.pizza1 || item.pizza2) {
+            addLog(`   - Pizza 1: ${item.pizza1 || '(vacío)'}`, "info");
+            addLog(`   - Pizza 2: ${item.pizza2 || '(vacío)'}`, "info");
+          }
+          
+          if (item.extras && item.extras.length > 0) {
+            addLog(`   + Extras: ${item.extras.join(', ')}`, "info");
+          }
+          if (item.ingredients && item.ingredients.length > 0) {
+            addLog(`   + Ingredientes: ${item.ingredients.join(', ')}`, "info");
+          }
+          if (item.premiumIngredients && item.premiumIngredients.length > 0) {
+            addLog(`   + Premium: ${item.premiumIngredients.join(', ')}`, "info");
+          }
+          if (item.sauces && item.sauces.length > 0) {
+            addLog(`   + Salsas: ${item.sauces.join(', ')}`, "info");
+          }
+          if (item.drinks && item.drinks.length > 0) {
+            addLog(`   + Bebidas: ${item.drinks.join(', ')}`, "info");
+          }
+          
+          // Mostrar objeto completo para depuración profunda
+          addLog(`   🔍 Objeto completo (JSON):`, "info");
+          addLog(`   ${JSON.stringify(item, null, 2)}`, "info");
+        });
+        
+        // Estado inventario
+        addLog("\n📦 Estado de inventario:", "info");
+        if (pedido.inventoryProcessed) {
+          addLog(`✅ Inventario marcado como procesado`, "success");
+          
+          // VERIFICAR TRANSACCIONES REALES
+          addLog("\n🔍 Verificando transacciones de inventario...", "info");
+          try {
+            const transaccionesQuery = query(
+              collection(db, 'inventory_transactions'),
+              where('orderId', '==', pedido.id)
+            );
+            
+            const transaccionesSnapshot = await getDocs(transaccionesQuery);
+            
+            if (!transaccionesSnapshot.empty) {
+              addLog(`✅ ${transaccionesSnapshot.size} transacción(es) encontrada(s)`, "success");
+              
+              transaccionesSnapshot.docs.forEach((doc, idx) => {
+                const trans = doc.data();
+                addLog(`\nTransacción ${idx + 1}:`, "info");
+                addLog(`- Estado: ${trans.status}`, trans.status === 'success' ? 'success' : 'error');
+                addLog(`- Fecha: ${new Date(trans.timestamp?.toDate?.() || trans.timestamp).toLocaleString()}`, "info");
+                
+                if (trans.error) {
+                  addLog(`- ❌ Error: ${trans.error}`, "error");
+                }
+                
+                if (trans.items && trans.items.length > 0) {
+                  addLog(`- Ingredientes procesados: ${trans.items.length}`, "info");
+                  trans.items.forEach((item: any) => {
+                    const cantidad = item.cantidadConsumida || item.cantidad || 0;
+                    const unidad = item.unidad || 'g';
+                    addLog(`  • ${item.nombre || item.ingredienteId}: ${cantidad}${unidad}`, "info");
+                  });
+                } else {
+                  addLog(`⚠️ La transacción no tiene items registrados`, "warning");
+                }
+              });
+            } else {
+              addLog(`❌ NO se encontraron transacciones de inventario`, "error");
+              addLog(`⚠️ PROBLEMA: El pedido está marcado como procesado pero no hay transacciones`, "warning");
+              addLog(`💡 Esto indica que la Cloud Function falló silenciosamente`, "info");
+            }
+          } catch (error: any) {
+            addLog(`❌ Error al buscar transacciones: ${error.message}`, "error");
+          }
+          
+        } else {
+          addLog(`❌ Inventario NO procesado`, "error");
+          if (pedido.estado === 'Pendiente' || pedido.estado === 'Pago Pendiente') {
+            addLog(`⚠️ El admin debe ACEPTAR este pedido para procesar el inventario`, "warning");
+          } else {
+            addLog(`❌ ERROR: El pedido está en ${pedido.estado} pero el inventario no se procesó`, "error");
+          }
+        }
+      }
+      
+      // Diagnóstico
+      addLog(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━`, "info");
+      addLog("📋 DIAGNÓSTICO GENERAL:", "info");
+      
+      const pendientes = pedidosActivos.filter(p => p.estado === 'Pendiente' || p.estado === 'Pago Pendiente');
+      const sinInventario = pedidosActivos.filter(p => !p.inventoryProcessed);
+      
+      if (pendientes.length > 0) {
+        addLog(`⏳ Hay ${pendientes.length} pedido(s) esperando aprobación del admin`, "warning");
+        addLog(`ACCIÓN: Ve a Admin → Pedidos y haz clic en "Aceptar" en cada pedido`, "info");
+      }
+      
+      if (sinInventario.length > 0) {
+        addLog(`⚠️ ${sinInventario.length} pedido(s) sin inventario procesado`, "warning");
+      }
+      
+    } catch (error: any) {
+      addLog(`❌ Error: ${error.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Función para verificar el pedido más reciente (TODOS, incluidos entregados)
+  const verificarPedidoReciente = async () => {
+    setLoading(true);
+    clearLogs();
+    addLog("🔍 Verificando pedido más reciente...", "info");
+    
+    try {
+      // 1. Buscar el pedido más reciente en ORDERS
+      addLog("Buscando pedido más reciente en 'orders'...", "info");
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        orderBy('timestamps.created', 'desc'),
+        limit(1)
+      );
+      
+      const ordersSnapshot = await getDocs(ordersQuery);
+      
+      if (!ordersSnapshot.empty) {
+        const pedido: any = { id: ordersSnapshot.docs[0].id, ...ordersSnapshot.docs[0].data() };
+        addLog(`✅ Pedido encontrado: #${pedido.orderNumber || 'N/A'}`, "success");
+        addLog(`Estado: ${pedido.estado}`, "info");
+        addLog(`Fecha: ${pedido.fechaCreacion || pedido.timestamps?.created}`, "info");
+        addLog(`Total: $${pedido.total}`, "info");
+        
+        // Mostrar items del pedido
+        addLog("\nItems del pedido:", "info");
+        (pedido.items || []).forEach((item: any, idx: number) => {
+          addLog(`${idx + 1}. ${item.nombre} - Cantidad: ${item.cantidad} - Tamaño: ${item.size || 'N/A'}`, "info");
+          if (item.extras && item.extras.length > 0) {
+            addLog(`   Extras: ${item.extras.join(', ')}`, "info");
+          }
+          if (item.ingredients && item.ingredients.length > 0) {
+            addLog(`   Ingredientes: ${item.ingredients.join(', ')}`, "info");
+          }
+        });
+        
+        // Verificar estado de inventario
+        addLog("\n📦 Estado del inventario:", "info");
+        if (pedido.inventoryProcessed) {
+          addLog(`✅ Inventario marcado como procesado`, "success");
+        } else {
+          addLog(`❌ Inventario NO procesado`, "error");
+          addLog(`⚠️ El admin debe ACEPTAR el pedido (cambiar a "En preparación") para que se descuente el inventario`, "warning");
+        }
+        
+        if (pedido.inventoryStatus) {
+          addLog(`Estado inventario: ${pedido.inventoryStatus}`, "info");
+        }
+        
+        if (pedido.inventoryError) {
+          addLog(`❌ Error de inventario: ${pedido.inventoryError}`, "error");
+        }
+        
+        // Buscar transacciones de inventario
+        addLog("\n🔍 Buscando transacciones de inventario...", "info");
+        const transaccionesQuery = query(
+          collection(db, 'inventory_transactions'),
+          where('orderId', '==', pedido.id)
+        );
+        
+        const transaccionesSnapshot = await getDocs(transaccionesQuery);
+        
+        if (!transaccionesSnapshot.empty) {
+          addLog(`✅ ${transaccionesSnapshot.size} transacción(es) encontrada(s)`, "success");
+          
+          transaccionesSnapshot.docs.forEach((doc, idx) => {
+            const trans = doc.data();
+            addLog(`\nTransacción ${idx + 1}:`, "info");
+            addLog(`- Estado: ${trans.status}`, trans.status === 'success' ? 'success' : 'error');
+            if (trans.error) {
+              addLog(`- Error: ${trans.error}`, "error");
+            }
+            if (trans.items && trans.items.length > 0) {
+              addLog(`- Ingredientes procesados: ${trans.items.length}`, "info");
+              trans.items.slice(0, 5).forEach((item: any) => {
+                addLog(`  • ${item.nombre || item.ingredienteId}: ${item.cantidadConsumida || 0}${item.unidad || 'g'}`, "info");
+              });
+            }
+          });
+        } else {
+          addLog(`⚠️ No se encontraron transacciones de inventario para este pedido`, "warning");
+          if (pedido.estado === "Pendiente" || pedido.estado === "Pago Pendiente") {
+            addLog(`💡 ACCIÓN REQUERIDA: El admin debe ACEPTAR el pedido en la sección Admin → Pedidos`, "info");
+          }
+        }
+        
+        // Diagnóstico final
+        addLog("\n📋 DIAGNÓSTICO:", "info");
+        if (pedido.estado === "Pendiente" || pedido.estado === "Pago Pendiente") {
+          addLog("⏳ El pedido está pendiente de aprobación", "warning");
+          addLog("ACCIÓN: El administrador debe ir a Admin → Pedidos y hacer clic en 'Aceptar' para procesar el inventario", "info");
+        } else if (pedido.estado === "En preparación" && !pedido.inventoryProcessed) {
+          addLog("❌ ERROR: El pedido está en preparación pero el inventario NO se procesó", "error");
+          addLog("CAUSA POSIBLE: Error durante el consumo de inventario. Revisar logs de Firebase Functions", "error");
+        } else if (pedido.inventoryProcessed) {
+          addLog("✅ El pedido fue procesado correctamente y el inventario se descontó", "success");
+        }
+        
+      } else {
+        addLog("⚠️ No se encontraron pedidos en la colección 'orders'", "warning");
+      }
+      
+    } catch (error: any) {
+      addLog(`❌ Error: ${error.message}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   // Función para verificar problema específico de "Del Pibe"
   const verificarCasoDelPibe = async () => {
     setLoading(true);
@@ -141,7 +420,7 @@ export default function DepuradorInventario() {
         
         const tieneDuoDelPibe = items.some((item: any) => 
           item.pizzaType === 'duo' && 
-          ((item.pizza1 && normalizeText(item.pizza1).includes('pibe')) || 
+          ((item.pizza1 && normalizeText(item.pizza1).includes('pibe')) ||  
            (item.pizza2 && normalizeText(item.pizza2).includes('pibe')))
         );
         
@@ -372,44 +651,68 @@ export default function DepuradorInventario() {
         el cálculo de inventario para pizzas Duo, especialmente el caso de "Del Pibe".
       </p>
       
-      <div className="grid gap-6 grid-cols-1 md:grid-cols-2 mb-6">
+      <div className="grid gap-6 grid-cols-1 md:grid-cols-3 mb-6">
         <Card>
           <CardHeader>
-            <CardTitle>Verificación del Caso "Del Pibe"</CardTitle>
+            <CardTitle>⭐ Pedidos Pendientes</CardTitle>
             <CardDescription>
-              Analiza el problema específico con la pizza Del Pibe en pizzas Duo
+              Verifica pedidos que necesitan aprobación
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="mb-4">
-              Esta opción examina la existencia de la pizza Del Pibe en el menú,
-              verifica sus recetas y analiza pedidos recientes para diagnosticar
-              por qué no se descuentan correctamente sus ingredientes.
+            <p className="mb-4 text-sm">
+              Busca pedidos en estados activos (Pendiente, En preparación, etc.)
+              y verifica si el inventario ya fue procesado.
             </p>
           </CardContent>
           <CardFooter>
             <Button 
-              onClick={verificarCasoDelPibe} 
+              onClick={verificarPedidosPendientes} 
               disabled={loading}
               className="w-full"
+              variant="default"
             >
-              {loading ? "Analizando..." : "Verificar Caso Del Pibe"}
+              {loading ? "Buscando..." : "Ver Pedidos Pendientes"}
             </Button>
           </CardFooter>
         </Card>
         
         <Card>
           <CardHeader>
-            <CardTitle>Análisis General de Inventario</CardTitle>
+            <CardTitle>Último Pedido (Todos)</CardTitle>
             <CardDescription>
-              Identifica patrones de errores en transacciones de inventario
+              Verifica el pedido más reciente (incluye entregados)
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="mb-4">
-              Esta opción analiza transacciones fallidas recientes, busca patrones 
-              comunes de errores y verifica la proporción de problemas relacionados
-              con pizzas Duo versus otros tipos de productos.
+            <p className="mb-4 text-sm">
+              Examina el pedido más reciente sin filtrar por estado,
+              útil para revisar pedidos ya completados.
+            </p>
+          </CardContent>
+          <CardFooter>
+            <Button 
+              onClick={verificarPedidoReciente} 
+              disabled={loading}
+              className="w-full"
+              variant="outline"
+            >
+              {loading ? "Verificando..." : "Ver Último Pedido"}
+            </Button>
+          </CardFooter>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Análisis General</CardTitle>
+            <CardDescription>
+              Revisa errores y patrones de inventario
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-4 text-sm">
+              Analiza transacciones fallidas y busca patrones 
+              comunes de errores en el sistema de inventario.
             </p>
           </CardContent>
           <CardFooter>
@@ -419,7 +722,7 @@ export default function DepuradorInventario() {
               variant="outline"
               className="w-full"
             >
-              {loading ? "Analizando..." : "Analizar Problemas de Inventario"}
+              {loading ? "Analizando..." : "Analizar Sistema"}
             </Button>
           </CardFooter>
         </Card>
@@ -463,20 +766,24 @@ export default function DepuradorInventario() {
       
       <Separator className="my-6" />
       
-      <div className="bg-blue-50 p-4 rounded-md border border-blue-200 mb-6">
-        <h3 className="text-lg font-medium text-blue-800 mb-2">💡 Recomendaciones de Solución</h3>
-        <p className="text-blue-800 mb-2">
-          Los diagnósticos muestran que la lógica de cálculo para pizzas Duo está correctamente implementada,
-          pero existe un problema al buscar específicamente la pizza "Del Pibe" durante el procesamiento de inventario.
-        </p>
-        <p className="text-blue-800 mb-2">
-          Recomendación principal: Mejorar la función <code className="bg-blue-100 px-1 py-0.5 rounded">findPizzaInMenu</code> 
-          en <code className="bg-blue-100 px-1 py-0.5 rounded">inventory-service.ts</code> para que sea más robusta en la 
-          búsqueda de pizzas, especialmente para "Del Pibe". Añadir casos especiales y búsquedas alternativas.
-        </p>
-        <p className="text-blue-800">
-          Para pedidos existentes, use la herramienta "Reparador de Pizza Duo" para corregir pedidos específicos.
-        </p>
+      <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-md border border-blue-200 dark:border-blue-800 mb-6">
+        <h3 className="text-lg font-medium text-blue-800 dark:text-blue-200 mb-2">💡 Flujo de Procesamiento de Inventario</h3>
+        <div className="text-blue-800 dark:text-blue-300 space-y-2">
+          <p className="font-semibold">¿Cuándo se descuenta el inventario?</p>
+          <ol className="list-decimal list-inside space-y-1 ml-2">
+            <li>El cliente crea un pedido y completa el pago</li>
+            <li>El pedido queda en estado <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">"Pendiente"</code></li>
+            <li><strong>El admin debe ACEPTAR el pedido</strong> en la sección Admin → Pedidos</li>
+            <li>Al aceptar, el estado cambia a <code className="bg-blue-100 dark:bg-blue-900 px-1 py-0.5 rounded">"En preparación"</code></li>
+            <li>✅ En ese momento se ejecuta el descuento de inventario automáticamente</li>
+          </ol>
+          <p className="mt-3 font-semibold">Si el inventario no se descontó:</p>
+          <ul className="list-disc list-inside space-y-1 ml-2">
+            <li>Verifica que el admin haya aceptado el pedido (botón "Aceptar")</li>
+            <li>Usa la herramienta <strong>"Verificar Último Pedido"</strong> arriba para diagnosticar</li>
+            <li>Revisa los logs de Firebase Functions si hay errores específicos</li>
+          </ul>
+        </div>
       </div>
     </div>
   );

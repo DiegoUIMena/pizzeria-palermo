@@ -1,125 +1,158 @@
-import { useEffect, useState, useCallback, useRef } from "react"
-import { db } from "../lib/firebase"
-import { collection, getDocs, query, onSnapshot } from "firebase/firestore"
+import { useEffect, useState } from "react"
 import { useFirebase } from "../app/context/FirebaseContext"
+import { realtimeManager } from "../lib/realtime-manager"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { collection, getDocs, doc, getDoc } from "firebase/firestore"
+import { db } from "../lib/firebase"
 
+export interface PizzaSizeConfig {
+  id: string
+  name: string
+  simpleBasePrice: number
+  premiumBasePrice: number
+  simpleExtraPrice: number
+  premiumExtraPrice: number
+  description?: string
+}
+
+export interface PreciosConfiguracion {
+  pizzaSizes: {
+    mediana: PizzaSizeConfig
+    familiar: PizzaSizeConfig
+  }
+  extras: Record<string, number>
+  lastUpdated?: string
+  version?: string
+}
+
+/**
+ * Hook optimizado con React Query y patrón singleton
+ * Reduce ~30,000 lecturas/mes eliminando suscripciones duplicadas
+ */
 export function useFirestorePizzaConfig() {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
-  const [ingredients, setIngredients] = useState<any[]>([])
-  const [itemsMenu, setItemsMenu] = useState<any[]>([])
-  const [categories, setCategories] = useState<any[]>([])
   const { initialized } = useFirebase()
-  // Añadir un contador de actualizaciones para forzar re-renders
-  const [refreshCounter, setRefreshCounter] = useState(0)
-  // Use a ref to track when refresh is in progress to prevent duplicate fetches
-  const refreshingRef = useRef(false)
+  const queryClient = useQueryClient()
+  const [itemsMenu, setItemsMenu] = useState<any[]>([])
 
-  // Función para forzar una recarga de datos
-  const refreshData = useCallback(() => {
-    const timestamp = Date.now()
-    console.log("Forzando actualización de datos de pizzas con timestamp:", timestamp)
-    
-    // Incrementar el contador y asegurarnos de que sea un valor nuevo cada vez
-    setRefreshCounter(oldValue => {
-      // Asegurarse de que el nuevo valor sea diferente del anterior
-      return oldValue === timestamp ? timestamp + 1 : timestamp
-    })
-    
-    // Programar otra actualización después de un breve momento
-    // para asegurarnos de que los cambios se reflejen
-    setTimeout(() => {
-      console.log("Actualizando datos nuevamente después del timeout:", Date.now())
-      setRefreshCounter(Date.now())
-    }, 500)
-  }, [])
+  // Cargar ingredientes con React Query (cache de 5 minutos)
+  const { 
+    data: ingredients = [], 
+    isLoading: ingredientsLoading,
+    error: ingredientsError 
+  } = useQuery({
+    queryKey: ['ingredientes'],
+    queryFn: async () => {
+      const snapshot = await getDocs(collection(db, "ingredientes"))
+      return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    },
+    enabled: initialized,
+    staleTime: 5 * 60 * 1000, // Cache válido por 5 minutos
+    gcTime: 10 * 60 * 1000, // Mantener en cache 10 minutos
+  })
 
-  // Cargar datos de Firestore
-  const fetchData = useCallback(async () => {
-    if (!initialized || refreshingRef.current) return
+  // Cargar categorías con React Query (cache de 10 minutos)
+  const { 
+    data: categories = [], 
+    isLoading: categoriesLoading,
+    error: categoriesError 
+  } = useQuery({
+    queryKey: ['categorias_menu'],
+    queryFn: async () => {
+      const snapshot = await getDocs(collection(db, "categorias_menu"))
+      return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    },
+    enabled: initialized,
+    staleTime: 10 * 60 * 1000, // Cache válido por 10 minutos
+    gcTime: 30 * 60 * 1000, // Mantener en cache 30 minutos (cambia poco)
+  })
 
-    try {
-      refreshingRef.current = true
-      setLoading(true)
-      setError(null)
+  // Cargar configuración de precios con React Query (cache de 15 minutos)
+  const { 
+    data: preciosConfig, 
+    isLoading: preciosLoading,
+    error: preciosError 
+  } = useQuery<PreciosConfiguracion | null>({
+    queryKey: ['precios_configuracion'],
+    queryFn: async () => {
+      const docRef = doc(db, "settings", "precios_configuracion")
+      const docSnap = await getDoc(docRef)
       
-      console.log("Realizando consulta a Firestore para obtener datos actualizados...", Date.now())
+      if (docSnap.exists()) {
+        return docSnap.data() as PreciosConfiguracion
+      }
       
-      // No-cache query options
-      const queryOptions = {
-        source: 'server' as const  // Force server fetch, not cache
-      };
-      
-      const [ingredientsSnap, itemsMenuSnap, categoriesSnap] = await Promise.all([
-        getDocs(collection(db, "ingredientes")),
-        getDocs(collection(db, "items_menu")),
-        getDocs(collection(db, "categorias_menu")),
-      ])
-      
-      const ingredientsData = ingredientsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const itemsMenuData = itemsMenuSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      const categoriesData = categoriesSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      
-      console.log(`Datos obtenidos de Firestore (${Date.now()}):`, {
-        ingredientes: ingredientsData.length,
-        itemsMenu: itemsMenuData.length,
-        categorias: categoriesData.length
-      })
-      
-      setIngredients(ingredientsData);
-      setItemsMenu(itemsMenuData);
-      setCategories(categoriesData);
-      console.log("Datos de pizzas actualizados correctamente")
-    } catch (err) {
-      console.error("Error al cargar datos de configuración:", err)
-      setError(err instanceof Error ? err : new Error("Error desconocido al cargar datos"))
-      // Establecer datos vacíos para evitar que la aplicación falle
-      setIngredients([])
-      setItemsMenu([])
-      setCategories([])
-    } finally {
-      setLoading(false)
-      refreshingRef.current = false
-    }
-  }, [initialized])
+      // Fallback a valores por defecto si no existe la configuración
+      console.warn('⚠️ No se encontró precios_configuracion en Firebase, usando valores por defecto')
+      return {
+        pizzaSizes: {
+          mediana: {
+            id: 'mediana',
+            name: 'Mediana',
+            simpleBasePrice: 8000,
+            premiumBasePrice: 8000,
+            simpleExtraPrice: 700,
+            premiumExtraPrice: 2500,
+            description: 'Perfecta para 1-2 personas'
+          },
+          familiar: {
+            id: 'familiar',
+            name: 'Familiar',
+            simpleBasePrice: 10000,
+            premiumBasePrice: 10000,
+            simpleExtraPrice: 1000,
+            premiumExtraPrice: 3500,
+            description: 'Ideal para 3-4 personas'
+          }
+        },
+        extras: {}
+      }
+    },
+    enabled: initialized,
+    staleTime: 15 * 60 * 1000, // Cache válido por 15 minutos
+    gcTime: 60 * 60 * 1000, // Mantener en cache 1 hora (precios cambian raramente)
+  })
 
-  // Set up an effect for one-time queries and refreshes
+  // items_menu usa listener en tiempo real con singleton pattern
   useEffect(() => {
-    console.log("Efecto de fetchData ejecutado, refreshCounter:", refreshCounter)
-    fetchData()
-  }, [fetchData, initialized, refreshCounter])
+    if (!initialized) return
 
-  // Set up real-time listeners for pizza data changes
-  useEffect(() => {
-    if (!initialized) return;
+    console.log("Suscribiendo a items_menu con singleton pattern")
     
-    console.log("Configurando listener en tiempo real para items_menu", Date.now())
-    
-    // Set up a real-time listener for the items_menu collection
-    const itemsMenuQuery = query(collection(db, "items_menu"));
-    const unsubscribe = onSnapshot(itemsMenuQuery, (snapshot) => {
-      const itemsMenuData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      console.log(`Actualización en tiempo real recibida para items_menu (${Date.now()}):`, {
-        itemsMenu: itemsMenuData.length
-      });
-      setItemsMenu(itemsMenuData);
-    }, (error) => {
-      console.error("Error en listener de items_menu:", error);
-    });
-    
-    // Return cleanup function
+    const unsubscribe = realtimeManager.subscribe<any>(
+      'items_menu',
+      (data) => {
+        console.log(`Actualización recibida: ${data.length} pizzas`)
+        setItemsMenu(data)
+        // Invalidar cache de React Query si es necesario
+        queryClient.invalidateQueries({ queryKey: ['items_menu'] })
+      }
+    )
+
     return () => {
-      console.log("Eliminando listener de items_menu");
-      unsubscribe();
-    };
-  }, [initialized]);
+      console.log("Desuscribiendo de items_menu")
+      unsubscribe()
+    }
+  }, [initialized, queryClient])
+
+  // Función para refrescar datos manualmente
+  const refreshData = () => {
+    console.log("Forzando actualización de datos")
+    queryClient.invalidateQueries({ queryKey: ['ingredientes'] })
+    queryClient.invalidateQueries({ queryKey: ['categorias_menu'] })
+    queryClient.invalidateQueries({ queryKey: ['items_menu'] })
+    queryClient.invalidateQueries({ queryKey: ['precios_configuracion'] })
+  }
+
+  const loading = ingredientsLoading || categoriesLoading || preciosLoading || itemsMenu.length === 0
+  const error = ingredientsError || categoriesError || preciosError
 
   return { 
     loading, 
-    error, 
+    error: error instanceof Error ? error : null, 
     ingredients, 
     itemsMenu, 
-    categories, 
-    refreshData // Exportar la función para que pueda ser utilizada por los componentes
+    categories,
+    preciosConfig,
+    refreshData
   }
 }

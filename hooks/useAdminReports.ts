@@ -350,16 +350,36 @@ export function useAdminReports(): UseAdminReportsReturn {
         break
       }
       case 'anual': {
-        for (let i = 11; i >= 0; i--) {
-          const m = subMonths(startOfDay(now), i)
-          const lab = format(m, 'MMM', { locale: es })
-          map[lab] = 0
+        // If year is provided, generate ISO date labels for that specific year's 12 months
+        if (typeof opts?.year === 'number') {
+          const year = opts.year
+          // Generate ISO date labels for all 12 months
+          for (let monthIdx = 0; monthIdx < 12; monthIdx++) {
+            const isoLabel = `${year}-${String(monthIdx + 1).padStart(2, '0')}-01`
+            map[isoLabel] = 0
+          }
+          // Aggregate orders by month using ISO date format
+          filtered.forEach(o => {
+            const d = toDate(o.timestamps?.created)
+            if (!d) return
+            const isoLabel = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+            pushPoint(isoLabel, o.total || 0)
+          })
+        } else {
+          // Default: last 12 months from now using ISO dates
+          for (let i = 11; i >= 0; i--) {
+            const m = subMonths(startOfDay(now), i)
+            const isoLabel = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-01`
+            map[isoLabel] = 0
+          }
+          filtered.forEach(o => {
+            const d = toDate(o.timestamps?.created)
+            if (!d) return
+            const m = new Date(d.getFullYear(), d.getMonth(), 1)
+            const isoLabel = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-01`
+            pushPoint(isoLabel, o.total || 0)
+          })
         }
-        filtered.forEach(o => {
-          const d = toDate(o.timestamps?.created)!
-          const lab = format(d, 'MMM', { locale: es })
-          pushPoint(lab, o.total || 0)
-        })
         break
       }
     }

@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, AlertTriangle } from "lucide-react"
+import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from 'react'
 
@@ -43,15 +43,15 @@ export default function AdminHeader() {
     { name: "Pedidos", href: "/admin/pedidos", icon: ShoppingCart },
     { 
       name: "Inventario", 
-      href: "/admin/inventario", 
       icon: Package,
       submenu: [
-        { name: "Gestión", href: "/admin/inventario", icon: Package },
-        { name: "Alertas", href: "/admin/inventario/alertas", icon: AlertTriangle },
-        { name: "Diagnóstico Duo", href: "/admin/diagnostico-duo", icon: Bug },
+        { name: "Gestión", href: "/admin/inventario" },
+        { name: "Config. Cantidades", href: "/admin/configurar-cantidades" },
+        { name: "Depurador", href: "/admin/depurador-inventario" },
       ]
     },
     { name: "Zonas Delivery", href: "/admin/zonas-delivery", icon: MapPin },
+    { name: "Chatbot", href: "/admin/chatbot", icon: MessageCircle },
     { name: "Reportes", href: "/admin/reportes", icon: BarChart3 },
   ]
 
@@ -68,11 +68,11 @@ export default function AdminHeader() {
           <nav className="hidden md:flex space-x-1">
             {navigation.map((item) => {
               const Icon = item.icon
-              const isActive = pathname === item.href || 
-                (item.submenu && item.submenu.some(subitem => pathname === subitem.href))
               
-              // Si tiene submenú, mostrar como dropdown
+              // Si tiene submenú, renderizar dropdown
               if (item.submenu) {
+                const isActive = item.submenu.some(sub => pathname === sub.href)
+                
                 return (
                   <DropdownMenu key={item.name}>
                     <DropdownMenuTrigger asChild>
@@ -89,31 +89,23 @@ export default function AdminHeader() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent>
-                      {item.submenu.map((subitem) => {
-                        const SubIcon = subitem.icon
-                        const isSubActive = pathname === subitem.href
-                        return (
-                          <DropdownMenuItem key={subitem.name} asChild>
-                            <Link 
-                              href={subitem.href} 
-                              className={`flex items-center w-full ${
-                                isSubActive ? "bg-gray-100 dark:bg-gray-800" : ""
-                              }`}
-                            >
-                              <SubIcon className="mr-2 h-4 w-4" />
-                              <span>{subitem.name}</span>
-                            </Link>
-                          </DropdownMenuItem>
-                        )
-                      })}
+                      {item.submenu.map((subItem) => (
+                        <DropdownMenuItem key={subItem.name} asChild>
+                          <Link href={subItem.href} className="cursor-pointer">
+                            {subItem.name}
+                          </Link>
+                        </DropdownMenuItem>
+                      ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )
               }
               
-              // Si no tiene submenú, mostrar normal
+              // Si no tiene submenú, renderizar link normal
+              const isActive = pathname === item.href
+              
               return (
-                <Link key={item.name} href={item.href}>
+                <Link key={item.name} href={item.href!}>
                   <Button
                     variant={isActive ? "default" : "ghost"}
                     className={`flex items-center space-x-2 ${
@@ -142,33 +134,29 @@ export default function AdminHeader() {
                 {navigation.map((item) => {
                   const Icon = item.icon
                   
-                  // Si tiene submenu, renderizar los items del submenu
+                  // Si tiene submenú, renderizar items del submenú
                   if (item.submenu) {
                     return (
                       <React.Fragment key={item.name}>
-                        <DropdownMenuItem disabled className="font-semibold">
-                          <Icon className="mr-2 h-4 w-4" />
-                          <span>{item.name}</span>
-                        </DropdownMenuItem>
-                        {item.submenu.map((subitem) => {
-                          const SubIcon = subitem.icon
-                          return (
-                            <DropdownMenuItem key={subitem.name} asChild className="pl-6">
-                              <Link href={subitem.href} className="flex items-center">
-                                <SubIcon className="mr-2 h-4 w-4" />
-                                <span>{subitem.name}</span>
-                              </Link>
-                            </DropdownMenuItem>
-                          )
-                        })}
+                        <div className="px-2 py-1.5 text-sm font-semibold text-gray-500 dark:text-gray-400">
+                          <Icon className="inline mr-2 h-4 w-4" />
+                          {item.name}
+                        </div>
+                        {item.submenu.map((subItem) => (
+                          <DropdownMenuItem key={subItem.name} asChild>
+                            <Link href={subItem.href} className="flex items-center pl-8">
+                              <span>{subItem.name}</span>
+                            </Link>
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
                       </React.Fragment>
                     )
                   }
                   
-                  // Si no tiene submenu, renderizar como normal
                   return (
                     <DropdownMenuItem key={item.name} asChild>
-                      <Link href={item.href} className="flex items-center">
+                      <Link href={item.href!} className="flex items-center">
                         <Icon className="mr-2 h-4 w-4" />
                         <span>{item.name}</span>
                       </Link>

@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "build": "next build",
+    "export": "NEXT_EXPORT=true next build",
     "dev": "next dev",
     "lint": "next lint",
-    "start": "next start"
+    "start": "next start",
+    "deploy": "npm run export && firebase deploy --only hosting"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

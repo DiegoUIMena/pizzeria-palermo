@@ -12,9 +12,13 @@ import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertTriangle, Package, Plus, Edit, Search, Filter, TrendingDown, CheckCircle, Trash2 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { toast } from "@/hooks/use-toast"
 import RecipeEditor from "./RecipeEditor"
 import AddPizzaModal from "./AddPizzaModal"
 import { useFirestorePizzaConfig } from '@/hooks/useFirestorePizzaConfig'
+import { db } from "@/lib/firebase"
+import { doc, updateDoc } from "firebase/firestore"
 
 // Se utilizará la interfaz IngredienteFS desde Firestore.
 
@@ -647,15 +651,61 @@ export default function AdminInventario() {
               .filter((p: any) => !excludeNames.includes((p.nombre || "").toLowerCase().trim()))
               .map((p: any) => (
                 <div key={p.id} className="border rounded p-4 flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">
-                      {p.nombre}
-                      {p.nombre === "4 Estaciones" || p.nombre === "Sevillana" || p.nombre === "Entre Ríos" ? (
-                        <span className="ml-2 text-xs bg-yellow-200 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 px-2 py-1 rounded-full">
-                          Solo Familiar
+                  <div className="flex items-center gap-3">
+                    {/* Imagen de la pizza */}
+                    {p.imagen && (
+                      <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200">
+                        <img 
+                          src={p.imagen} 
+                          alt={p.nombre}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.currentTarget.src = "/placeholder.svg";
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <p className="font-medium">
+                          {p.nombre}
+                        {p.nombre === "4 Estaciones" || p.nombre === "Sevillana" || p.nombre === "Entre Ríos" ? (
+                          <span className="ml-2 text-xs bg-yellow-200 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 px-2 py-1 rounded-full">
+                            Solo Familiar
+                          </span>
+                        ) : null}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Switch 
+                          checked={p.activo !== false}
+                          onCheckedChange={async (checked) => {
+                            try {
+                              await updateDoc(doc(db, 'items_menu', p.id), { activo: checked })
+                              toast({
+                                title: checked ? "Pizza activada" : "Pizza desactivada",
+                                description: `${p.nombre} ${checked ? 'ahora es visible' : 'ya no es visible'} en el menú del cliente`,
+                                variant: "default"
+                              })
+                              refreshData()
+                            } catch (error) {
+                              console.error('Error al actualizar estado:', error)
+                              toast({
+                                title: "Error",
+                                description: "No se pudo actualizar el estado de la pizza",
+                                variant: "destructive"
+                              })
+                            }
+                          }}
+                        />
+                        <span className={`text-xs font-medium ${
+                          p.activo !== false 
+                            ? 'text-green-600 dark:text-green-400' 
+                            : 'text-gray-400 dark:text-gray-500'
+                        }`}>
+                          {p.activo !== false ? 'Visible' : 'Oculta'}
                         </span>
-                      ) : null}
-                    </p>
+                      </div>
+                    </div>
                     <div className="text-xs space-x-2">
                       {p.receta && Array.isArray(p.receta) && p.receta.length > 0 ? (
                         <span className="text-green-600 dark:text-green-400">Receta familiar: {p.receta.length} ingredientes</span>
@@ -672,6 +722,7 @@ export default function AdminInventario() {
                         </>
                       )}
                     </div>
+                  </div>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" onClick={() => { setEditorInitialPizza(p.id); setShowRecipeEditor(true) }}>Editar receta</Button>

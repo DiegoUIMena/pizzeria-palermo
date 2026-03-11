@@ -152,6 +152,7 @@ export default function AddPizzaModal({ open, onOpenChange, onSuccess }: AddPizz
         imagen: imageUrl, // Agregar URL de la imagen
         receta: [], // Inicialmente vacía, se editará después
         recetaMediana: [], // Inicialmente vacía, se editará después
+        activo: true, // Por defecto visible en el menú del cliente
         createdAt: new Date().toISOString(),
       }
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Order, getUserOrders, listenToUserOrders } from '../lib/orders'
+import { FormattedOrder, OrderItem } from '../lib/types'
 
 // Hook para obtener pedidos del usuario
 export const useUserOrders = (userId: string | undefined) => {
@@ -57,7 +58,7 @@ export const useFormattedOrders = (userId: string | undefined) => {
 
   // En este hook, solo utilizamos el tiempo estimado seleccionado por el administrador (tiempoEstimadoMinutos)
   // y NO implementamos ninguna cuenta regresiva. El cliente solo verá el tiempo total estimado.
-  const formattedOrders = orders.map(order => {
+  const formattedOrders: FormattedOrder[] = orders.map(order => {
     // Verificamos si el administrador ha establecido un tiempo estimado
     // Importante: solo consideramos que hay tiempo estimado si tiempoEstimadoMinutos tiene un valor
     const hasEstimatedTime = typeof order.tiempoEstimadoMinutos === 'number' && order.tiempoEstimadoMinutos > 0;
@@ -92,7 +93,10 @@ export const useFormattedOrders = (userId: string | undefined) => {
         drinks: item.drinks,
         extras: item.extras,
         comments: item.comments,
-        pizzaType: item.pizzaType
+        pizzaType: item.pizzaType,
+        sinOregano: item.sinOregano,
+        sinQueso: item.sinQueso,
+        sinSalsaTomate: item.sinSalsaTomate
       })),
       total: order.total,
       estimatedTime: estimatedTimeDisplay,
@@ -100,6 +104,12 @@ export const useFormattedOrders = (userId: string | undefined) => {
       deliveryType: order.tipoEntrega,
       deliveryAddress: order.direccion,
       paymentMethod: order.metodoPago,
+      paymentStatus: order.paymentStatus,
+      refundInfo: order.webpay?.refund ? {
+        refundedAt: order.webpay.refund.refundedAt,
+        refundType: order.webpay.refund.refundType,
+        amount: order.total
+      } : undefined,
       notes: order.notas
     };
   })

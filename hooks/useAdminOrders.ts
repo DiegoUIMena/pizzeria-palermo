@@ -146,6 +146,8 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
     return {
       id: `#${order.orderNumber}`,
       documentId: order.id!, // ID real del documento en Firestore
+      paymentStatus: order.paymentStatus || null,
+      webpay: order.webpay || null,
       cliente: clienteFormatted,
       direccion: order.direccion,
       items: order.items.map(item => ({
@@ -155,11 +157,15 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
         size: item.size,
         ingredients: item.ingredients,
         premiumIngredients: item.premiumIngredients,
+        selectedMenuPizza: item.selectedMenuPizza, // ⭐ AGREGADO: Pizza base para Premium/Promo
         sauces: item.sauces,
         drinks: item.drinks,
         extras: item.extras,
         comments: item.comments,
-        pizzaType: item.pizzaType
+        pizzaType: item.pizzaType,
+        sinOregano: item.sinOregano,
+        sinQueso: item.sinQueso,
+        sinSalsaTomate: item.sinSalsaTomate
       })),
       total: order.total,
       estado: order.estado,

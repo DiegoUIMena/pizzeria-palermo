@@ -71,6 +71,18 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA TRANSACCIONES DE INVENTARIO
+    // ============================================
+    match /inventory_transactions/{transactionId} {
+      // Admin y staff pueden leer transacciones (para diagnósticos y auditoría)
+      allow read: if isAdmin() || isStaff();
+      
+      // Las Cloud Functions escriben con privilegios admin
+      // No se permite escritura directa desde el cliente
+      allow write: if false;
+    }
+    
+    // ============================================
     // REGLAS PARA CATÁLOGO DE MENÚ
     // ============================================
     match /items_menu/{itemId} {
@@ -123,13 +135,76 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA CHATBOT (Multi-tenant)
+    // ============================================
+    
+    // Configuración general del tenant
+    match /tenants/{tenantId} {
+      // Todos pueden leer la configuración del chatbot (para saber si está habilitado)
+      allow read: if true;
+      
+      // Solo admin puede modificar la configuración del tenant
+      allow write: if isAdmin();
+      
+      // Intents del chatbot
+      match /chatbot_intents/{intentId} {
+        // Todos pueden leer los intents si el chatbot está habilitado
+        allow read: if true;
+        
+        // Solo admin puede crear/modificar/eliminar intents
+        allow write: if isAdmin();
+      }
+      
+      // Sesiones de chat (cada usuario tiene su propia sesión)
+      match /chat_sessions/{sessionId} {
+        // Usuarios autenticados pueden leer/escribir sus propias sesiones
+        // Las Cloud Functions usan privilegios admin para crear/actualizar
+        allow read: if true; // Necesario para que el widget funcione sin login
+        allow create: if true; // Las Cloud Functions crean las sesiones
+        allow update: if true; // Las Cloud Functions actualizan las sesiones
+        allow delete: if isAdmin(); // Solo admin puede eliminar sesiones
+      }
+      
+      // Logs de conversaciones
+      match /chat_logs/{logId} {
+        // Solo admin puede leer los logs
+        allow read: if isAdmin();
+        
+        // Las Cloud Functions escriben con privilegios admin
+        // No se permite escritura directa desde el cliente
+        allow write: if false;
+      }
+      
+      // Métricas del chatbot
+      match /chatbot_metrics/{metricId} {
+        // Admin puede leer las métricas
+        allow read: if isAdmin();
+        
+        // Las Cloud Functions escriben con privilegios admin
+        // No se permite escritura directa desde el cliente
+        allow write: if false;
+      }
+      
+      // Preguntas sin respuesta
+      match /unanswered_questions/{questionId} {
+        // Solo admin puede leer las preguntas sin respuesta
+        allow read: if isAdmin();
+        
+        // Solo admin puede actualizar el estado
+        allow update: if isAdmin();
+        
+        // Las Cloud Functions crean con privilegios admin
+        allow create: if false;
+        allow delete: if isAdmin();
+      }
+    }
+    
+    // ============================================
     // BLOQUEAR TODO LO DEMÁS POR DEFECTO
     // ============================================
     // Esta regla bloquea cualquier colección no especificada arriba
-    // match /{document=**} {
-    //   allow read, write: if false;
-    // }
-    // NOTA: Comentada por ahora para no romper funcionalidades no identificadas
-    // Descomentar después de verificar que todo funciona correctamente
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }

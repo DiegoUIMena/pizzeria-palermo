@@ -257,6 +257,12 @@ const buildRecipeLinesFromIngredients = (
 ): RecipeLine[] => {
   const lines: RecipeLine[] = []
   
+  // Detectar tamaño de la pizza para usar cantidades estándar
+  const pizzaSize = item.size?.toLowerCase() || 'familiar';
+  const isMediana = pizzaSize === 'mediana';
+  
+  console.log(`🍕 Procesando ingredientes para pizza ${pizzaSize}`);
+  
   // Función para normalizar texto (igual que en getCachedData)
   const normalizeText = (text: string): string => {
     return text.toLowerCase()
@@ -274,10 +280,26 @@ const buildRecipeLinesFromIngredients = (
       const ingDoc = ingredientesByName[normalizedName]
       
       if (ingDoc) {
-        console.log(`Encontrado ingrediente "${parsed.name}" (${parsed.quantity} ${ingDoc.unidad || 'u'})`)
+        // Determinar la cantidad a usar basándose en el tamaño de la pizza
+        let cantidadPorIngrediente: number;
+        
+        if (isMediana && ingDoc.cantidadPorPizzaMediana) {
+          // Usar cantidad estándar para pizza mediana
+          cantidadPorIngrediente = ingDoc.cantidadPorPizzaMediana * parsed.quantity;
+          console.log(`✅ Ingrediente "${parsed.name}": ${cantidadPorIngrediente}${ingDoc.unidad || 'g'} (${ingDoc.cantidadPorPizzaMediana}${ingDoc.unidad || 'g'} × ${parsed.quantity} veces) - MEDIANA`);
+        } else if (!isMediana && ingDoc.cantidadPorPizzaFamiliar) {
+          // Usar cantidad estándar para pizza familiar
+          cantidadPorIngrediente = ingDoc.cantidadPorPizzaFamiliar * parsed.quantity;
+          console.log(`✅ Ingrediente "${parsed.name}": ${cantidadPorIngrediente}${ingDoc.unidad || 'g'} (${ingDoc.cantidadPorPizzaFamiliar}${ingDoc.unidad || 'g'} × ${parsed.quantity} veces) - FAMILIAR`);
+        } else {
+          // Fallback: usar la cantidad parseada si no hay estándar definido
+          cantidadPorIngrediente = parsed.quantity;
+          console.log(`⚠️ Ingrediente "${parsed.name}": ${cantidadPorIngrediente}${ingDoc.unidad || 'u'} (sin cantidad estándar definida, usando fallback)`);
+        }
+        
         lines.push({ 
           ingredienteId: ingDoc.id, 
-          cantidad: parsed.quantity, 
+          cantidad: cantidadPorIngrediente, 
           unidad: ingDoc.unidad || 'u' 
         })
       } else {
@@ -289,14 +311,28 @@ const buildRecipeLinesFromIngredients = (
         
         if (matchingIngredient) {
           const [_, ingData] = matchingIngredient;
-          console.log(`Encontrado ingrediente similar: "${ingData.nombre}" para "${parsed.name}"`)
+          
+          // Determinar la cantidad a usar basándose en el tamaño de la pizza
+          let cantidadPorIngrediente: number;
+          
+          if (isMediana && ingData.cantidadPorPizzaMediana) {
+            cantidadPorIngrediente = ingData.cantidadPorPizzaMediana * parsed.quantity;
+            console.log(`✅ Ingrediente similar "${ingData.nombre}": ${cantidadPorIngrediente}${ingData.unidad || 'g'} - MEDIANA`);
+          } else if (!isMediana && ingData.cantidadPorPizzaFamiliar) {
+            cantidadPorIngrediente = ingData.cantidadPorPizzaFamiliar * parsed.quantity;
+            console.log(`✅ Ingrediente similar "${ingData.nombre}": ${cantidadPorIngrediente}${ingData.unidad || 'g'} - FAMILIAR`);
+          } else {
+            cantidadPorIngrediente = parsed.quantity;
+            console.log(`⚠️ Ingrediente similar "${ingData.nombre}": ${cantidadPorIngrediente}${ingData.unidad || 'u'} (sin cantidad estándar)`);
+          }
+          
           lines.push({
             ingredienteId: ingData.id,
-            cantidad: parsed.quantity,
+            cantidad: cantidadPorIngrediente,
             unidad: ingData.unidad || 'u'
           });
         } else {
-          console.log(`No se encontró ingrediente para "${parsed.name}"`)
+          console.log(`❌ No se encontró ingrediente para "${parsed.name}"`)
         }
       }
     })
@@ -626,13 +662,21 @@ export async function validateInventoryForOrder(orderItems: any[]): Promise<Vali
         }
         
         if (receta) {
-          // Verificar disponibilidad de la receta
-          const recipe: RecipeLine[] = receta.map((r: any) => ({ 
+          // Construir receta base
+          let recipe: RecipeLine[] = receta.map((r: any) => ({ 
             ingredienteId: r.ingredienteId, 
             cantidad: Number(r.cantidad) || 0, 
             unidad: r.unidad 
           }))
           
+          // SIEMPRE procesar extras adicionales si existen
+          const extraLines = buildRecipeLinesFromIngredients(item, ingredientesByName);
+          if (extraLines.length > 0) {
+            recipe = [...recipe, ...extraLines];
+            console.log(`Validación - Añadiendo ${extraLines.length} extras a la receta base de "${itemName}"`);
+          }
+          
+          // Verificar disponibilidad de receta completa (base + extras)
           const availability = isItemAvailable(recipe, ingredientsById, qty)
           if (!availability.available) {
             insufficientItems.push({
@@ -1095,9 +1139,18 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
               }
             }
             
-            // Si no hay receta definida, intentar usar los ingredientes seleccionados
-            if (recipe.length === 0) {
-              recipe = buildRecipeLinesFromIngredients(item, ingredientesByName)
+            // SIEMPRE procesar extras, independiente de si hay receta base o no
+            const extraLines = buildRecipeLinesFromIngredients(item, ingredientesByName);
+            if (extraLines.length > 0) {
+              if (recipe.length > 0) {
+                // Si hay receta base, combinar con extras
+                recipe = [...recipe, ...extraLines];
+                console.log(`✅ Añadiendo ${extraLines.length} ingredientes extras a la receta base de "${itemName}"`);
+              } else {
+                // Si no hay receta base, usar solo los extras (pizza armada desde cero)
+                recipe = extraLines;
+                console.log(`✅ Usando ${extraLines.length} ingredientes personalizados para "${itemName}" (pizza armada desde cero)`);
+              }
             }
           }
           

@@ -130,7 +130,9 @@ export default function Header() {
                   <Button
                     variant="outline"
                     size="icon"
-                    className="bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all relative w-8 h-8 sm:w-10 sm:h-10"
+                    className={`bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all relative w-8 h-8 sm:w-10 sm:h-10 ${
+                      itemCount > 0 ? 'animate-pulse-glow' : ''
+                    }`}
                   >
                     <ShoppingCart className="w-3 h-3 sm:w-4 sm:h-4" />
                     {itemCount > 0 && (

@@ -6,10 +6,83 @@ import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { Plus } from "lucide-react"
+import { ShoppingCart } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 import { isItemAvailable } from '../../lib/recipes'
+
+// Mapeo de nombres de productos a archivos de imagen conocidos
+const imageMap: Record<string, string> = {
+  'chilena': 'chilena',
+  'bariloche': 'bariloche',
+  'buenos aires': 'buenos aires',
+  'cuyana': 'cuyana',
+  '4 estaciones': '4 estaciones',
+  'sevillana': 'sevillana',
+  'amalfitana': 'amalfitana',
+  'calabresa': 'calabresa',
+  'napolitana': 'napolitana',
+  'hawaiana': 'hawaiana',
+  'neuquén': 'neuquén',
+  'la rioja': 'la rioja',
+  'cordobesa': 'cordobesa',
+  'luján': 'luján',
+  'veggie 1': 'veggie 1',
+  'veggie 2': 'veggie 2',
+  'recoleta': 'recoleta',
+  'entre rios': 'entre rios',
+  'centroamericana': 'centroamericana',
+  'messi': 'messi',
+  'de charly': 'de-charly',
+  'del pibe': 'del-pibe jpg',
+  'pepperoni cheese': 'pepperoni cheese',
+  'pesto margarita': 'pesto margarita',
+  'doble muzza': 'doble muzza',
+  'chicken bbq': 'chicken bbq',
+  '4 quesos': '4 quesos',
+  'coca cola lata': 'coca cola lata',
+  'coca cola 1.5 litro': 'coca cola 1.5 litro',
+  'lipton lata': 'lipton lata',
+  'lipton botella': 'lipton botella',
+  'salsa de ajo': 'salsa de ajo',
+  'salsa chimichurri': 'salsa chimichurri',
+  'salsa bbq': 'salsa bbq',
+  'salsa pesto': 'salsa pesto'
+}
+
+// Función helper para obtener la ruta correcta de la imagen
+const getImagePath = (itemName: string, defaultImage?: string): string => {
+  // Si ya tiene una URL completa de Firebase Storage, usarla directamente
+  if (defaultImage && (defaultImage.startsWith('https://') || defaultImage.startsWith('http://'))) {
+    return defaultImage
+  }
+  
+  // Si ya tiene una ruta de imagen válida (empieza con /pizzas/ o /iconos/) y NO es placeholder
+  if (defaultImage && (defaultImage.startsWith('/pizzas/') || defaultImage.startsWith('/iconos/')) && !defaultImage.includes('placeholder')) {
+    // Codificar espacios en el nombre del archivo
+    const parts = defaultImage.split('/')
+    const fileName = parts[parts.length - 1]
+    const encodedFileName = encodeURIComponent(fileName)
+    parts[parts.length - 1] = encodedFileName
+    return parts.join('/')
+  }
+  
+  // Si es un placeholder o no tiene defaultImage, buscar en el imageMap
+  // Limpiar el nombre: remover tamaños entre paréntesis y variantes
+  let cleanName = itemName
+    .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '')
+    .replace(/\s*(Tradicional|Zero)$/gi, '')
+    .toLowerCase()
+    .trim()
+  
+  // Buscar en el mapeo
+  const mappedName = imageMap[cleanName] || cleanName
+  
+  // Construir la ruta de la imagen y codificar el nombre del archivo
+  const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`
+  
+  return imagePath
+}
 
 const promos = [
   {
@@ -354,7 +427,7 @@ const acompanamientos = [
     description: "Pack de 4 rollitos de canela, dos cobertura glasé canela y dos de chocolate",
     price: 4900,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/canela.jpg",
     category: "Acompañamientos",
   },
   {
@@ -363,7 +436,7 @@ const acompanamientos = [
     description: "Nuestra versión de palitos de ajo al estilo Tortafrita Argentina",
     price: 4000,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/gauchitos.jpg",
     category: "Acompañamientos",
   },
   {
@@ -372,7 +445,7 @@ const acompanamientos = [
     description: "Deliciosa salsa de ajo para acompañar tus pizzas",
     price: 700,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/salsa de ajo.jpg",
     category: "Acompañamientos",
   },
   {
@@ -381,7 +454,7 @@ const acompanamientos = [
     description: "Tradicional salsa chimichurri argentina",
     price: 700,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/salsa chimichurri.jpg",
     category: "Acompañamientos",
   },
   {
@@ -390,7 +463,7 @@ const acompanamientos = [
     description: "Salsa barbacoa dulce y ahumada",
     price: 700,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/salsa bbq.jpg",
     category: "Acompañamientos",
   },
   {
@@ -399,7 +472,7 @@ const acompanamientos = [
     description: "Salsa pesto de albahaca fresca",
     price: 1000,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/salsa pesto.jpg",
     category: "Acompañamientos",
   },
   // bebidas moved to the `bebidas` array below
@@ -412,7 +485,7 @@ const bebidas = [
     description: "Disfruta el sabor de tu bebida Coca Cola en lata de 350cc",
     price: 1500,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/coca cola lata.jpg",
     category: "Acompañamientos",
     variants: ["Tradicional", "Zero"],
   },
@@ -422,7 +495,7 @@ const bebidas = [
     description: "Disfruta el sabor de tu bebida Coca Cola en botella de 1.5 litros",
     price: 2900,
     originalPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
+    image: "/pizzas/coca cola 1.5 litro.jpg",
     category: "Acompañamientos",
     variants: ["Tradicional", "Zero"],
   },
@@ -431,7 +504,7 @@ const bebidas = [
 export default function PromoSection() {
   const initialCategoryKey = "🥬" // placeholder, will set below
   const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const { addItem } = useCart()
+  const { addItem, items } = useCart()
   const [selectedSizes, setSelectedSizes] = useState<{ [key: number]: "familiar" | "mediana" }>({})
   const { loading: configLoading, itemsMenu, ingredients } = useFirestorePizzaConfig()
 
@@ -441,7 +514,7 @@ export default function PromoSection() {
     { key: "Pizzas Vegetarianas", label: "🥬 Pizzas Vegetarianas", icon: "/iconos/vegetariana.svg", iconLabel: "VEGETARIANAS" },
     { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne", icon: "/iconos/tradicionales.svg", iconLabel: "TRADICIONALES" },
     { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar", icon: "/iconos/mar.svg", iconLabel: "DEL MAR" },
-    { key: "Quiero armar mi pizza", label: "🍕 Quiero armar mi pizza", href: "/armar-pizza", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
+    { key: "Quiero armar mi pizza", label: "🍕 Armar tu Pizza", href: "/armar-pizza", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
     { key: "Combos", label: "🎁 Combos", icon: "/iconos/combos.svg", iconLabel: "COMBOS" },
     { key: "Acompañamientos", label: "🍟 Acompañamientos", icon: "/iconos/agregados.svg", iconLabel: "AGREGADOS" },
     { key: "Bebidas", label: "🥤 Bebidas", icon: "/iconos/bebidas.svg", iconLabel: "BEBIDAS" },
@@ -478,6 +551,7 @@ export default function PromoSection() {
   }, [searchParams])
 
   const pizzaCategoryKeys = [
+    "Todas las Pizzas",
     "Pizzas Palermo",
     "Pizzas Tradicionales",
     "Pizzas Vegetarianas",
@@ -503,9 +577,12 @@ export default function PromoSection() {
       return []
     }
 
+    // FILTRAR SOLO ITEMS ACTIVOS (activo !== false, para compatibilidad con items antiguos sin el campo)
+    const activeItems = itemsMenu.filter((it: any) => it.activo !== false)
+
     // Nueva categoría: Todas las Pizzas (PALERMO) - muestra vegetarianas, carnicas y marinas juntas
     if (activeCategory === "Todas las Pizzas") {
-      return itemsMenu.filter((it: any) => 
+      return activeItems.filter((it: any) => 
         it.clasificacion === "vegetariana" || 
         it.clasificacion === "carnica" || 
         it.clasificacion === "marina"
@@ -514,13 +591,13 @@ export default function PromoSection() {
 
     // If firestore items exist, use classification filters for pizza categories
     if (activeCategory === "Pizzas del Mar") {
-      return itemsMenu.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI)
+      return activeItems.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI)
     }
     if (activeCategory === "Pizzas con Carne") {
-      return itemsMenu.filter((it: any) => it.clasificacion === "carnica").map(mapFirestoreItemToUI)
+      return activeItems.filter((it: any) => it.clasificacion === "carnica").map(mapFirestoreItemToUI)
     }
     if (activeCategory === "Pizzas Vegetarianas") {
-      return itemsMenu.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI)
+      return activeItems.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI)
     }
 
     // Other categories: try to match by categoria field
@@ -530,20 +607,20 @@ export default function PromoSection() {
       case "Promos":
         return promos
       case "Acompañamientos":
-        const acompanamientosFromFirestore = itemsMenu
+        const acompanamientosFromFirestore = activeItems
           .filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos")
           .map(mapFirestoreItemToUI)
         return acompanamientosFromFirestore.length > 0 ? acompanamientosFromFirestore : acompanamientos
       case "Bebidas":
-        return itemsMenu
+        return activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
           .map(mapFirestoreItemToUI)
       case "Pizzas Palermo":
-        return itemsMenu
+        return activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("palermo") || (it.categoria || it.category || "").toLowerCase().includes("especial"))
           .map(mapFirestoreItemToUI)
       case "Pizzas Tradicionales":
-        return itemsMenu
+        return activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("tradicional") || (it.categoria || it.category || "").toLowerCase().includes("clasica"))
           .map(mapFirestoreItemToUI)
       default:
@@ -574,7 +651,7 @@ export default function PromoSection() {
         id: `${item.id}-${selectedSize}`,
         name: `${item.name} (${selectedSize === "familiar" ? "Familiar" : "Mediana"})`,
         price: finalPrice,
-        image: item.image,
+        image: getImagePath(item.name, item.image),
         quantity: 1,
         size: selectedSize === "familiar" ? "Familiar" : "Mediana",
       })
@@ -587,7 +664,7 @@ export default function PromoSection() {
         id: `${item.id}-${selectedVariant}`,
         name: `${item.name} ${variantName}`,
         price: item.price,
-        image: item.image,
+        image: getImagePath(item.name, item.image),
         quantity: 1,
         variant: variantName,
       })
@@ -596,7 +673,7 @@ export default function PromoSection() {
         id: item.id,
         name: item.name,
         price: item.price,
-        image: item.image,
+        image: getImagePath(item.name, item.image),
         quantity: 1,
       })
     }
@@ -833,12 +910,19 @@ export default function PromoSection() {
             >
               <CardContent className="p-0">
                 <div className="flex flex-col h-full">
-                  <div className="w-full h-48 relative flex-shrink-0 overflow-hidden">
+                  <div className="w-full h-48 relative flex-shrink-0 overflow-hidden bg-gray-100">
                     <Image
-                      src={item.image || "/placeholder.svg"}
+                      src={getImagePath(item.name, item.image)}
                       alt={item.name}
                       fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                      onError={(e: any) => {
+                        if (e.target.src !== "/placeholder.svg") {
+                          e.target.src = "/placeholder.svg"
+                        }
+                      }}
                     />
                   </div>
                   <div className="flex-1 p-6 bg-white">
@@ -939,11 +1023,27 @@ export default function PromoSection() {
                               <div className="text-sm text-gray-500 font-semibold">No disponible</div>
                             ) : (
                               <Button
-                                size="icon"
-                                className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1"
+                                className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 px-4 h-10 flex items-center gap-2"
                                 onClick={() => handleAddToCart(item)}
                               >
-                                <Plus className="w-5 h-5" />
+                                {(() => {
+                                  // Para productos con variantes (bebidas)
+                                  if (item.variants) {
+                                    const selectedVariant = selectedSizes[item.id] || "familiar"
+                                    const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedVariant}`)
+                                    const quantity = cartItem?.quantity || 0
+                                    return quantity > 0 ? (
+                                      <span className="font-bold text-sm">{quantity}</span>
+                                    ) : null
+                                  }
+                                  // Para otros productos sin variantes
+                                  const cartItem = items.find(cartItem => cartItem.id === item.id)
+                                  const quantity = cartItem?.quantity || 0
+                                  return quantity > 0 ? (
+                                    <span className="font-bold text-sm">{quantity}</span>
+                                  ) : null
+                                })()}
+                                <ShoppingCart className="w-5 h-5" />
                               </Button>
                             )}
                           </>
@@ -952,11 +1052,19 @@ export default function PromoSection() {
                             <div className="text-sm text-gray-500 font-semibold ml-auto">No disponible</div>
                           ) : (
                             <Button
-                              size="icon"
-                              className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 ml-auto"
+                              className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 ml-auto px-4 h-10 flex items-center gap-2"
                               onClick={() => handleAddToCart(item)}
                             >
-                              <Plus className="w-5 h-5" />
+                              {(() => {
+                                // Para pizzas, buscar por ID con tamaño
+                                const selectedSize = selectedSizes[item.id] || "familiar"
+                                const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedSize}`)
+                                const quantity = cartItem?.quantity || 0
+                                return quantity > 0 ? (
+                                  <span className="font-bold text-sm">{quantity}</span>
+                                ) : null
+                              })()}
+                              <ShoppingCart className="w-5 h-5" />
                             </Button>
                           )
                         )}

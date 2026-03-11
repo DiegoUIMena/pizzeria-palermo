@@ -15,6 +15,9 @@ export interface Ingrediente {
   estado: 'Disponible' | 'Stock Bajo' | 'Agotado' | 'Vencido'
   createdAt?: string
   updatedAt?: string
+  // Cantidades estándar para pizzas armadas manualmente
+  cantidadPorPizzaMediana?: number  // Cantidad a consumir por pizza mediana
+  cantidadPorPizzaFamiliar?: number // Cantidad a consumir por pizza familiar
 }
 
 export const ingredientesCollection = collection(db, 'ingredientes')
@@ -48,7 +51,9 @@ export const listenIngredientes = (cb: (items: Ingrediente[]) => void): (() => v
         fechaVencimiento: data.fechaVencimiento,
         estado: data.estado || computeEstado(data),
         createdAt: data.createdAt,
-        updatedAt: data.updatedAt
+        updatedAt: data.updatedAt,
+        cantidadPorPizzaMediana: data.cantidadPorPizzaMediana,
+        cantidadPorPizzaFamiliar: data.cantidadPorPizzaFamiliar
       })
     })
     cb(arr)

@@ -25,6 +25,7 @@ export default function AdminLayout({
       // Si no está autenticado, redirigir a login
       if (!isAuthenticated) {
         console.log('[AdminLayout] Usuario no autenticado, redirigiendo a /auth')
+        setIsChecking(false) // ✅ Detener loading antes del redirect
         router.push('/auth?redirect=/admin')
         return
       }
@@ -32,6 +33,7 @@ export default function AdminLayout({
       // Si está autenticado pero no es admin, redirigir a inicio
       if (user?.role !== 'admin') {
         console.log('[AdminLayout] Usuario no es admin (rol:', user?.role, '), redirigiendo a inicio')
+        setIsChecking(false) // ✅ Detener loading antes del redirect
         router.push('/')
         return
       }

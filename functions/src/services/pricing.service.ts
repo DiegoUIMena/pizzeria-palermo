@@ -24,37 +24,85 @@ interface PriceConfig {
   extras: Record<string, number>;
 }
 
-// Configuración de precios (fuente de verdad)
-const PRICE_CONFIG: PriceConfig = {
-  pizzaSizes: {
-    mediana: {
-      simpleBasePrice: 8000,
-      premiumBasePrice: 9000,
-      simpleExtraPrice: 1000,
-      premiumExtraPrice: 1500,
+// Cache de configuración de precios (se actualiza desde Firebase)
+let CACHED_PRICE_CONFIG: PriceConfig | null = null;
+let lastFetchTime = 0;
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutos
+
+/**
+ * Obtener configuración de precios desde Firebase
+ * Con cache de 15 minutos para evitar lecturas excesivas
+ */
+async function getPriceConfig(): Promise<PriceConfig> {
+  const now = Date.now();
+  
+  // Si tenemos cache válido, usarlo
+  if (CACHED_PRICE_CONFIG && (now - lastFetchTime) < CACHE_TTL) {
+    return CACHED_PRICE_CONFIG;
+  }
+
+  try {
+    const db = admin.firestore();
+    const docRef = db.collection("settings").doc("precios_configuracion");
+    const docSnap = await docRef.get();
+
+    if (docSnap.exists) {
+      const data = docSnap.data() as any;
+      
+      CACHED_PRICE_CONFIG = {
+        pizzaSizes: {
+          mediana: data.pizzaSizes.mediana,
+          familiar: data.pizzaSizes.familiar,
+        },
+        extras: data.extras || {},
+      };
+      
+      lastFetchTime = now;
+      console.log("✅ Precios cargados desde Firebase:", CACHED_PRICE_CONFIG);
+      return CACHED_PRICE_CONFIG;
+    }
+  } catch (error) {
+    console.error("❌ Error cargando precios desde Firebase:", error);
+  }
+
+  // Fallback a valores por defecto si falla la carga
+  console.warn("⚠️ Usando precios por defecto (fallback)");
+  const fallbackConfig: PriceConfig = {
+    pizzaSizes: {
+      mediana: {
+        simpleBasePrice: 8000,
+        premiumBasePrice: 8000,
+        simpleExtraPrice: 700,
+        premiumExtraPrice: 2500,
+      },
+      familiar: {
+        simpleBasePrice: 10000,
+        premiumBasePrice: 10000,
+        simpleExtraPrice: 1000,
+        premiumExtraPrice: 3500,
+      },
     },
-    familiar: {
-      simpleBasePrice: 10000,
-      premiumBasePrice: 13000,
-      simpleExtraPrice: 1500,
-      premiumExtraPrice: 2000,
+    extras: {
+      ajo: 700,
+      chimichurri: 700,
+      pesto: 1000,
+      "coca cola lata": 1500,
+      "coca cola 1.5l": 2900,
+      "rollitos de canela": 4900,
+      gauchitos: 4000,
     },
-  },
-  extras: {
-    ajo: 700,
-    chimichurri: 700,
-    pesto: 1000,
-    "coca cola lata": 1500,
-    "coca cola 1.5l": 2900,
-    "rollitos de canela": 4900,
-    gauchitos: 4000,
-  },
-};
+  };
+
+  CACHED_PRICE_CONFIG = fallbackConfig;
+  lastFetchTime = now;
+  return fallbackConfig;
+}
 
 /**
  * Calcular precio de un ítem del pedido
  */
-function calculateItemPrice(item: OrderItem): number {
+async function calculateItemPrice(item: OrderItem): Promise<number> {
+  const PRICE_CONFIG = await getPriceConfig();
   let totalPrice = 0;
 
   // Si el item ya tiene precio y no es una pizza personalizable, usar ese precio
@@ -85,18 +133,41 @@ function calculateItemPrice(item: OrderItem): number {
         totalPrice += extraSimple * sizeConfig.simpleExtraPrice;
       }
     } else if (item.pizzaType === "premium") {
-      // Pizza Premium: base premium + extras
-      totalPrice = sizeConfig.premiumBasePrice;
+      // ⭐ NUEVO: Si hay pizza base seleccionada, usar su precio
+      if (item.selectedMenuPizza && item.selectedMenuPizza !== 'base') {
+        try {
+          const db = admin.firestore();
+          const menuItemsSnapshot = await db.collection('items_menu').get();
+          const selectedPizzaDoc = menuItemsSnapshot.docs.find(doc => {
+            const data = doc.data();
+            return data.nombre === item.selectedMenuPizza;
+          });
+
+          if (selectedPizzaDoc) {
+            const selectedPizza = selectedPizzaDoc.data();
+            // Usar precio según tamaño
+            totalPrice = size === "mediana" 
+              ? (selectedPizza.precioMediana ?? selectedPizza.precio)
+              : selectedPizza.precio;
+            console.log(`✅ Usando precio de pizza base "${item.selectedMenuPizza}": $${totalPrice}`);
+          } else {
+            console.warn(`⚠️ No se encontró la pizza "${item.selectedMenuPizza}", usando precio base genérico`);
+            totalPrice = sizeConfig.premiumBasePrice;
+          }
+        } catch (error) {
+          console.error(`❌ Error buscando pizza base "${item.selectedMenuPizza}":`, error);
+          totalPrice = sizeConfig.premiumBasePrice;
+        }
+      } else {
+        // Sin pizza base seleccionada, usar precio genérico
+        totalPrice = sizeConfig.premiumBasePrice;
+      }
 
       const simpleCount = item.ingredients?.length || 0;
       const premiumCount = item.premiumIngredients?.length || 0;
 
       totalPrice += simpleCount * sizeConfig.simpleExtraPrice;
-
-      if (premiumCount > 1) {
-        const extraPremium = premiumCount - 1;
-        totalPrice += extraPremium * sizeConfig.premiumExtraPrice;
-      }
+      totalPrice += premiumCount * sizeConfig.premiumExtraPrice;
     } else if (item.pizzaType === "duo") {
       // Pizza Duo: precio del más caro de las dos pizzas
       // Por simplicidad, usar el precio base premium
@@ -210,7 +281,7 @@ export async function calculateOrderTotal(
   }> = [];
 
   for (const item of items) {
-    const itemTotal = calculateItemPrice(item);
+    const itemTotal = await calculateItemPrice(item);
     const precioUnitario = itemTotal / item.cantidad;
 
     subtotal += itemTotal;

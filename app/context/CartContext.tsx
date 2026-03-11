@@ -25,7 +25,12 @@ interface CartItem {
   pizzaType?: "promo" | "premium" | "duo"
   pizza1?: string  // Para pizzas DUO
   pizza2?: string  // Para pizzas DUO
+  selectedMenuPizza?: string | null  // Pizza base seleccionada para Premium/Promo
   comments?: string
+  // Opciones de personalización
+  sinOregano?: boolean
+  sinQueso?: boolean
+  sinSalsaTomate?: boolean
 }
 
 interface CartState {
@@ -106,15 +111,9 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       }
 
     case "UPDATE_ITEM":
-      console.log("[CART] UPDATE_ITEM action received:", action.payload)
-      console.log("[CART] Current items:", state.items.map(item => ({ id: item.id, name: item.name })))
-      console.log("[CART] Looking for item with ID:", action.payload.id)
-      
       const itemExists = state.items.find(item => item.id === action.payload.id)
-      console.log("[CART] Item exists:", itemExists ? "YES" : "NO")
       
       if (!itemExists) {
-        console.log("[CART] Item not found! Adding as new item instead")
         return {
           ...state,
           items: [...state.items, action.payload],
@@ -124,8 +123,6 @@ function cartReducer(state: CartState, action: CartAction): CartState {
       const updatedItems = state.items.map((item) =>
         item.id === action.payload.id ? { ...action.payload } : item
       )
-      
-      console.log("[CART] Updated items:", updatedItems.map(item => ({ id: item.id, name: item.name, price: item.price })))
       
       return {
         ...state,
@@ -158,8 +155,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }
 
   const updateItem = (item: CartItem) => {
-    console.log("[CART] updateItem called with:", item)
-    console.log("[CART] Current cart items before update:", state.items.map(i => ({ id: i.id, name: i.name })))
     dispatch({ type: "UPDATE_ITEM", payload: item })
   }
 
@@ -191,13 +186,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
         comments: item.comments,
         pizzaType: item.pizzaType,
         pizza1: item.pizza1,
-        pizza2: item.pizza2
+        pizza2: item.pizza2,
+        selectedMenuPizza: item.selectedMenuPizza, // ⭐ AGREGADO: Pizza base seleccionada
+        // Opciones de personalización
+        sinOregano: item.sinOregano,
+        sinQueso: item.sinQueso,
+        sinSalsaTomate: item.sinSalsaTomate
       }))
 
       // Llamar a la Cloud Function createOrder
       const createOrderFunction = httpsCallable(functions, 'createOrder')
       
-      const functionResponse = await createOrderFunction({
+      const payloadToSend = {
         userId: orderData.userId,
         cliente: orderData.cliente,
         tipoEntrega: orderData.tipoEntrega,
@@ -208,14 +208,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
         paymentDetails: orderData.paymentDetails,
         tiempoEstimado: orderData.tiempoEstimado,
         notas: orderData.notas
-      })
+      }
+      
+      const functionResponse = await createOrderFunction(payloadToSend)
 
       const result = functionResponse.data as {id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, details?: any}
-
-      console.log('✅ Cloud Function response:', result)
-      console.log('Success:', result.success)
-      console.log('Error:', result.error)
-      console.log('Validation details:', result.validationDetails || result.details)
 
       // Limpiar el carrito solo si el pedido fue exitoso
       if (result.success) {
@@ -228,30 +225,29 @@ export function CartProvider({ children }: { children: ReactNode }) {
         validationDetails: result.validationDetails || result.details
       }
     } catch (error: any) {
-      console.error('❌ Error creating order:', error)
-      console.log('Error code:', error?.code)
-      console.log('Error message:', error?.message)
-      console.log('Error details:', error?.details)
-      
       // Extraer el mensaje de error de Firebase Functions
       let errorMessage = 'Error desconocido al crear el pedido'
       let errorCode = ''
       let validationDetails = null
       
       if (error?.code === 'functions/unauthenticated') {
-        console.log('🔒 Error de autenticación detectado')
         errorMessage = 'Debes iniciar sesión para crear un pedido'
         errorCode = 'UNAUTHENTICATED'
       } else if (error?.code === 'functions/failed-precondition') {
-        console.log('📦 Error de inventario detectado')
-        // Este es el error de inventario insuficiente
-        errorMessage = error?.message || 'No hay suficiente stock disponible'
-        errorCode = 'INVENTORY_UNAVAILABLE'
-        // Los detalles de validación vienen en error.details
-        validationDetails = error?.details || null
-        console.log('Detalles de validación de inventario:', validationDetails)
+        // Distinguir entre error de horario e inventario
+        const message = error?.message || ''
+        
+        if (message.includes('horario comercial') || message.includes('Fuera de horario')) {
+          errorMessage = message
+          errorCode = 'BUSINESS_HOURS'
+        } else {
+          // Este es el error de inventario insuficiente
+          errorMessage = message || 'No hay suficiente stock disponible'
+          errorCode = 'INVENTORY_UNAVAILABLE'
+          // Los detalles de validación vienen en error.details
+          validationDetails = error?.details || null
+        }
       } else if (error?.message) {
-        console.log('⚠️ Error genérico:', error.message)
         errorMessage = error.message
       }
       

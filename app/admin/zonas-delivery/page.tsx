@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Edit, Download, Upload, Save, AlertCircle } from "lucide-react"
+import { MapPin, Edit, Download, Upload } from "lucide-react"
 import DeliveryZoneMapAbsolute from "../../components/DeliveryZoneMapAbsolute"
 import { type DeliveryZone } from "../../../lib/delivery-zones"
 import { useDeliveryZones } from "../../../hooks/useDeliveryZones"
@@ -17,8 +17,6 @@ export default function ZonasDeliveryPage() {
   const { zones, loading, error, saveZones } = useDeliveryZones()
   const [localZones, setLocalZones] = useState<DeliveryZone[]>([])
   const [isMapOpen, setIsMapOpen] = useState(false)
-  const [isSaving, setIsSaving] = useState(false)
-  const [hasChanges, setHasChanges] = useState(false)
 
   // Actualizar las zonas locales cuando se cargan desde Firestore
   useEffect(() => {
@@ -103,12 +101,9 @@ export default function ZonasDeliveryPage() {
     console.log("Actualizando estado local con zonas válidas:", zonasValidas);
     
     // Para evitar confusiones, guardamos inmediatamente en Firestore
-    // Pero primero actualizamos el estado local y luego pasamos las zonas directamente
+    // Actualizamos el estado local y luego pasamos las zonas directamente
     // a la función saveChangesToFirestore para evitar problemas con el estado asíncrono
     setLocalZones(zonasValidas);
-    
-    // Marcar que hay cambios pendientes para guardar
-    setHasChanges(true);
     
     // Mostrar mensaje al usuario
     toast({
@@ -123,7 +118,6 @@ export default function ZonasDeliveryPage() {
   
   // Función que recibe las zonas directamente como parámetro
   const saveChangesToFirestoreDirecto = async (zonas: DeliveryZone[]) => {
-    setIsSaving(true);
     try {
       console.log("Página Admin: Guardando zonas en Firestore directamente:", zonas);
       
@@ -134,7 +128,6 @@ export default function ZonasDeliveryPage() {
           description: "No hay zonas para guardar. Crea al menos una zona antes de guardar.",
           variant: "destructive",
         });
-        setIsSaving(false);
         return;
       }
       
@@ -144,9 +137,6 @@ export default function ZonasDeliveryPage() {
       console.log(`Guardando ${zonas.length} zonas válidas directamente en Firestore...`);
       await saveDeliveryZones(zonas);
       console.log("Zonas guardadas exitosamente en Firestore mediante saveDeliveryZones");
-      
-      // Actualizar el estado para reflejar que se han guardado los cambios
-      setHasChanges(false);
       
       // Notificar al usuario
       toast({
@@ -163,24 +153,6 @@ export default function ZonasDeliveryPage() {
       setLocalZones(refreshedZones);
     } catch (error) {
       console.error("Error guardando zonas:", error);
-      toast({
-        title: "Error",
-        description: "Ocurrió un error inesperado al guardar las zonas.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSaving(false);
-    }
-  }
-  
-  const saveChangesToFirestore = async () => {
-    try {
-      console.log("Página Admin: Guardando zonas del estado local en Firestore:", localZones);
-      
-      // Simplemente llamamos a la función que recibe las zonas directamente
-      await saveChangesToFirestoreDirecto(localZones);
-    } catch (error) {
-      console.error("Error al guardar zonas desde el estado local:", error);
       toast({
         title: "Error",
         description: "Ocurrió un error inesperado al guardar las zonas.",
@@ -259,86 +231,31 @@ export default function ZonasDeliveryPage() {
             <p className="text-gray-600 dark:text-gray-400 mt-1">Administra las zonas de entrega y tarifas para Los Andes</p>
           </div>
           <div className="flex space-x-3">
-            {/* Botón de reinicio/reset */}
-            <Button 
-              onClick={() => window.location.href = '/admin/reset-zonas'} 
-              className="bg-red-600 hover:bg-red-700 text-white"
-            >
-              Reiniciar/Eliminar Zonas
-            </Button>
-            {/* Botón de depuración */}
-            <Button 
-              onClick={async () => {
-                // Forzar recarga desde Firestore
-                const { getDeliveryZones } = await import("../../../lib/delivery-zones-service");
-                const loadedZones = await getDeliveryZones();
-                console.log("DEBUG: Zonas actuales en Firestore:", loadedZones);
-                toast({
-                  title: "Estado de Firestore",
-                  description: `Hay ${loadedZones.length} zonas en la base de datos.`,
-                  variant: "default",
-                });
-                // Actualizar estado local
-                if (loadedZones.length > 0) {
-                  setLocalZones(loadedZones);
-                  toast({
-                    title: "Zonas recargadas",
-                    description: "Se han recargado las zonas desde Firestore.",
-                    variant: "default",
-                  });
-                }
-              }} 
-              className="bg-purple-600 hover:bg-purple-700 text-white"
-            >
-              Recargar desde Firestore
-            </Button>
             <Button onClick={() => setIsMapOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white">
               <Edit className="w-4 h-4 mr-2" />
               Editar Zonas en Mapa
             </Button>
             <Button 
-              onClick={() => window.location.href = '/admin/debug-mapa-mejorado'} 
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => window.location.href = '/admin/reset-zonas'} 
+              className="bg-red-600 hover:bg-red-700 text-white"
             >
-              <MapPin className="w-4 h-4 mr-2" />
-              Herramienta de Diagnóstico
+              Eliminar Zonas
             </Button>
-            {hasChanges && (
-              <Button 
-                onClick={saveChangesToFirestore} 
-                disabled={isSaving}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                {isSaving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-2"></div>
-                    Guardando...
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-2" />
-                    Guardar Cambios
-                  </>
-                )}
+            <Button variant="outline" onClick={exportZones}>
+              <Download className="w-4 h-4 mr-2" />
+              Exportar
+            </Button>
+            <div className="relative">
+              <Button variant="outline">
+                <Upload className="w-4 h-4 mr-2" />
+                Importar
               </Button>
-            )}
-            <div className="flex space-x-2">
-              <Button variant="outline" onClick={exportZones}>
-                <Download className="w-4 h-4 mr-2" />
-                Exportar
-              </Button>
-              <div className="relative">
-                <Button variant="outline">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Importar
-                </Button>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={importZones}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                />
-              </div>
+              <input
+                type="file"
+                accept=".json"
+                onChange={importZones}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
             </div>
           </div>
         </div>
@@ -404,31 +321,6 @@ export default function ZonasDeliveryPage() {
           onSaveZones={handleSaveZones} 
           initialZones={localZones}
         />
-        
-        {/* Sección de herramientas adicionales */}
-        <div className="mt-10 p-6 border rounded-lg bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800">
-          <h2 className="text-xl font-semibold mb-3 dark:text-white">Herramientas Avanzadas</h2>
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            Si experimentas problemas con las zonas de delivery o necesitas probar la funcionalidad de ubicación,
-            puedes utilizar nuestras herramientas avanzadas.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <Button 
-              onClick={() => window.location.href = '/admin/debug-mapa-mejorado'} 
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <MapPin className="w-4 h-4 mr-2" />
-              Herramienta de Diagnóstico de Mapa
-            </Button>
-            <Button 
-              onClick={() => window.location.href = '/admin/reset-zonas'} 
-              className="bg-purple-600 hover:bg-purple-700 text-white"
-            >
-              <AlertCircle className="w-4 h-4 mr-2" />
-              Restablecer/Eliminar Zonas
-            </Button>
-          </div>
-        </div>
       </main>
     </div>
   )

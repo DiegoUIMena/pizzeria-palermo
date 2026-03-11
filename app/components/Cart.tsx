@@ -4,11 +4,10 @@ import { useState, useEffect, useCallback } from "react"
 import { useCart } from "../context/CartContext"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/hooks/use-toast"
-import { Trash, ChevronDown, ChevronUp, Edit, AlertCircle, X } from "lucide-react"
+import { Trash, ChevronDown, ChevronUp, AlertCircle, X } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { Minus, Plus } from "lucide-react"
-import { Switch } from "@/components/ui/switch"
 import { Truck, Store, MapPin, CheckCircle, ArrowLeft, CreditCard, Banknote, ArrowRightCircle, Tag } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -17,27 +16,36 @@ import { useAuth } from "../context/AuthContext"
 import LocationPicker from "./LocationPicker"
 import type { DeliveryZone } from "../../lib/delivery-zones"
 import { useDeliveryZones } from "../../hooks/useDeliveryZones"
+import { useBusinessHours } from "@/hooks/useBusinessHours"
 import PizzaConfigModal from "./PizzaConfigModal"
 import InventoryErrorModal from "./InventoryErrorModal"
 import { functions } from "@/lib/firebase"
 import { httpsCallable } from "firebase/functions"
+import { useFirestorePizzaConfig } from "@/hooks/useFirestorePizzaConfig"
 
 interface CartProps {
   onClose?: () => void
 }
 
 const Cart = ({ onClose }: CartProps) => {
-  const { items, removeItem, getTotal, updateQuantity, clearCart, createOrder } = useCart()
+  const { items, removeItem, getTotal, updateQuantity, updateItem, clearCart, createOrder, addItem } = useCart()
+  const { preciosConfig } = useFirestorePizzaConfig()
   const [isMounted, setIsMounted] = useState(false)
   const [expandedItems, setExpandedItems] = useState<{ [key: string]: boolean }>({})
-  const [editingItem, setEditingItem] = useState<any>(null)
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [inventoryErrorDetails, setInventoryErrorDetails] = useState<any[] | undefined>(undefined)
   const [isInventoryErrorModalOpen, setIsInventoryErrorModalOpen] = useState(false)
   const [showInventoryError, setShowInventoryError] = useState(false)
+  
+  // Estados para desplegables de upselling
+  const [expandedUpsell, setExpandedUpsell] = useState({
+    salsas: false,
+    bebidas: false,
+    snacks: false
+  })
 
   const { isAuthenticated, user } = useAuth()
-  const [isDelivery, setIsDelivery] = useState(false)
+  const { isOpen, config } = useBusinessHours()
+  const [isDelivery, setIsDelivery] = useState<boolean | null>(null) // null = no seleccionado
   const [currentView, setCurrentView] = useState<"cart" | "address" | "payment" | "confirmation">("cart")
   const [paymentMethod, setPaymentMethod] = useState("webpay")
   const [isProcessing, setIsProcessing] = useState(false)
@@ -239,56 +247,7 @@ const Cart = ({ onClose }: CartProps) => {
     }))
   }
 
-  const handleEditItem = (item: any) => {
-    // Determinar el tipo de pizza basado en el nombre
-    let pizzaType = "promo" // default
-    
-    if (item.name.includes("Duo")) {
-      pizzaType = "duo"
-    } else if (item.name.includes("Premium")) {
-      pizzaType = "premium"
-    }
 
-    setEditingItem({
-      ...item,
-      pizzaType: pizzaType,
-    })
-    setIsEditModalOpen(true)
-  }
-
-  const handleEditComplete = (updatedItem: any) => {
-    // Aquí actualizarías el item en el carrito
-    // Por ahora solo cerramos el modal
-    setIsEditModalOpen(false)
-    setEditingItem(null)
-  }
-
-  const handleEditCancel = () => {
-    setIsEditModalOpen(false)
-    setEditingItem(null)
-  }
-
-  // Función para determinar si un item es editable (solo pizzas armables)
-  const isItemEditable = (item: any) => {
-    // Solo las pizzas armables (promo, premium, duo) son editables
-    // Se identifican principalmente por tener el campo pizzaType
-    if (item.pizzaType) {
-      return ["promo", "premium", "duo"].includes(item.pizzaType)
-    }
-    
-    // Fallback: verificar por patrones en el nombre para compatibilidad con items antiguos
-    // pero ser más estricto para evitar falsos positivos
-    const name = item.name.toLowerCase()
-    if (name.includes("pizza")) {
-      return (
-        name.includes("pizza") && name.includes("promo") ||
-        name.includes("pizza") && name.includes("premium") ||
-        name.includes("pizza duo")
-      )
-    }
-    
-    return false
-  }
 
   // Función de validación para pago en efectivo
   const validateCashAmount = (amount: string) => {
@@ -350,6 +309,28 @@ const Cart = ({ onClose }: CartProps) => {
   }
 
   const handleContinue = () => {
+    // VALIDACIÓN CRÍTICA: Verificar horario comercial PRIMERO
+    if (!isOpen) {
+      const horario = config ? `${config.openingTime} - ${config.closingTime}` : "18:00 - 23:30"
+      toast({
+        title: "Fuera de horario comercial",
+        description: `Lo sentimos, actualmente estamos cerrados. Nuestro horario de atención es de ${horario}. Vuelve en ese horario para realizar tu pedido.`,
+        variant: "destructive",
+        duration: 8000,
+      })
+      return
+    }
+
+    // Validar que el usuario haya seleccionado retiro o delivery
+    if (isDelivery === null) {
+      toast({
+        title: "Selecciona tipo de entrega",
+        description: "Debes elegir si quieres retirar en local o recibir delivery antes de continuar.",
+        variant: "destructive"
+      })
+      return
+    }
+    
     if (items.length > 0 && isAuthenticated) {
       if (!isDelivery) {
         setCurrentView("payment")
@@ -377,12 +358,38 @@ const Cart = ({ onClose }: CartProps) => {
       })
       return
     }
-    if (calle && numero && comuna && selectedLocation) {
+    if (calle && numero && depto && comuna && selectedLocation) {
       setCurrentView("payment")
+    } else {
+      toast({
+        title: "Campos incompletos",
+        description: "Por favor completa todos los campos obligatorios (Número y Depto/Casa).",
+        variant: "destructive"
+      })
     }
   }
 
   const handlePayment = async () => {
+    console.log(`🔵 === INICIO handlePayment ===`)
+    console.log(`🔵 Usuario autenticado:`, isAuthenticated)
+    console.log(`🔵 Usuario:`, user)
+    console.log(`🔵 User ID:`, user?.id)
+    console.log(`🔵 User name:`, user?.name)
+    console.log(`🔵 User phone:`, user?.phone)
+    console.log(`🔵 User email:`, user?.email)
+    
+    // VALIDACIÓN CRÍTICA: Verificar horario comercial ANTES de cualquier otra validación
+    if (!isOpen) {
+      const horario = config ? `${config.openingTime} - ${config.closingTime}` : "18:00 - 23:30"
+      toast({
+        title: "Fuera de horario comercial",
+        description: `Lo sentimos, actualmente estamos cerrados. Nuestro horario de atención es de ${horario}. Vuelve en ese horario para realizar tu pedido.`,
+        variant: "destructive",
+        duration: 8000,
+      })
+      return
+    }
+
     // Validar pago en efectivo si es el método seleccionado
     if (paymentMethod === "efectivo") {
       if (!cashAmount || cashAmount.trim() === "") {
@@ -454,6 +461,7 @@ const Cart = ({ onClose }: CartProps) => {
     
     try {
       // Crear el pedido en Firestore
+      console.log(`🔵 === CREANDO PEDIDO ===`)
       const orderData: any = {
         userId: user?.id || 'anonymous',
         cliente: {
@@ -465,6 +473,8 @@ const Cart = ({ onClose }: CartProps) => {
         metodoPago: paymentMethod === "efectivo" ? "Efectivo" as const : 
                    paymentMethod === "webpay" ? "Webpay Plus" as const : "Transferencia" as const
       }
+      
+      console.log(`🔵 OrderData preparado:`, JSON.stringify(orderData, null, 2))
 
       // Solo agregar tiempo estimado si no es undefined
       if (estimatedTime && estimatedTime !== "") {
@@ -476,6 +486,7 @@ const Cart = ({ onClose }: CartProps) => {
         orderData.direccion = {
           calle: calle || '',
           numero: numero || '',
+          depto: depto || '',
           comuna: comuna || '',
           referencia: referencia || '',
           lat: selectedLocation?.lat,
@@ -497,11 +508,15 @@ const Cart = ({ onClose }: CartProps) => {
       }
 
       // Crear el pedido (ya incluye validación de inventario)
+      console.log(`🔵 Llamando a createOrder...`)
       const result = await createOrder(orderData)
 
-      console.log('🛒 Resultado de createOrder:', result)
-      console.log('Success:', result.success)
-      console.log('Error code:', result.error)
+      console.log(`🔵 === RESULTADO createOrder ===`)
+      console.log(`🛒 Resultado de createOrder:`, result)
+      console.log(`Success:`, result.success)
+      console.log(`Error code:`, result.error)
+      console.log(`Order ID:`, result.id)
+      console.log(`Order Number:`, result.orderNumber)
 
       // Verificar si la creación fue exitosa
       if (!result.success) {
@@ -539,10 +554,16 @@ const Cart = ({ onClose }: CartProps) => {
       // Si el método de pago es Webpay, iniciar transacción
       if (paymentMethod === "webpay") {
         try {
+          console.log('🔵 Iniciando proceso de pago Webpay...')
+          console.log('🔵 Order ID:', result.id)
+          console.log('🔵 Total Final:', totalFinal)
+          
           // Construir la URL de retorno
           const returnUrl = `${window.location.origin}/pago/webpay-return`
+          console.log('🔵 Return URL:', returnUrl)
           
           // Llamar a la Cloud Function para iniciar transacción Webpay
+          console.log('🔵 Llamando a initWebpayTransaction...')
           const initWebpayFunction = httpsCallable(functions, "initWebpayTransaction")
           const webpayResponse = await initWebpayFunction({
             orderId: result.id,
@@ -550,26 +571,45 @@ const Cart = ({ onClose }: CartProps) => {
             returnUrl
           })
           
+          console.log('🔵 Respuesta de initWebpayTransaction:', webpayResponse)
           const webpayData = webpayResponse.data as any
+          console.log('🔵 Webpay data:', webpayData)
           
           if (webpayData.success && webpayData.url && webpayData.token) {
+            console.log('🔵 Transacción iniciada exitosamente')
+            console.log('🔵 Token:', webpayData.token)
+            console.log('🔵 URL:', webpayData.url)
+            
             // Guardar información antes de redireccionar
             localStorage.setItem('pendingOrderId', result.id)
             localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
             
+            console.log('🔵 Redireccionando a Webpay...')
             // Redireccionar a Webpay
             window.location.href = `${webpayData.url}?token_ws=${webpayData.token}`
             return
           } else {
+            console.error('🔴 Error: Respuesta de Webpay incompleta:', webpayData)
             throw new Error('No se pudo iniciar la transacción con Webpay')
           }
         } catch (webpayError: any) {
-          console.error('Error iniciando Webpay:', webpayError)
+          console.error('🔴 Error iniciando Webpay:', webpayError)
+          console.error('🔴 Error completo:', JSON.stringify(webpayError, null, 2))
+          console.error('🔴 Error message:', webpayError.message)
+          console.error('🔴 Error code:', webpayError.code)
+          
           setIsRedirectingToWebpay(false)
+          
+          // Mostrar mensaje de error más detallado
+          const errorMessage = webpayError.message || 
+                             webpayError.code || 
+                             "No se pudo iniciar el pago. El pedido fue creado pero debes contactarnos para completar el pago."
+          
           toast({
             title: "Error con Webpay",
-            description: webpayError.message || "No se pudo iniciar el pago. El pedido fue creado pero debes contactarnos para completar el pago.",
-            variant: "destructive"
+            description: errorMessage,
+            variant: "destructive",
+            duration: 10000, // 10 segundos para que el usuario pueda leer
           })
           setIsProcessing(false)
           return
@@ -603,10 +643,22 @@ const Cart = ({ onClose }: CartProps) => {
       setCashAmount("")
       setCashAmountError("")
     } catch (error) {
-      console.error("Error al crear el pedido:", error)
-      alert("Error al crear el pedido. Inténtalo de nuevo.")
+      console.error("🔴 Error al crear el pedido:", error)
+      
+      // Ocultar overlay de Webpay si estaba visible
+      setIsRedirectingToWebpay(false)
+      
+      // Mostrar error al usuario
+      toast({
+        title: "Error al procesar el pedido",
+        description: error instanceof Error ? error.message : "Ha ocurrido un error inesperado. Inténtalo de nuevo.",
+        variant: "destructive",
+        duration: 7000,
+      })
     } finally {
       setIsProcessing(false)
+      // Asegurar que el overlay se oculte siempre
+      setIsRedirectingToWebpay(false)
     }
   }
 
@@ -639,23 +691,22 @@ const Cart = ({ onClose }: CartProps) => {
   }
 
   // Montar/desmontar el selector de ubicación para forzar recarga
-  const [mapKey, setMapKey] = useState<number>(Date.now())
+  const [mapKey, setMapKey] = useState<number>(0)
+  const [hasInitializedMap, setHasInitializedMap] = useState(false)
   
-  // Forzar remonte del componente de mapa cuando cambia la vista o al activar delivery
+  // Inicializar el mapa una sola vez cuando se muestra la vista de dirección
   useEffect(() => {
-    if (currentView === "address" && isDelivery) {
-      console.log("Forzando recreación del componente de mapa");
-      
-      // Múltiples intentos de remontaje para asegurar la correcta visualización
-      // Primero inmediatamente
-      setMapKey(Date.now());
-      
-      // Luego con varios retrasos para asegurar que el mapa se muestre correctamente
-      setTimeout(() => setMapKey(Date.now()), 250);
-      setTimeout(() => setMapKey(Date.now()), 500);
-      setTimeout(() => setMapKey(Date.now()), 1000);
+    if (currentView === "address" && isDelivery && !hasInitializedMap) {
+      console.log("Inicializando componente de mapa por primera vez");
+      setMapKey(1); // Establecer en 1 para que se renderice
+      setHasInitializedMap(true);
     }
-  }, [currentView, isDelivery]);
+    
+    // Resetear cuando se sale de la vista de dirección
+    if (currentView !== "address") {
+      setHasInitializedMap(false);
+    }
+  }, [currentView, isDelivery, hasInitializedMap]);
   
   // Limpieza del mapa cuando el usuario abandona la vista de dirección
   useEffect(() => {
@@ -748,14 +799,29 @@ const Cart = ({ onClose }: CartProps) => {
     return { extraSimple: 0, extraPremium: 0 }
   }
 
-  // Función para obtener precios de ingredientes según tamaño
+  // Función para obtener precios de ingredientes según tamaño (desde Firebase)
   const getIngredientPrices = (size: string) => {
-    if (size === "Mediana") {
-      return { simple: 1000, premium: 1500 }
-    } else if (size === "Familiar") {
-      return { simple: 1500, premium: 2000 }
+    // Si aún no se cargaron los precios, usar fallback
+    if (!preciosConfig) {
+      if (size === "Mediana") {
+        return { simple: 700, premium: 2500 }
+      } else {
+        return { simple: 1000, premium: 3500 }
+      }
     }
-    return { simple: 1000, premium: 1500 }
+
+    // Usar precios desde Firebase
+    if (size === "Mediana") {
+      return { 
+        simple: preciosConfig.pizzaSizes.mediana.simpleExtraPrice, 
+        premium: preciosConfig.pizzaSizes.mediana.premiumExtraPrice 
+      }
+    } else {
+      return { 
+        simple: preciosConfig.pizzaSizes.familiar.simpleExtraPrice, 
+        premium: preciosConfig.pizzaSizes.familiar.premiumExtraPrice 
+      }
+    }
   }
 
   if (!isMounted) {
@@ -869,17 +935,29 @@ const Cart = ({ onClose }: CartProps) => {
               
               {/* Resumen de ubicación seleccionada */}
               {selectedLocation && (
-                <div className={`p-2 rounded-md text-sm mb-3 ${deliveryInfo.disponible ? "bg-green-50 border border-green-100" : "bg-red-50 border border-red-100"}`}>
-                  <div className="flex items-center mb-1">
-                    <MapPin className="h-3 w-3 mr-1 flex-shrink-0 text-gray-500" />
-                    <span className="text-xs font-medium text-gray-700 truncate">
+                <div className={`p-3 rounded-lg mb-4 border-2 ${deliveryInfo.disponible ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}>
+                  <div className="flex items-center mb-2">
+                    <MapPin className="h-4 w-4 mr-2 flex-shrink-0 text-gray-600" />
+                    <span className="text-sm font-medium text-gray-800 truncate">
                       {selectedLocation?.address || "Ubicación seleccionada en el mapa"}
                     </span>
                   </div>
                   {deliveryInfo.zone && (
-                    <div className="text-xs text-gray-600">
-                      Zona: <span style={{color: deliveryInfo.zone.color}} className="font-medium">{deliveryInfo.zone.nombre}</span>
-                      {deliveryInfo.disponible && <span className="ml-1">(${deliveryInfo.tarifa.toLocaleString()})</span>}
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
+                      <div className="text-sm text-gray-700">
+                        Zona: <span style={{color: deliveryInfo.zone.color}} className="font-semibold">{deliveryInfo.zone.nombre}</span>
+                      </div>
+                      {deliveryInfo.disponible && (
+                        <div className={`px-3 py-1 rounded-md ${deliveryInfo.disponible ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+                          <span className="text-xs font-medium">Costo delivery:</span>
+                          <span className="text-lg font-bold ml-1">${deliveryInfo.tarifa.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {!deliveryInfo.disponible && (
+                        <div className="px-3 py-1 rounded-md bg-red-600 text-white">
+                          <span className="text-sm font-bold">No disponible</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -898,27 +976,37 @@ const Cart = ({ onClose }: CartProps) => {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="numero" className="text-sm">Número</Label>
+                  <Label htmlFor="numero" className="text-sm font-medium">
+                    Número <span className="text-red-500">*</span>
+                  </Label>
                   <Input 
                     id="numero" 
                     value={numero} 
                     onChange={(e) => setNumero(e.target.value)} 
                     placeholder="123"
-                    className="h-9" 
+                    className={`h-9 ${!numero ? 'border-2 border-yellow-400 focus:border-yellow-500 bg-yellow-50' : ''}`}
                   />
+                  {!numero && (
+                    <p className="text-xs text-yellow-600 italic">⚠️ Campo requerido</p>
+                  )}
                 </div>
               </div>
               {/* Segunda fila también adaptativa */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="depto" className="text-sm">Depto/Casa</Label>
+                  <Label htmlFor="depto" className="text-sm font-medium">
+                    Depto/Casa <span className="text-red-500">*</span>
+                  </Label>
                   <Input 
                     id="depto" 
                     value={depto} 
                     onChange={(e) => setDepto(e.target.value)} 
-                    placeholder="Depto 42"
-                    className="h-9" 
+                    placeholder="Depto 42 o Casa 5"
+                    className={`h-9 ${!depto ? 'border-2 border-yellow-400 focus:border-yellow-500 bg-yellow-50' : ''}`}
                   />
+                  {!depto && (
+                    <p className="text-xs text-yellow-600 italic">⚠️ Campo requerido</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="comuna" className="text-sm">Comuna</Label>
@@ -933,7 +1021,9 @@ const Cart = ({ onClose }: CartProps) => {
               </div>
               {/* Referencia a pantalla completa */}
               <div className="space-y-2">
-                <Label htmlFor="referencia" className="text-sm">Referencia</Label>
+                <Label htmlFor="referencia" className="text-sm text-gray-600">
+                  Referencia <span className="text-gray-400 italic text-xs">(Opcional)</span>
+                </Label>
                 <Input
                   id="referencia"
                   value={referencia}
@@ -947,10 +1037,10 @@ const Cart = ({ onClose }: CartProps) => {
         </div>
         <div className="p-4 border-t border-gray-200 bg-gray-50">
           {/* Mensajes de error dinámicos que solo aparecen cuando son necesarios */}
-          {(!calle || !numero || !comuna || !selectedLocation) ? (
+          {(!calle || !numero || !depto || !comuna || !selectedLocation) ? (
             <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3 animate-fadeIn">
               <p className="text-sm text-yellow-700 text-center">
-                Por favor, completa todos los campos obligatorios y selecciona una ubicación.
+                Por favor, completa todos los campos obligatorios (*) y selecciona una ubicación.
               </p>
             </div>
           ) : selectedLocation && !deliveryInfo.disponible ? (
@@ -963,7 +1053,7 @@ const Cart = ({ onClose }: CartProps) => {
           
           <Button
             onClick={handleAddressSubmit}
-            disabled={!calle || !numero || !comuna || !selectedLocation || !deliveryInfo.disponible || !deliveryInfo.zone}
+            disabled={!calle || !numero || !depto || !comuna || !selectedLocation || !deliveryInfo.disponible || !deliveryInfo.zone}
             className="w-full bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 rounded-lg"
           >
             Continuar al Pago
@@ -1273,7 +1363,7 @@ const Cart = ({ onClose }: CartProps) => {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4">
         {items.map((item) => {
           const extraIngredients = calculateExtraIngredients(item)
           const ingredientPrices = getIngredientPrices(item.size || "Familiar")
@@ -1282,234 +1372,188 @@ const Cart = ({ onClose }: CartProps) => {
           return (
             <div
               key={item.id}
-              className="bg-gray-50 rounded-xl p-4 border border-gray-200 hover:shadow-md transition-shadow"
+              className="bg-gray-50 rounded-lg sm:rounded-xl p-2 sm:p-4 border border-gray-200 hover:shadow-md transition-shadow"
             >
-              <div className="flex items-start space-x-3">
+              <div className="flex items-start space-x-2 sm:space-x-3">
                 <Image
                   src={item.image || "/placeholder.svg"}
                   alt={item.name}
-                  width={60}
-                  height={60}
-                  className="rounded-lg object-cover flex-shrink-0"
+                  width={50}
+                  height={50}
+                  className="rounded-lg object-cover flex-shrink-0 sm:w-[60px] sm:h-[60px]"
+                  onError={(e: any) => {
+                    if (e.target.src !== "/placeholder.svg") {
+                      e.target.src = "/placeholder.svg"
+                    }
+                  }}
                 />
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-start justify-between mb-1 sm:mb-2">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-sm text-gray-800">{item.name}</h3>
+                      <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight">{item.name}</h3>
                       {item.size && (
-                        <span className="text-xs text-pink-600 font-medium bg-pink-50 px-2 py-1 rounded-full inline-block mt-1">
+                        <span className="text-[10px] sm:text-xs text-pink-600 font-medium bg-pink-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full inline-block mt-0.5 sm:mt-1">
                           {item.size}
                         </span>
                       )}
                     </div>
-                    <div className="flex space-x-1 ml-2 flex-shrink-0">
-                      {isItemEditable(item) && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-blue-500 hover:text-blue-700 hover:bg-blue-50 p-1 h-auto"
-                          onClick={() => handleEditItem(item)}
-                          title="Editar pedido"
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                      )}
+                    <div className="flex space-x-0.5 sm:space-x-1 ml-1 sm:ml-2 flex-shrink-0">
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 h-auto"
+                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 sm:p-1 h-auto"
                         onClick={() => {
                           removeItem(item.id)
                           setShowInventoryError(false) // Limpiar error cuando se elimina un item
                         }}
                         title="Eliminar pedido"
                       >
-                        <Trash className="w-4 h-4" />
+                        <Trash className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </Button>
                     </div>
                   </div>
 
-                  {/* Botón para expandir/contraer detalles */}
-                  <div className="mb-3">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleItemExpansion(item.id.toString())}
-                      className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-2 h-auto text-xs"
-                    >
-                      <span className="mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
-                      {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </Button>
-                  </div>
+                  {/* Botón para expandir/contraer detalles - solo para pizzas personalizadas (excepto DUO) */}
+                  {item.pizzaType !== 'duo' && ((item.ingredients && item.ingredients.length > 0) || 
+                   (item.premiumIngredients && item.premiumIngredients.length > 0) || 
+                   (item.sauces && item.sauces.length > 0) || 
+                   (item.drinks && item.drinks.length > 0) || 
+                   (item.extras && item.extras.length > 0)) ? (
+                    <div className="mb-1.5 sm:mb-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleItemExpansion(item.id.toString())}
+                        className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-1 sm:p-2 h-auto text-[10px] sm:text-xs"
+                      >
+                        <span className="mr-0.5 sm:mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
+                        {isExpanded ? <ChevronUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> : <ChevronDown className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
+                      </Button>
+                    </div>
+                  ) : null}
 
-                  {/* Detalles del pedido desplegables */}
+                  {/* Desglose de precios con ingredientes individuales */}
                   {isExpanded && (
                     <div className="space-y-2 mb-3 animate-in slide-in-from-top-2 duration-200">
-                      {/* Ingredientes Incluidos */}
-                      {item.ingredients && item.ingredients.length > 0 && (
-                        <div className="text-xs">
-                          <span className="font-medium text-gray-700">Ingredientes: </span>
-                          <span className="text-gray-600">
-                            {item.ingredients.map((ingredient, index) => {
-                              const isExtra = item.name.includes("Promo") && index >= 2
-                              return (
-                                <span key={index}>
-                                  {ingredient.replace(/\s*$$\d+$$/, "")}
-                                  {isExtra && ` (+$${ingredientPrices.simple.toLocaleString()})`}
-                                  {index < (item.ingredients?.length || 0) - 1 ? ", " : ""}
-                                </span>
-                              )
-                            })}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Ingredientes Premium */}
-                      {item.premiumIngredients && item.premiumIngredients.length > 0 && (
-                        <div className="text-xs">
-                          <span className="font-medium text-pink-700">Premium: </span>
-                          <span className="text-pink-600">
-                            {item.premiumIngredients.map((ingredient, index) => {
-                              const isExtra = item.name.includes("Premium") && index >= 1
-                              const isExtraInPromo = item.name.includes("Promo")
-                              return (
-                                <span key={index}>
-                                  {ingredient.replace(/\s*$$\d+$$/, "")}
-                                  {(isExtra || isExtraInPromo) && ` (+$${ingredientPrices.premium.toLocaleString()})`}
-                                  {index < (item.premiumIngredients?.length || 0) - 1 ? ", " : ""}
-                                </span>
-                              )
-                            })}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Salsas con precios reales */}
-                      {item.sauces && item.sauces.length > 0 && (
-                        <div className="text-xs">
-                          <span className="font-medium text-green-700">Salsas: </span>
-                          <span className="text-green-600">
-                            {item.sauces.map((sauce, index) => {
-                              const sauceName = sauce.replace(/\s*$$\d+$$/, "")
-                              const price = getExtraPrice(sauceName)
-                              return (
-                                <span key={index}>
-                                  {sauceName} (+${price.toLocaleString()}){index < (item.sauces?.length || 0) - 1 ? ", " : ""}
-                                </span>
-                              )
-                            })}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Bebidas con precios reales */}
-                      {item.drinks && item.drinks.length > 0 && (
-                        <div className="text-xs">
-                          <span className="font-medium text-blue-700">Bebidas: </span>
-                          <span className="text-blue-600">
-                            {item.drinks.map((drink, index) => {
-                              const drinkName = drink.replace(/\s*$$\d+$$/, "")
-                              const price = getExtraPrice(drinkName)
-                              return (
-                                <span key={index}>
-                                  {drinkName} (+${price.toLocaleString()}){index < (item.drinks?.length || 0) - 1 ? ", " : ""}
-                                </span>
-                              )
-                            })}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Extras con precios reales */}
-                      {item.extras && item.extras.length > 0 && (
-                        <div className="text-xs">
-                          <span className="font-medium text-purple-700">Agregados: </span>
-                          <span className="text-purple-600">
-                            {item.extras.map((extra, index) => {
-                              const extraName = extra.replace(/\s*$$\d+$$/, "")
-                              const price = getExtraPrice(extraName)
-                              return (
-                                <span key={index}>
-                                  {extraName} (+${price.toLocaleString()}){index < (item.extras?.length || 0) - 1 ? ", " : ""}
-                                </span>
-                              )
-                            })}
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Desglose de precios corregido */}
                       <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs space-y-1">
                         <div className="font-medium text-gray-700 mb-2">Desglose de Precio:</div>
 
                         <div className="flex justify-between">
                           <span className="text-gray-600">
-                            {item.name.includes("DUO") ? `Pizza DUO (${item.size}):` : `Pizza base (${item.size}):`}
+                            {item.name.includes("DUO") 
+                              ? `Pizza DUO (${item.size}):` 
+                              : item.selectedMenuPizza && item.selectedMenuPizza !== 'base'
+                                ? `Pizza base ${item.selectedMenuPizza} (${item.size}):`
+                                : `Pizza base (${item.size}):`}
                           </span>
                           <span>${(item.basePrice || 0).toLocaleString()}</span>
                         </div>
 
-                        {/* Ingredientes extras */}
-                        {extraIngredients.extraSimple > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Ingredientes extra ({extraIngredients.extraSimple}):</span>
-                            <span>+${(extraIngredients.extraSimple * ingredientPrices.simple).toLocaleString()}</span>
-                          </div>
+                        {/* Ingredientes simples individuales */}
+                        {item.ingredients && item.ingredients.length > 0 && (
+                          <>
+                            {item.ingredients.map((ingredient, index) => {
+                              // En Promo: los primeros 2 están incluidos en la base, no mostrarlos
+                              // En Premium: todos los ingredientes se cobran, mostrar todos
+                              if (item.name.includes("Promo") && index < 2) return null
+                              
+                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                              const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
+                              const ingredientName = match ? match[1] : ingredient
+                              const quantity = match ? parseInt(match[2]) : 1
+                              const totalPrice = ingredientPrices.simple * quantity
+                              
+                              return (
+                                <div key={`ingredient-${index}`} className="flex justify-between">
+                                  <span className="text-gray-600">{ingredient}:</span>
+                                  <span>+${totalPrice.toLocaleString()}</span>
+                                </div>
+                              )
+                            })}
+                          </>
                         )}
 
-                        {extraIngredients.extraPremium > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Premium extra ({extraIngredients.extraPremium}):</span>
-                            <span>+${(extraIngredients.extraPremium * ingredientPrices.premium).toLocaleString()}</span>
-                          </div>
+                        {/* Ingredientes premium individuales */}
+                        {item.premiumIngredients && item.premiumIngredients.length > 0 && (
+                          <>
+                            {item.premiumIngredients.map((ingredient, index) => {
+                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                              const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
+                              const ingredientName = match ? match[1] : ingredient
+                              const quantity = match ? parseInt(match[2]) : 1
+                              const totalPrice = ingredientPrices.premium * quantity
+                              
+                              return (
+                                <div key={`premium-${index}`} className="flex justify-between">
+                                  <span className="text-gray-600">{ingredient}:</span>
+                                  <span>+${totalPrice.toLocaleString()}</span>
+                                </div>
+                              )
+                            })}
+                          </>
                         )}
 
-                        {/* Salsas */}
+                        {/* Salsas individuales */}
                         {item.sauces && item.sauces.length > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Salsas ({item.sauces.length}):</span>
-                            <span>
-                              +$
-                              {item.sauces
-                                .reduce((total, sauce) => {
-                                  const sauceName = sauce.replace(/\s*$$\d+$$/, "")
-                                  return total + getExtraPrice(sauceName)
-                                }, 0)
-                                .toLocaleString()}
-                            </span>
-                          </div>
+                          <>
+                            {item.sauces.map((sauce, index) => {
+                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                              const match = sauce.match(/^(.+?)\s*\((\d+)\)$/)
+                              const sauceName = match ? match[1] : sauce
+                              const quantity = match ? parseInt(match[2]) : 1
+                              const unitPrice = getExtraPrice(sauceName)
+                              const totalPrice = unitPrice * quantity
+                              
+                              return (
+                                <div key={`sauce-${index}`} className="flex justify-between">
+                                  <span className="text-green-600">{sauce}:</span>
+                                  <span className="text-green-600">+${totalPrice.toLocaleString()}</span>
+                                </div>
+                              )
+                            })}
+                          </>
                         )}
 
-                        {/* Bebidas */}
+                        {/* Bebidas individuales */}
                         {item.drinks && item.drinks.length > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Bebidas ({item.drinks.length}):</span>
-                            <span>
-                              +$
-                              {item.drinks
-                                .reduce((total, drink) => {
-                                  const drinkName = drink.replace(/\s*$$\d+$$/, "")
-                                  return total + getExtraPrice(drinkName)
-                                }, 0)
-                                .toLocaleString()}
-                            </span>
-                          </div>
+                          <>
+                            {item.drinks.map((drink, index) => {
+                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                              const match = drink.match(/^(.+?)\s*\((\d+)\)$/)
+                              const drinkName = match ? match[1] : drink
+                              const quantity = match ? parseInt(match[2]) : 1
+                              const unitPrice = getExtraPrice(drinkName)
+                              const totalPrice = unitPrice * quantity
+                              
+                              return (
+                                <div key={`drink-${index}`} className="flex justify-between">
+                                  <span className="text-blue-600">{drink}:</span>
+                                  <span className="text-blue-600">+${totalPrice.toLocaleString()}</span>
+                                </div>
+                              )
+                            })}
+                          </>
                         )}
 
-                        {/* Agregados */}
+                        {/* Agregados individuales */}
                         {item.extras && item.extras.length > 0 && (
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">Agregados ({item.extras.length}):</span>
-                            <span>
-                              +$
-                              {item.extras
-                                .reduce((total, extra) => {
-                                  const extraName = extra.replace(/\s*$$\d+$$/, "")
-                                  return total + getExtraPrice(extraName)
-                                }, 0)
-                                .toLocaleString()}
-                            </span>
-                          </div>
+                          <>
+                            {item.extras.map((extra, index) => {
+                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                              const match = extra.match(/^(.+?)\s*\((\d+)\)$/)
+                              const extraName = match ? match[1] : extra
+                              const quantity = match ? parseInt(match[2]) : 1
+                              const unitPrice = getExtraPrice(extraName)
+                              const totalPrice = unitPrice * quantity
+                              
+                              return (
+                                <div key={`extra-${index}`} className="flex justify-between">
+                                  <span className="text-purple-600">{extra}:</span>
+                                  <span className="text-purple-600">+${totalPrice.toLocaleString()}</span>
+                                </div>
+                              )
+                            })}
+                          </>
                         )}
 
                         <div className="flex justify-between font-medium border-t pt-2 mt-2 text-pink-600">
@@ -1520,37 +1564,101 @@ const Cart = ({ onClose }: CartProps) => {
                     </div>
                   )}
 
+                  {/* Opciones de Personalización - Solo para pizzas reales */}
+                  {(() => {
+                    const itemNameLower = item.name.toLowerCase()
+                    // Excluir salsas, bebidas, gauchitos y rollitos
+                    const excludedItems = ['salsa', 'coca', 'lipton', 'sprite', 'fanta', 'agua', 'jugo', 'gauchitos', 'rollitos']
+                    const isExcluded = excludedItems.some(excluded => itemNameLower.includes(excluded))
+                    
+                    // Mostrar para todo excepto los productos excluidos
+                    return !isExcluded
+                  })() && (
+                  <div className="mt-2 mb-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateItem({
+                          ...item,
+                          sinOregano: !item.sinOregano
+                        })
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
+                        item.sinOregano 
+                          ? 'bg-pink-600 text-white border-pink-600 font-semibold' 
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                      }`}
+                    >
+                      Sin Orégano
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateItem({
+                          ...item,
+                          sinQueso: !item.sinQueso
+                        })
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
+                        item.sinQueso 
+                          ? 'bg-pink-600 text-white border-pink-600 font-semibold' 
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                      }`}
+                    >
+                      Sin Queso
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        updateItem({
+                          ...item,
+                          sinSalsaTomate: !item.sinSalsaTomate
+                        })
+                      }}
+                      className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
+                        item.sinSalsaTomate 
+                          ? 'bg-pink-600 text-white border-pink-600 font-semibold' 
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                      }`}
+                    >
+                      Sin Salsa Tomate
+                    </button>
+                  </div>
+                  )}
+
                   {/* Controles de cantidad */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-1.5 sm:space-x-2">
                       <Button
                         size="icon"
                         variant="outline"
-                        className="w-8 h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                        className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
                         onClick={() => {
                           updateQuantity(item.id, Math.max(0, item.quantity - 1))
                           setShowInventoryError(false) // Limpiar error cuando se modifica la cantidad
                         }}
                       >
-                        <Minus className="w-3 h-3" />
+                        <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                       </Button>
-                      <span className="w-8 text-center font-medium text-gray-800">{item.quantity}</span>
+                      <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{item.quantity}</span>
                       <Button
                         size="icon"
                         variant="outline"
-                        className="w-8 h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                        className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
                         onClick={() => {
                           updateQuantity(item.id, item.quantity + 1)
                           setShowInventoryError(false) // Limpiar error cuando se modifica la cantidad
                         }}
                       >
-                        <Plus className="w-3 h-3" />
+                        <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                       </Button>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-gray-800">${(item.price * item.quantity).toLocaleString()}</div>
+                      <div className="font-bold text-sm sm:text-base text-gray-800">${(item.price * item.quantity).toLocaleString()}</div>
                       {item.quantity > 1 && (
-                        <div className="text-xs text-gray-500">${item.price.toLocaleString()} c/u</div>
+                        <div className="text-[10px] sm:text-xs text-gray-500">${item.price.toLocaleString()} c/u</div>
                       )}
                     </div>
                   </div>
@@ -1561,88 +1669,390 @@ const Cart = ({ onClose }: CartProps) => {
         })}
       </div>
 
-      <div className="p-4 border-t border-gray-200 space-y-4 bg-gray-50">
+      {/* Secciones de Upselling */}
+      {/* Funciones auxiliares para detectar categorías en el carrito */}
+      {(() => {
+        const hasSalsas = items.some(item => 
+          ['17', '18', '19', '20'].includes(item.id) || 
+          item.name?.toLowerCase().includes('salsa')
+        )
+        const hasBebidas = items.some(item => {
+          const itemName = item.name?.toLowerCase() || ''
+          return item.id.includes('401') || item.id.includes('402') ||
+            itemName.includes('coca') ||
+            itemName.includes('bebida') ||
+            itemName.includes('lipton') ||
+            itemName.includes('sprite') ||
+            itemName.includes('fanta') ||
+            itemName.includes('agua') ||
+            itemName.includes('jugo')
+        })
+        const hasSnacks = items.some(item => 
+          ['15', '16'].includes(item.id) ||
+          item.name?.toLowerCase().includes('gauchito') ||
+          item.name?.toLowerCase().includes('rollito')
+        )
+        
+        return (
+          <div className="px-2 sm:px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-3">
+            {/* Sección 1: Salsas - Solo mostrar si NO hay salsas en el carrito */}
+            {!hasSalsas && (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => setExpandedUpsell(prev => ({ ...prev, salsas: !prev.salsas }))}
+            className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+          >
+            <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregas Salsas?</span>
+            {expandedUpsell.salsas ? (
+              <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+            )}
+          </button>
+          
+          {expandedUpsell.salsas && (
+            <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
+              {[
+                { id: 17, name: "Salsa de Ajo", price: 700, image: "/pizzas/salsa de ajo.jpg" },
+                { id: 18, name: "Salsa Chimichurri", price: 700, image: "/pizzas/salsa chimichurri.jpg" },
+                { id: 19, name: "Salsa BBQ", price: 700, image: "/pizzas/salsa bbq.jpg" },
+                { id: 20, name: "Salsa Pesto", price: 1000, image: "/pizzas/salsa pesto.jpg" },
+              ].map(salsa => {
+                const cartItem = items.find(item => item.id === String(salsa.id))
+                const isInCart = !!cartItem
+                const quantity = cartItem?.quantity || 1
+
+                return (
+                  <div key={salsa.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                    <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
+                      <input
+                        type="checkbox"
+                        checked={isInCart}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            addItem({
+                              id: String(salsa.id),
+                              name: salsa.name,
+                              price: salsa.price,
+                              quantity: 1,
+                              image: salsa.image
+                            })
+                          } else {
+                            removeItem(String(salsa.id))
+                          }
+                        }}
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                      />
+                      <span className="text-xs sm:text-sm text-gray-700">{salsa.name}</span>
+                      <span className="text-xs sm:text-sm text-gray-500">${salsa.price.toLocaleString()}</span>
+                    </label>
+                    
+                    {isInCart && (
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                          onClick={() => updateQuantity(String(salsa.id), Math.max(0, quantity - 1))}
+                        >
+                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                        <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                          onClick={() => updateQuantity(String(salsa.id), quantity + 1)}
+                        >
+                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+              </div>
+            )}
+
+            {/* Sección 2: Bebidas - Solo mostrar si NO hay bebidas en el carrito */}
+            {!hasBebidas && (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => setExpandedUpsell(prev => ({ ...prev, bebidas: !prev.bebidas }))}
+            className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+          >
+            <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregar Bebida?</span>
+            {expandedUpsell.bebidas ? (
+              <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+            )}
+          </button>
+          
+          {expandedUpsell.bebidas && (
+            <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
+              {[
+                { id: 401, name: "Coca Cola Lata 350cc", price: 1500, variants: ["Tradicional", "Zero"], image: "/pizzas/coca cola lata.jpg" },
+                { id: 402, name: "Coca Cola 1.5 Litro", price: 2900, variants: ["Tradicional", "Zero"], image: "/pizzas/coca cola 1.5 litro.jpg" },
+              ].map(bebida => {
+                return bebida.variants.map((variant, idx) => {
+                  const itemId = idx === 0 ? `${bebida.id}-familiar` : `${bebida.id}-mediana`
+                  const cartItem = items.find(item => item.id === itemId)
+                  const isInCart = !!cartItem
+                  const quantity = cartItem?.quantity || 1
+
+                  return (
+                    <div key={itemId} className="flex items-center justify-between py-1.5 sm:py-2">
+                      <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
+                        <input
+                          type="checkbox"
+                          checked={isInCart}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              addItem({
+                                id: itemId,
+                                name: `${bebida.name} ${variant}`,
+                                price: bebida.price,
+                                quantity: 1,
+                                image: bebida.image
+                              })
+                            } else {
+                              removeItem(itemId)
+                            }
+                          }}
+                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                        />
+                        <span className="text-xs sm:text-sm text-gray-700">{bebida.name} - {variant}</span>
+                        <span className="text-xs sm:text-sm text-gray-500">${bebida.price.toLocaleString()}</span>
+                      </label>
+                      
+                      {isInCart && (
+                        <div className="flex items-center gap-1 sm:gap-2">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                            onClick={() => updateQuantity(itemId, Math.max(0, quantity - 1))}
+                          >
+                            <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                          </Button>
+                          <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                            onClick={() => updateQuantity(itemId, quantity + 1)}
+                          >
+                            <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              })}
+            </div>
+          )}
+              </div>
+            )}
+
+            {/* Sección 3: Gauchitos y Rollitos - Solo mostrar si NO hay snacks en el carrito */}
+            {!hasSnacks && (
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => setExpandedUpsell(prev => ({ ...prev, snacks: !prev.snacks }))}
+            className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+          >
+            <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agrega Gauchitos o Rollitos Canela?</span>
+            {expandedUpsell.snacks ? (
+              <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+            ) : (
+              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+            )}
+          </button>
+          
+          {expandedUpsell.snacks && (
+            <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
+              {[
+                { id: 15, name: "Rollitos de Canela", price: 4900 },
+                { id: 16, name: "Gauchitos", price: 4000 },
+              ].map(snack => {
+                const cartItem = items.find(item => item.id === String(snack.id))
+                const isInCart = !!cartItem
+                const quantity = cartItem?.quantity || 1
+
+                return (
+                  <div key={snack.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                    <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
+                      <input
+                        type="checkbox"
+                        checked={isInCart}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const imageMap: Record<string, string> = {
+                              "Rollitos de Canela": "/pizzas/canela.jpg",
+                              "Gauchitos": "/pizzas/gauchitos.jpg"
+                            };
+                            addItem({
+                              id: String(snack.id),
+                              name: snack.name,
+                              price: snack.price,
+                              quantity: 1,
+                              image: imageMap[snack.name] || "/placeholder.svg?height=200&width=200"
+                            })
+                          } else {
+                            removeItem(String(snack.id))
+                          }
+                        }}
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                      />
+                      <span className="text-xs sm:text-sm text-gray-700">{snack.name}</span>
+                      <span className="text-xs sm:text-sm text-gray-500">${snack.price.toLocaleString()}</span>
+                    </label>
+                    
+                    {isInCart && (
+                      <div className="flex items-center gap-1.5 sm:gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                          onClick={() => updateQuantity(String(snack.id), Math.max(0, quantity - 1))}
+                        >
+                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                        <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                          onClick={() => updateQuantity(String(snack.id), quantity + 1)}
+                        >
+                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+              </div>
+            )}
+          </div>
+        )
+      })()}
+
+      <div className="p-2 sm:p-4 border-t border-gray-200 space-y-2 sm:space-y-4 bg-gray-50">
         {/* Resumen de totales */}
-        <div className="space-y-2">
-          <div className="flex justify-between text-gray-700">
+        <div className="space-y-1 sm:space-y-2">
+          <div className="flex justify-between text-xs sm:text-sm text-gray-700">
             <span>Subtotal</span>
             <span className="font-medium">${subtotal.toLocaleString()}</span>
           </div>
           {isDelivery && deliveryCost > 0 && (
-            <div className="flex justify-between text-blue-600">
+            <div className="flex justify-between text-xs sm:text-sm text-blue-600">
               <span>Delivery</span>
               <span className="font-medium">+${deliveryCost.toLocaleString()}</span>
             </div>
           )}
           {appliedDiscount && discountAmount > 0 && (
-            <div className="flex justify-between text-green-600">
+            <div className="flex justify-between text-xs sm:text-sm text-green-600">
               <span>Descuento ({appliedDiscount.code})</span>
               <span className="font-medium">-${discountAmount.toLocaleString()}</span>
             </div>
           )}
-          <div className="flex justify-between font-bold text-lg text-gray-800 border-t pt-2">
+          <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
             <span>Total</span>
             <span className="text-pink-600">${totalFinal.toLocaleString()}</span>
           </div>
         </div>
 
-        {/* Switch para elegir entre Retirar y Delivery */}
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <Store className={`w-5 h-5 ${!isDelivery ? "text-pink-600" : "text-gray-400"}`} />
-              <span className={`font-medium ${!isDelivery ? "text-gray-800" : "text-gray-500"}`}>Retirar</span>
-            </div>
-            <Switch checked={isDelivery} onCheckedChange={setIsDelivery} />
-            <div className="flex items-center space-x-2">
-              <span className={`font-medium ${isDelivery ? "text-gray-800" : "text-gray-500"}`}>Delivery</span>
-              <Truck className={`w-5 h-5 ${isDelivery ? "text-pink-600" : "text-gray-400"}`} />
-            </div>
+        {/* Botones para elegir entre Retirar y Delivery */}
+        <div className="bg-white rounded-lg p-2 sm:p-4 border border-gray-200">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3">
+            {/* Botón Retirar */}
+            <button
+              onClick={() => setIsDelivery(false)}
+              className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg border-2 transition-all ${
+                isDelivery === false
+                  ? "border-pink-600 bg-pink-50 shadow-md"
+                  : "border-gray-300 bg-white hover:border-pink-300 hover:bg-pink-50/50"
+              }`}
+            >
+              <Store className={`w-6 h-6 sm:w-8 sm:h-8 mb-1 sm:mb-2 ${isDelivery === false ? "text-pink-600" : "text-gray-400"}`} />
+              <span className={`font-bold text-sm sm:text-base ${isDelivery === false ? "text-pink-600" : "text-gray-600"}`}>
+                Retirar
+              </span>
+              <span className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">
+                Gratis
+              </span>
+            </button>
+
+            {/* Botón Delivery */}
+            <button
+              onClick={() => setIsDelivery(true)}
+              className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg border-2 transition-all ${
+                isDelivery === true
+                  ? "border-pink-600 bg-pink-50 shadow-md"
+                  : "border-gray-300 bg-white hover:border-pink-300 hover:bg-pink-50/50"
+              }`}
+            >
+              <Truck className={`w-6 h-6 sm:w-8 sm:h-8 mb-1 sm:mb-2 ${isDelivery === true ? "text-pink-600" : "text-gray-400"}`} />
+              <span className={`font-bold text-sm sm:text-base ${isDelivery === true ? "text-pink-600" : "text-gray-600"}`}>
+                Delivery
+              </span>
+              <span className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">
+                Según zona
+              </span>
+            </button>
           </div>
+          
+          {/* Mensaje cuando no ha seleccionado */}
+          {isDelivery === null && (
+            <div className="mt-2 sm:mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-2 sm:p-3 flex items-start">
+              <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-600 mr-1.5 sm:mr-2 flex-shrink-0 mt-0.5" />
+              <p className="text-[10px] sm:text-xs text-yellow-700">
+                Debes seleccionar una opción para continuar
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Botones condicionales */}
         {isAuthenticated ? (
           <Button
-            className="w-full bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 rounded-lg shadow-md hover:shadow-lg transition-all"
+            className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-sm sm:text-base ${
+              !isOpen || isDelivery === null
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
+            }`}
             onClick={handleContinue}
+            disabled={!isOpen || isDelivery === null}
           >
-            Continuar
+            {!isOpen 
+              ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}` 
+              : "Continuar"}
           </Button>
         ) : (
           <Button
-            className="w-full bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 rounded-lg shadow-md hover:shadow-lg transition-all text-sm"
-            onClick={handleLoginRedirect}
+            className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-xs sm:text-sm ${
+              !isOpen
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
+            }`}
+            onClick={!isOpen ? undefined : handleLoginRedirect}
+            disabled={!isOpen}
           >
-            Inicia sesión para continuar
+            {!isOpen 
+              ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}` 
+              : "Inicia sesión para continuar"}
           </Button>
         )}
       </div>
-      {/* Modal de edición */}
-      {isEditModalOpen && editingItem && (
-        <PizzaConfigModal
-          isOpen={isEditModalOpen}
-          onClose={handleEditCancel}
-          pizzaType={editingItem.pizzaType}
-          isEditing={true}
-          currentConfig={{
-            id: editingItem.id, // Agregar el ID del item original
-            size: editingItem.size,
-            ingredients: editingItem.ingredients || [],
-            premiumIngredients: editingItem.premiumIngredients || [],
-            sauces: editingItem.sauces || [],
-            drinks: editingItem.drinks || [],
-            extras: editingItem.extras || [],
-            comments: editingItem.comments || "",
-            pizza1: editingItem.pizza1, // Para pizzas DUO
-            pizza2: editingItem.pizza2, // Para pizzas DUO
-            pizzaType: editingItem.pizzaType, // Asegurar que se pase el tipo
-          }}
-        />
-      )}
       
       {/* Modal de error de inventario - mantener por compatibilidad pero no mostrarlo automáticamente */}
-      {console.log("Renderizando InventoryErrorModal con isOpen =", isInventoryErrorModalOpen, "validationDetails =", inventoryErrorDetails)}
       <InventoryErrorModal
         isOpen={false} // Cambiado a false para usar nuestra implementación directamente en el carrito
         onClose={() => {

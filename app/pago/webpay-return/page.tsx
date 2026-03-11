@@ -24,7 +24,15 @@ function WebpayReturnContent() {
       }
       hasConfirmed.current = true
 
+      let timeoutId: any = null;
       try {
+        // Si la confirmación tarda más de 30s, mostrar mensaje de timeout
+        timeoutId = setTimeout(() => {
+          if (!hasConfirmed.current) return;
+          console.error('Timeout: confirmWebpayTransaction no respondió en 30s');
+          setError('La confirmación del pago está tardando demasiado. Por favor intenta nuevamente.');
+          setLoading(false);
+        }, 30000);
         // Obtener el token de la URL
         const token = searchParams.get("token_ws") || searchParams.get("TBK_TOKEN")
 
@@ -39,7 +47,7 @@ function WebpayReturnContent() {
         // Llamar a la Cloud Function para confirmar la transacción
         const confirmWebpayFunction = httpsCallable(functions, "confirmWebpayTransaction")
         const response = await confirmWebpayFunction({ token })
-        
+
         const data = response.data as any
         console.log("Respuesta de confirmación:", data)
         setResult(data)
@@ -47,6 +55,7 @@ function WebpayReturnContent() {
         console.error("Error confirmando pago:", err)
         setError(err.message || "Error al procesar el pago")
       } finally {
+        if (timeoutId) clearTimeout(timeoutId)
         setLoading(false)
       }
     }

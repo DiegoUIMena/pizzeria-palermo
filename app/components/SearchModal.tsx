@@ -76,9 +76,11 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const allProducts = useMemo(() => {
     const firestoreProducts = (itemsMenu || [])
       .filter((item: any) => {
-        // Excluir ingredientes individuales
+        // Excluir ingredientes individuales y items inactivos
         const categoria = (item.categoria || item.category || "").toLowerCase()
-        return !categoria.includes("ingrediente") && item.disponible !== false
+        return !categoria.includes("ingrediente") && 
+               item.disponible !== false && 
+               item.activo !== false
       })
       .map((item: any) => {
         // Mapear clasificación a categoría legible
