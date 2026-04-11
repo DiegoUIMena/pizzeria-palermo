@@ -9,7 +9,7 @@ export function ReactQueryProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        // ✅ OPTIMIZACIÓN: Cache por 5 minutos
+        // [OPTIMIZATION] Cache por 5 minutos
         staleTime: 5 * 60 * 1000, // 5 minutos
         gcTime: 10 * 60 * 1000, // 10 minutos (antes era cacheTime)
         

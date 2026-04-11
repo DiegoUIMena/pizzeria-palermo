@@ -5,10 +5,15 @@
   "scripts": {
     "build": "next build",
     "export": "NEXT_EXPORT=true next build",
-    "dev": "next dev",
+    "dev": "node scripts/dev-stable.js",
     "lint": "next lint",
     "start": "next start",
-    "deploy": "npm run export && firebase deploy --only hosting"
+    "deploy": "npm run export && firebase deploy --only hosting",
+    "test:deploy": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-test-environment.ps1",
+    "test:deploy:hosting": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-test-environment.ps1 -Only hosting",
+    "test:deploy:functions": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy-test-environment.ps1 -Only functions",
+    "test:check": "powershell -ExecutionPolicy Bypass -File ./scripts/check-test-environment.ps1",
+    "test:admin:set": "powershell -ExecutionPolicy Bypass -File ./scripts/set-admin-role-test.ps1"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

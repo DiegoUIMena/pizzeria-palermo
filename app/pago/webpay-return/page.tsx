@@ -118,16 +118,22 @@ function WebpayReturnContent() {
   }
 
   if (result.success) {
+    // URL para seguimiento de invitados
+    const trackingUrl = result.isGuestOrder && result.trackingToken 
+      ? `/seguimiento-pedido/guest?token=${result.trackingToken}`
+      : null
+
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
+        <Card className="w-full max-w-2xl">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-green-600">
               <CheckCircle className="w-6 h-6" />
               ¡Pago Exitoso!
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
+            {/* Detalles del pago */}
             <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
               <p className="text-sm text-gray-600">
                 <span className="font-semibold">Código de autorización:</span>{" "}
@@ -145,21 +151,83 @@ function WebpayReturnContent() {
               Tu pago ha sido procesado exitosamente. Recibirás una confirmación por correo electrónico.
             </p>
 
-            <div className="flex gap-3">
-              <Button
-                onClick={() => router.push(`/pedidos`)}
-                className="flex-1 bg-pink-600 hover:bg-pink-700"
-              >
-                Ver mis pedidos
-              </Button>
+            {/* PROMOCIÓN: Puntos Palermo para invitados */}
+            {result.isGuestOrder && (
+              <div className="bg-gradient-to-r from-pink-50 to-pink-100 border-2 border-pink-300 rounded-lg p-5 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="text-2xl">🎁</div>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-lg text-pink-900">
+                      ¡Bienvenido a Pizzería Palermo!
+                    </h3>
+                    <p className="text-sm text-pink-800 mt-2">
+                      ¿Sabías que los usuarios registrados acumulan{" "}
+                      <span className="font-bold text-pink-600">Puntos Palermo</span> con cada compra?
+                    </p>
+                    
+                    <div className="mt-3 bg-white rounded p-3 space-y-2 text-sm">
+                      <p className="text-gray-700">
+                        <strong>✓</strong> Acumula puntos en cada pedido
+                      </p>
+                      <p className="text-gray-700">
+                        <strong>✓</strong> Canjea puntos por pizzas gratis
+                      </p>
+                      <p className="text-gray-700">
+                        <strong>✓</strong> Acceso al historial de pedidos
+                      </p>
+                      <p className="text-gray-700">
+                        <strong>✓</strong> Solo toma 1 minuto en registrarse
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Botones de acción */}
+            <div className="space-y-3">
+              {trackingUrl ? (
+                // Para invitados: mostrar opción de ver pedido ahora
+                <>
+                  <Button
+                    onClick={() => router.push(trackingUrl)}
+                    className="w-full bg-pink-600 hover:bg-pink-700"
+                  >
+                    Ver estado de mi pedido
+                  </Button>
+                  
+                  <Button
+                    onClick={() => router.push(`/auth?email=${encodeURIComponent(result.email || '')}`)}
+                    className="w-full bg-blue-600 hover:bg-blue-700"
+                  >
+                    Crear cuenta para acumular puntos
+                  </Button>
+                </>
+              ) : (
+                // Para usuarios registrados: opción normal
+                <Button
+                  onClick={() => router.push(`/pedidos`)}
+                  className="w-full bg-pink-600 hover:bg-pink-700"
+                >
+                  Ver mis pedidos
+                </Button>
+              )}
+
               <Button
                 onClick={() => router.push("/")}
                 variant="outline"
-                className="flex-1"
+                className="w-full"
               >
                 Volver al inicio
               </Button>
             </div>
+
+            {/* Nota adicional para invitados */}
+            {result.isGuestOrder && (
+              <div className="text-xs text-gray-600 bg-gray-100 rounded p-3 text-center">
+                Puedes ver el estado de tu pedido en cualquier momento con tu correo y teléfono.
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

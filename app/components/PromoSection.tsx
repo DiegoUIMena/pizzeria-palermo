@@ -11,7 +11,7 @@ import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 import { isItemAvailable } from '../../lib/recipes'
 
-// Mapeo de nombres de productos a archivos de imagen conocidos
+// Mapeo de nombres de productos a archivos de imagen conocidos (normalizados sin acentos)
 const imageMap: Record<string, string> = {
   'chilena': 'chilena',
   'bariloche': 'bariloche',
@@ -23,10 +23,10 @@ const imageMap: Record<string, string> = {
   'calabresa': 'calabresa',
   'napolitana': 'napolitana',
   'hawaiana': 'hawaiana',
-  'neuquén': 'neuquén',
+  'neuquen': 'neuquén',
   'la rioja': 'la rioja',
   'cordobesa': 'cordobesa',
-  'luján': 'luján',
+  'lujan': 'luján',
   'veggie 1': 'veggie 1',
   'veggie 2': 'veggie 2',
   'recoleta': 'recoleta',
@@ -50,6 +50,24 @@ const imageMap: Record<string, string> = {
   'salsa pesto': 'salsa pesto'
 }
 
+const normalizeText = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+
+const displayNameMap: Record<string, string> = {
+  'neuquen': 'Neuquén',
+  'lujan': 'Luján',
+  'entre rios': 'Entre Ríos'
+}
+
+const formatItemName = (name: string): string => {
+  const normalized = normalizeText(name)
+  return displayNameMap[normalized] || name
+}
+
 // Función helper para obtener la ruta correcta de la imagen
 const getImagePath = (itemName: string, defaultImage?: string): string => {
   // Si ya tiene una URL completa de Firebase Storage, usarla directamente
@@ -69,14 +87,15 @@ const getImagePath = (itemName: string, defaultImage?: string): string => {
   
   // Si es un placeholder o no tiene defaultImage, buscar en el imageMap
   // Limpiar el nombre: remover tamaños entre paréntesis y variantes
-  let cleanName = itemName
+  const cleanName = itemName
     .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '')
     .replace(/\s*(Tradicional|Zero)$/gi, '')
     .toLowerCase()
     .trim()
   
   // Buscar en el mapeo
-  const mappedName = imageMap[cleanName] || cleanName
+  const normalizedName = normalizeText(cleanName)
+  const mappedName = imageMap[normalizedName] || normalizedName
   
   // Construir la ruta de la imagen y codificar el nombre del archivo
   const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`
@@ -649,7 +668,7 @@ export default function PromoSection() {
 
       addItem({
         id: `${item.id}-${selectedSize}`,
-        name: `${item.name} (${selectedSize === "familiar" ? "Familiar" : "Mediana"})`,
+        name: `${formatItemName(item.name)} (${selectedSize === "familiar" ? "Familiar" : "Mediana"})`,
         price: finalPrice,
         image: getImagePath(item.name, item.image),
         quantity: 1,
@@ -662,7 +681,7 @@ export default function PromoSection() {
 
       addItem({
         id: `${item.id}-${selectedVariant}`,
-        name: `${item.name} ${variantName}`,
+        name: `${formatItemName(item.name)} ${variantName}`,
         price: item.price,
         image: getImagePath(item.name, item.image),
         quantity: 1,
@@ -671,7 +690,7 @@ export default function PromoSection() {
     } else {
       addItem({
         id: item.id,
-        name: item.name,
+        name: formatItemName(item.name),
         price: item.price,
         image: getImagePath(item.name, item.image),
         quantity: 1,
@@ -913,7 +932,7 @@ export default function PromoSection() {
                   <div className="w-full h-48 relative flex-shrink-0 overflow-hidden bg-gray-100">
                     <Image
                       src={getImagePath(item.name, item.image)}
-                      alt={item.name}
+                      alt={formatItemName(item.name)}
                       fill
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
@@ -926,7 +945,7 @@ export default function PromoSection() {
                     />
                   </div>
                   <div className="flex-1 p-6 bg-white">
-                    <h3 className="font-bold text-xl mb-3 text-gray-800">{item.name}</h3>
+                    <h3 className="font-bold text-xl mb-3 text-gray-800">{formatItemName(item.name)}</h3>
                     <p className="text-sm mb-4 text-gray-600 leading-relaxed">{item.description}</p>
                     <div className="flex flex-col space-y-3">
                       {/* Mostrar precios para pizzas Palermo y Tradicionales */}

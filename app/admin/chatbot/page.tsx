@@ -13,7 +13,7 @@ import { Plus, Edit, Trash2, MessageCircle, BarChart3, Settings, HelpCircle, Che
 import { useAuth } from '@/app/context/AuthContext'
 import { useRouter } from 'next/navigation'
 
-const TENANT_ID = 'pizzeria-palermo-17f6d'
+const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID || 'pizzeria-palermo-17f6d'
 
 interface Intent {
   id: string

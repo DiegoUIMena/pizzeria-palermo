@@ -9,7 +9,7 @@ import { X, Plus, Minus, ShoppingCart } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 
-// Mapeo de nombres de pizzas a archivos de imagen
+// Mapeo de nombres de pizzas a archivos de imagen (normalizados sin acentos)
 const imageMap: Record<string, string> = {
   'chilena': 'chilena',
   'bariloche': 'bariloche',
@@ -21,10 +21,10 @@ const imageMap: Record<string, string> = {
   'calabresa': 'calabresa',
   'napolitana': 'napolitana',
   'hawaiana': 'hawaiana',
-  'neuquén': 'neuquén',
+  'neuquen': 'neuquén',
   'la rioja': 'la rioja',
   'cordobesa': 'cordobesa',
-  'luján': 'luján',
+  'lujan': 'luján',
   'veggie 1': 'veggie 1',
   'veggie 2': 'veggie 2',
   'recoleta': 'recoleta',
@@ -38,6 +38,24 @@ const imageMap: Record<string, string> = {
   'doble muzza': 'doble muzza',
   'chicken bbq': 'chicken bbq',
   '4 quesos': '4 quesos',
+}
+
+const normalizeText = (value: string): string =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+
+const displayPizzaNameMap: Record<string, string> = {
+  'neuquen': 'Neuquén',
+  'lujan': 'Luján',
+  'entre rios': 'Entre Ríos'
+}
+
+const formatPizzaName = (name: string): string => {
+  const normalized = normalizeText(name)
+  return displayPizzaNameMap[normalized] || name
 }
 
 // Función helper para obtener la ruta correcta de la imagen de pizzas
@@ -59,7 +77,7 @@ const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
   
   // Si es un placeholder o no tiene imagen, buscar por nombre de pizza
   if (pizzaName) {
-    const cleanName = pizzaName.toLowerCase().trim()
+    const cleanName = normalizeText(pizzaName)
     const mappedName = imageMap[cleanName] || cleanName
     const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`
     return imagePath
@@ -1078,7 +1096,7 @@ export default function PizzaConfigModal({
                     .filter((item) => !is4Estaciones(item.nombre))
                     .map((pizza, index) => (
                       <SelectItem key={index} value={pizza.nombre}>
-                        {pizza.nombre}
+                        {formatPizzaName(pizza.nombre)}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -1123,7 +1141,7 @@ export default function PizzaConfigModal({
                           .filter(pizza => !isPizzaExcluida(pizza.name)) // Filtro adicional para asegurar
                           .map((pizza) => (
                             <option key={pizza.id} value={pizza.id}>
-                              {pizza.name}
+                              {formatPizzaName(pizza.name)}
                             </option>
                           ))
                         }
@@ -1143,7 +1161,7 @@ export default function PizzaConfigModal({
                           .filter(pizza => !isPizzaExcluida(pizza.name)) // Filtro adicional para asegurar
                           .map((pizza) => (
                             <option key={pizza.id} value={pizza.id}>
-                              {pizza.name}
+                              {formatPizzaName(pizza.name)}
                             </option>
                           ))
                         }

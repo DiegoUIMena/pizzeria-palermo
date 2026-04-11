@@ -2,6 +2,7 @@
  * Cloud Functions para Pizzería Palermo
  * Fase 2: Backend Básico con Validaciones
  * Fase 3: Integración Webpay Plus con transacciones atómicas
+ * Fase 4: Validación de vouchers y sistema de puntos
  *
  * Funciones implementadas:
  * - calculatePrice: Calcular precio de pedido
@@ -11,12 +12,14 @@
  * - confirmWebpayTransaction: Confirmar pago Webpay (TRANSACCIÓN ATÓMICA)
  * - cleanupAbandonedOrders: Limpiar pedidos huérfanos (SCHEDULED)
  * - refundOrder: Reembolsar pedido Webpay (Solo admin)
+ * - Fase 4: Validación y aplicación de vouchers en órdenes
  */
 
 import * as admin from "firebase-admin";
-import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {onCall, HttpsError, onRequest} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
+import * as crypto from "crypto";
 
 // Importar servicios
 import {
@@ -39,6 +42,152 @@ import {CreateOrderData} from "./types/orders";
 // Inicializar Firebase Admin (solo una vez)
 if (!admin.apps.length) {
   admin.initializeApp();
+}
+
+const GUEST_WEBPAY_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutos para validar vouchers
+const GUEST_WEBPAY_MAX_INIT_ATTEMPTS = 3;
+const ACTIVE_GUEST_TRACKING_STATUSES = new Set([
+  "Pago Pendiente",
+  "Pendiente",
+  "En preparación",
+  "En camino",
+  "Pedido Listo",
+]);
+
+const RATE_LIMIT_CONFIG = {
+  createOrder: {
+    windowMs: 10 * 60 * 1000,
+    maxRequests: 12,
+    blockMs: 15 * 60 * 1000,
+  },
+  initWebpayTransaction: {
+    windowMs: 10 * 60 * 1000,
+    maxRequests: 8,
+    blockMs: 20 * 60 * 1000,
+  },
+} as const;
+
+function getClientIp(request: any): string {
+  const rawRequest = request?.rawRequest;
+  const forwarded = rawRequest?.headers?.["x-forwarded-for"];
+
+  if (typeof forwarded === "string" && forwarded.trim()) {
+    return forwarded.split(",")[0].trim();
+  }
+
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    const first = String(forwarded[0] || "").trim();
+    if (first) {
+      return first;
+    }
+  }
+
+  return rawRequest?.ip || rawRequest?.socket?.remoteAddress || "unknown";
+}
+
+async function enforceIpRateLimit(
+  request: any,
+  endpoint: keyof typeof RATE_LIMIT_CONFIG
+): Promise<void> {
+  const ip = getClientIp(request);
+  if (!ip || ip === "unknown") {
+    return;
+  }
+
+  const config = RATE_LIMIT_CONFIG[endpoint];
+  const db = admin.firestore();
+  const now = Date.now();
+  const ipHash = crypto.createHash("sha256").update(ip).digest("hex");
+  const ref = db.collection("security_rate_limits").doc(`${endpoint}_${ipHash}`);
+
+  let blockedUntil = 0;
+
+  await db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(ref);
+
+    if (!snap.exists) {
+      transaction.set(ref, {
+        endpoint,
+        ipHash,
+        count: 1,
+        windowStart: now,
+        blockUntil: 0,
+        updatedAt: new Date(now).toISOString(),
+      });
+      return;
+    }
+
+    const data = snap.data() || {};
+    const windowStart = Number(data.windowStart || now);
+    const count = Number(data.count || 0);
+    const currentBlockUntil = Number(data.blockUntil || 0);
+
+    if (currentBlockUntil > now) {
+      blockedUntil = currentBlockUntil;
+      transaction.update(ref, {
+        updatedAt: new Date(now).toISOString(),
+      });
+      return;
+    }
+
+    const isWindowExpired = now - windowStart >= config.windowMs;
+    const nextWindowStart = isWindowExpired ? now : windowStart;
+    const nextCount = isWindowExpired ? 1 : count + 1;
+
+    const shouldBlock = nextCount > config.maxRequests;
+    const nextBlockUntil = shouldBlock ? now + config.blockMs : 0;
+
+    if (shouldBlock) {
+      blockedUntil = nextBlockUntil;
+    }
+
+    transaction.update(ref, {
+      count: nextCount,
+      windowStart: nextWindowStart,
+      blockUntil: nextBlockUntil,
+      updatedAt: new Date(now).toISOString(),
+    });
+  });
+
+  if (blockedUntil > now) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((blockedUntil - now) / 1000));
+    throw new HttpsError(
+      "resource-exhausted",
+      `Demasiados intentos desde tu red. Intenta nuevamente en ${retryAfterSeconds} segundos.`
+    );
+  }
+}
+
+function hashGuestAccessToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function safeCompareHash(a: string, b: string): boolean {
+  try {
+    const aBuffer = Buffer.from(a, "hex");
+    const bBuffer = Buffer.from(b, "hex");
+    if (aBuffer.length !== bBuffer.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(aBuffer, bBuffer);
+  } catch {
+    return false;
+  }
+}
+
+function isValidReturnUrl(returnUrl: string): boolean {
+  try {
+    const parsed = new URL(returnUrl);
+    const isHttps = parsed.protocol === "https:";
+    const isLocalhost = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
+    return isHttps || isLocalhost;
+  } catch {
+    return false;
+  }
+}
+
+function normalizePhoneForLookup(value: string): string {
+  return String(value || "").replace(/\D/g, "");
 }
 
 // ==================================================
@@ -84,19 +233,67 @@ export const calculatePrice = onCall(async (request) => {
   }
 });
 
+// Versión HTTP para pruebas externas/controladas con CORS
+export const calculatePriceHttp = onRequest(
+  {
+    cors: true,
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({success: false, error: "Método no permitido"});
+      return;
+    }
+
+    try {
+      const payload = req.body?.data || req.body || {};
+      const {items, tipoEntrega, direccion} = payload;
+
+      if (!items || !Array.isArray(items) || items.length === 0) {
+        res.status(400).json({success: false, error: "Items vacíos o inválidos"});
+        return;
+      }
+
+      if (!tipoEntrega || !["Delivery", "Retiro"].includes(tipoEntrega)) {
+        res.status(400).json({success: false, error: "Tipo de entrega inválido"});
+        return;
+      }
+
+      const calculation = await calculateOrderTotal(items, tipoEntrega, direccion);
+      res.status(200).json({
+        success: true,
+        ...calculation,
+      });
+    } catch (error) {
+      logger.error("Error in calculatePriceHttp:", error);
+      res.status(500).json({success: false, error: "Error al calcular precio"});
+    }
+  }
+);
+
 // ==================================================
 // FUNCTION 2: Crear Pedido con Validaciones
 // ==================================================
 export const createOrder = onCall(async (request) => {
-  // 1. Verificar autenticación
-  if (!request.auth) {
+  await enforceIpRateLimit(request, "createOrder");
+
+  const orderData: CreateOrderData = request.data;
+  const isGuestOrder = orderData?.customerType === "guest";
+  const guestAccessToken = isGuestOrder ? crypto.randomBytes(32).toString("hex") : undefined;
+  const guestAccessTokenHash = guestAccessToken ? hashGuestAccessToken(guestAccessToken) : undefined;
+  const guestTokenExpiresAt = guestAccessToken ? new Date(Date.now() + GUEST_WEBPAY_TOKEN_TTL_MS).toISOString() : undefined;
+
+  // 1. Verificar autenticación o flujo de invitado explícito
+  if (!request.auth && !isGuestOrder) {
     throw new HttpsError("unauthenticated", "Usuario no autenticado");
   }
 
-  const orderData: CreateOrderData = request.data;
+  const requestUserId = request.auth?.uid;
+  const normalizedUserId = requestUserId || orderData.userId || `guest_${Date.now()}`;
+  const isSyntheticGuestId = normalizedUserId.startsWith("guest_");
 
   logger.info("createOrder called", {
-    userId: request.auth.uid,
+    userId: requestUserId || normalizedUserId,
+    customerType: isGuestOrder ? "guest" : "registered",
     itemsCount: orderData.items?.length,
   });
 
@@ -181,8 +378,8 @@ export const createOrder = onCall(async (request) => {
     );
   }
 
-  // 4. Validar que el userId coincida con el autenticado
-  if (orderData.userId !== request.auth.uid) {
+  // 4. Validar ownership solo para usuarios autenticados no guest
+  if (requestUserId && !isGuestOrder && orderData.userId && orderData.userId !== requestUserId) {
     throw new HttpsError(
       "permission-denied",
       "No puedes crear pedidos para otro usuario"
@@ -213,13 +410,141 @@ export const createOrder = onCall(async (request) => {
         );
       }
 
-      // 6. Calcular precio real en el servidor (NO requiere transaction)
+      // 5.4 Resolver voucherId desde voucherCode si viene solo código
+      // Esto blinda el flujo ante payloads incompletos del frontend.
+      if (
+        !orderData.voucherId &&
+        orderData.voucherCode &&
+        !isGuestOrder &&
+        !isSyntheticGuestId
+      ) {
+        const normalizedCode = String(orderData.voucherCode).trim().toUpperCase();
+        if (normalizedCode) {
+          const vouchersSnap = await transaction.get(
+            db.collection("users").doc(normalizedUserId).collection("vouchers")
+          );
+
+          const matched = vouchersSnap.docs.find((d) => {
+            const data = d.data();
+            const code = String(
+              data.code || d.id.replace(/[^a-zA-Z0-9]/g, "").slice(-8).toUpperCase()
+            ).toUpperCase();
+            return code === normalizedCode;
+          });
+
+          if (matched) {
+            orderData.voucherId = matched.id;
+            logger.info("Resolved voucherId from voucherCode", {
+              userId: normalizedUserId,
+              voucherCode: normalizedCode,
+              voucherId: matched.id,
+            });
+          } else {
+            logger.warn("Voucher code sent but not found for user", {
+              userId: normalizedUserId,
+              voucherCode: normalizedCode,
+            });
+          }
+        }
+      }
+
+      // 5.6 Calcular precio real en el servidor
       logger.info("Calculating server-side price...");
       const priceCalculation = await calculateOrderTotal(
         orderData.items,
         orderData.tipoEntrega,
         orderData.direccion
       );
+
+      let voucherDiscount = 0;
+      let voucherRewardLabel: string | undefined;
+
+      const orderHasPromoOrCombo = orderData.items.some((item) => {
+        const itemName = String(item.nombre || "").toLowerCase();
+        const pizzaType = String(item.pizzaType || "").toLowerCase();
+        return itemName.includes("promo") || itemName.includes("combo") || pizzaType === "promo";
+      });
+
+      // 5.7 Validar voucher si está presente (solo para usuarios autenticados)
+      // ⚠️ IMPORTANTE: Solo VALIDAMOS aquí, NO marcamos como usado
+      // El voucher se marcará como usado DESPUÉS de confirmar el pago exitosamente
+      if (orderData.voucherId && !isGuestOrder && !isSyntheticGuestId) {
+        if (orderHasPromoOrCombo) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Los vouchers de Puntos Palermo no aplican junto a promociones o combos con descuento"
+          );
+        }
+
+        logger.info("Validating voucher (NOT marking as used yet)", { userId: normalizedUserId, voucherId: orderData.voucherId });
+        
+        const { validateVoucher, markVoucherAsUsed, calculateVoucherDiscountForSubtotal } = await import('./utils/points-system.js');
+        const voucherValidation = await validateVoucher(
+          normalizedUserId,
+          orderData.voucherId,
+          transaction
+        );
+        
+        if (!voucherValidation.success) {
+          logger.warn("Voucher validation failed", { 
+            userId: normalizedUserId, 
+            voucherId: orderData.voucherId,
+            error: voucherValidation.error 
+          });
+          throw new HttpsError(
+            "failed-precondition",
+            voucherValidation.error || "Voucher no válido"
+          );
+        }
+
+        if (!voucherValidation.voucher) {
+          throw new HttpsError(
+            "failed-precondition",
+            "No se pudo leer la configuración del voucher"
+          );
+        }
+
+        const voucherDiscountResult = calculateVoucherDiscountForSubtotal(
+          voucherValidation.voucher,
+          priceCalculation.subtotal
+        );
+
+        if (!voucherDiscountResult.success) {
+          throw new HttpsError(
+            "failed-precondition",
+            voucherDiscountResult.error || "El voucher no aplica para este pedido"
+          );
+        }
+
+        voucherDiscount = Math.max(0, Math.round(voucherDiscountResult.discount || 0));
+        voucherRewardLabel = voucherDiscountResult.rewardLabel;
+
+        // Para métodos no-Webpay, bloquear reutilización de inmediato.
+        // En Webpay se marca en confirmWebpayTransaction al aprobar pago.
+        const isWebpayOrder = orderData.metodoPago === "Webpay Plus";
+        if (!isWebpayOrder) {
+          const voucherMarkResult = await markVoucherAsUsed(
+            normalizedUserId,
+            orderData.voucherId,
+            transaction
+          );
+
+          if (!voucherMarkResult.success) {
+            throw new HttpsError(
+              "failed-precondition",
+              voucherMarkResult.error || "No se pudo reservar el voucher"
+            );
+          }
+
+          logger.info("Voucher marked as used in createOrder for non-webpay", {
+            userId: normalizedUserId,
+            voucherId: orderData.voucherId,
+            metodoPago: orderData.metodoPago,
+          });
+        }
+      }
+
+      const finalTotal = Math.max(0, priceCalculation.total - voucherDiscount);
 
       // 6. Generar número de pedido único
       const orderNumber = Math.floor(10000 + Math.random() * 90000);
@@ -235,8 +560,25 @@ export const createOrder = onCall(async (request) => {
       
       const newOrder = {
         ...orderData,
+        userId: normalizedUserId,
+        customerType: isGuestOrder ? "guest" : "registered",
+        ...(
+          orderData.voucherId &&
+          orderData.metodoPago !== "Webpay Plus" && {
+            voucherProcessed: true,
+            voucherProcessedAt: now.toISOString(),
+          }
+        ),
+        ...(isGuestOrder && {
+          guestCheckout: {
+            webpayTokenHash: guestAccessTokenHash,
+            webpayTokenExpiresAt: guestTokenExpiresAt,
+            webpayInitAttempts: 0,
+            webpayTokenCreatedAt: now.toISOString(),
+          }
+        }),
         orderNumber,
-        total: priceCalculation.total,
+        total: finalTotal,
         estado: initialEstado,
         fechaCreacion: now.toLocaleString("es-CL", {
           year: "numeric",
@@ -244,6 +586,8 @@ export const createOrder = onCall(async (request) => {
           day: "2-digit",
           hour: "2-digit",
           minute: "2-digit",
+          hour12: false,
+          timeZone: "America/Santiago",
         }),
         timestamps: {
           created: now.toISOString(),
@@ -255,7 +599,9 @@ export const createOrder = onCall(async (request) => {
         priceCalculation: {
           subtotal: priceCalculation.subtotal,
           deliveryFee: priceCalculation.deliveryFee,
-          total: priceCalculation.total,
+          voucherDiscount,
+          ...(voucherRewardLabel ? {voucherRewardLabel} : {}),
+          total: finalTotal,
         },
       };
 
@@ -271,7 +617,9 @@ export const createOrder = onCall(async (request) => {
       return {
         orderId: orderRef.id,
         orderNumber,
-        total: priceCalculation.total,
+        total: finalTotal,
+        guestAccessToken,
+        guestTokenExpiresAt,
       };
     });
 
@@ -283,6 +631,8 @@ export const createOrder = onCall(async (request) => {
       id: result.orderId,
       orderNumber: result.orderNumber,
       total: result.total,
+      guestAccessToken: result.guestAccessToken,
+      guestTokenExpiresAt: result.guestTokenExpiresAt,
     };
   } catch (error) {
     logger.error("Error creating order:", error);
@@ -415,6 +765,88 @@ export const updateOrderStatus = onCall(async (request) => {
       updates["inventoryProcessed"] = true;
       updates["inventoryStatus"] = "processed";
       logger.info("✅ Inventario consumido exitosamente");
+
+      // ✅ SUMAR PUNTOS para órdenes NO Webpay cuando se ACEPTAN (para cash/transfer/etc)
+      // Si es Webpay, los puntos ya se sumaron en confirmWebpayTransaction
+      // Solo sumamos puntos si:
+      // 1. No es una orden Webpay
+      // 2. Es un cliente registrado (no guest)
+      // 3. Los puntos aún no han sido sumados
+      if (
+        !orderData?.webpay?.token &&
+        orderData?.userId &&
+        orderData?.customerType !== 'guest' &&
+        !orderData?.pointsAdded
+      ) {
+        logger.info("💰 Sumando puntos para orden de cash/transfer", {
+          orderId,
+          userId: orderData.userId,
+          orderTotal: orderData.total
+        });
+
+        try {
+          const { addPointsToUser } = await import('./utils/points-system.js');
+          await addPointsToUser(orderData.userId, orderData.total, orderId);
+          updates["pointsAdded"] = true;
+          updates["pointsAddedAt"] = new Date().toISOString();
+          logger.info("✅ Puntos sumados exitosamente para orden cash/transfer", {
+            orderId,
+            userId: orderData.userId
+          });
+        } catch (pointsError) {
+          logger.error("❌ Error sumando puntos (no crítico):", pointsError);
+          // No lanzamos error porque el admin ya aceptó la orden
+        }
+      }
+
+      // ✅ MARCAR VOUCHER COMO USADO para órdenes NO Webpay (transferencia/efectivo)
+      if (
+        !orderData?.webpay?.token &&
+        orderData?.userId &&
+        orderData?.voucherId &&
+        !orderData?.voucherProcessed
+      ) {
+        try {
+          const voucherRef = db
+            .collection('users')
+            .doc(orderData.userId)
+            .collection('vouchers')
+            .doc(orderData.voucherId);
+
+          const voucherDoc = await voucherRef.get();
+          if (!voucherDoc.exists) {
+            logger.warn('Voucher no encontrado al procesar orden no-webpay', {
+              orderId,
+              userId: orderData.userId,
+              voucherId: orderData.voucherId,
+            });
+          } else {
+            const voucherData = voucherDoc.data();
+            if (voucherData?.status !== 'used') {
+              await voucherRef.update({
+                status: 'used',
+                usedAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              });
+            }
+
+            updates['voucherProcessed'] = true;
+            updates['voucherProcessedAt'] = new Date().toISOString();
+            logger.info('✅ Voucher marcado como usado en flujo no-webpay', {
+              orderId,
+              userId: orderData.userId,
+              voucherId: orderData.voucherId,
+            });
+          }
+        } catch (voucherError) {
+          logger.error('❌ Error marcando voucher en flujo no-webpay', {
+            orderId,
+            userId: orderData.userId,
+            voucherId: orderData.voucherId,
+            error: voucherError,
+          });
+        }
+      }
     }
     
     // 6. Si se CANCELA el pedido, marcar inventario como cancelado (sin consumir)
@@ -507,29 +939,27 @@ export const updateOrderStatus = onCall(async (request) => {
 // FUNCTION 4: Iniciar Transacción Webpay Plus
 // ==================================================
 export const initWebpayTransaction = onCall(async (request) => {
-  // 1. Verificar autenticación
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Usuario no autenticado");
-  }
+  await enforceIpRateLimit(request, "initWebpayTransaction");
 
-  const {orderId, amount, returnUrl} = request.data;
+  const {orderId, returnUrl, guestAccessToken} = request.data;
+  const isAuthenticatedRequest = !!request.auth?.uid;
 
   logger.info("initWebpayTransaction called", {
     orderId,
-    amount,
-    userId: request.auth.uid,
+    userId: request.auth?.uid || null,
+    isAuthenticatedRequest,
   });
 
   // 2. Validar parámetros
-  if (!orderId || !amount || !returnUrl) {
+  if (!orderId || !returnUrl) {
     throw new HttpsError(
       "invalid-argument",
-      "orderId, amount y returnUrl son requeridos"
+      "orderId y returnUrl son requeridos"
     );
   }
 
-  if (amount <= 0) {
-    throw new HttpsError("invalid-argument", "El monto debe ser mayor a 0");
+  if (!isValidReturnUrl(returnUrl)) {
+    throw new HttpsError("invalid-argument", "returnUrl inválida");
   }
 
   try {
@@ -545,39 +975,111 @@ export const initWebpayTransaction = onCall(async (request) => {
 
     const orderData = orderDoc.data();
 
-    if (orderData?.userId !== request.auth.uid) {
-      throw new HttpsError(
-        "permission-denied",
-        "No tienes permiso para pagar este pedido"
-      );
+    if (!orderData) {
+      throw new HttpsError("not-found", "Pedido no encontrado");
+    }
+
+    const isGuestOrder = orderData.customerType === "guest";
+
+    if (isAuthenticatedRequest) {
+      if (orderData.userId !== request.auth?.uid) {
+        throw new HttpsError(
+          "permission-denied",
+          "No tienes permiso para pagar este pedido"
+        );
+      }
+    } else {
+      if (!isGuestOrder) {
+        throw new HttpsError("unauthenticated", "Usuario no autenticado");
+      }
+
+      const guestCheckout = orderData.guestCheckout || {};
+      const attempts = Number(guestCheckout.webpayInitAttempts || 0);
+
+      if (attempts >= GUEST_WEBPAY_MAX_INIT_ATTEMPTS) {
+        throw new HttpsError(
+          "resource-exhausted",
+          "Se alcanzó el máximo de intentos para iniciar pago"
+        );
+      }
+
+      if (!guestAccessToken || typeof guestAccessToken !== "string") {
+        await orderRef.update({
+          "guestCheckout.webpayInitAttempts": admin.firestore.FieldValue.increment(1),
+          "guestCheckout.lastFailedAttemptAt": new Date().toISOString(),
+        });
+        throw new HttpsError("permission-denied", "Token de acceso inválido");
+      }
+
+      const tokenExpiresAt = guestCheckout.webpayTokenExpiresAt;
+      const tokenHash = guestCheckout.webpayTokenHash;
+
+      if (!tokenExpiresAt || !tokenHash) {
+        throw new HttpsError("permission-denied", "Checkout invitado no válido");
+      }
+
+      const isExpired = Date.now() > new Date(tokenExpiresAt).getTime();
+      if (isExpired) {
+        throw new HttpsError("permission-denied", "Token de invitado expirado");
+      }
+
+      const receivedHash = hashGuestAccessToken(guestAccessToken);
+      const isValidToken = safeCompareHash(receivedHash, tokenHash);
+
+      if (!isValidToken) {
+        await orderRef.update({
+          "guestCheckout.webpayInitAttempts": admin.firestore.FieldValue.increment(1),
+          "guestCheckout.lastFailedAttemptAt": new Date().toISOString(),
+        });
+        throw new HttpsError("permission-denied", "Token de acceso inválido");
+      }
     }
 
     // 4. Verificar que el pedido no esté ya pagado
-    if (orderData?.paymentStatus === "paid") {
+    if (orderData.paymentStatus === "paid") {
       throw new HttpsError(
         "failed-precondition",
         "Este pedido ya fue pagado"
       );
     }
 
+    if (orderData.webpay?.status === "pending" && orderData.webpay?.token) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Ya existe una transacción Webpay en curso para este pedido"
+      );
+    }
+
     // 5. Crear transacción con Webpay
     const buyOrder = orderData.orderNumber.toString();
     const sessionId = orderId;
+    const amountToCharge = Math.round(Number(orderData.total || 0));
+
+    if (!Number.isFinite(amountToCharge) || amountToCharge <= 0) {
+      throw new HttpsError("failed-precondition", "Monto de pedido inválido");
+    }
 
     const transaction = await createWebpayTransaction(
       buyOrder,
       sessionId,
-      amount,
+      amountToCharge,
       returnUrl
     );
 
     // 6. Guardar información de la transacción en el pedido
-    await orderRef.update({
+    const webpayUpdate: Record<string, any> = {
       "webpay.token": transaction.token,
       "webpay.status": "pending",
       "webpay.createdAt": admin.firestore.FieldValue.serverTimestamp(),
       paymentStatus: "pending",
-    });
+    };
+
+    if (isGuestOrder) {
+      webpayUpdate["guestCheckout.webpayInitAttempts"] = admin.firestore.FieldValue.increment(1);
+      webpayUpdate["guestCheckout.lastSuccessfulInitAt"] = new Date().toISOString();
+    }
+
+    await orderRef.update(webpayUpdate);
 
     logger.info("Webpay transaction created", {
       orderId,
@@ -642,6 +1144,18 @@ export const confirmWebpayTransaction = onCall(async (request) => {
     // Verificar si el pedido ya fue procesado (evitar doble confirmación)
     if (orderData && orderData.paymentStatus === "paid") {
       logger.info("Order already confirmed, skipping update", {orderId});
+      
+      // Aún así, generar token de seguimiento si es guest (por si lo necesita)
+      let trackingToken: string | undefined
+      if (orderData && orderData.customerType === 'guest' && orderData.cliente?.email && orderData.cliente?.telefono) {
+        const { generateGuestTrackingToken } = await import('./utils/guest-token.js')
+        trackingToken = generateGuestTrackingToken(
+          orderData.cliente.email,
+          orderData.cliente.telefono,
+          90
+        )
+      }
+      
       return {
         success: true,
         orderId,
@@ -649,6 +1163,8 @@ export const confirmWebpayTransaction = onCall(async (request) => {
         authorizationCode: transactionResult.authorizationCode,
         amount: transactionResult.amount,
         cardDetail: transactionResult.cardDetail,
+        trackingToken: trackingToken,
+        isGuestOrder: orderData ? orderData.customerType === 'guest' : false,
       };
     }
 
@@ -674,11 +1190,22 @@ export const confirmWebpayTransaction = onCall(async (request) => {
       // Si el pago fue exitoso, leer ingredientes e items_menu AHORA (antes de writes)
       let inventorySnapshot: any = null;
       let itemsMenuSnapshot: any = null;
+      let voucherDoc: any = null;
       
       if (transactionResult.success && freshOrderData && freshOrderData.items) {
         logger.info("Reading inventory and menu items for consumption...");
         inventorySnapshot = await transaction.get(db.collection("ingredientes"));
         itemsMenuSnapshot = await transaction.get(db.collection("items_menu"));
+      }
+
+      // ✅ LEER VOUCHER AL PRINCIPIO si existe (ANTES de cualquier escritura)
+      if (freshOrderData?.voucherId && freshOrderData?.userId) {
+        logger.info("📱 Reading voucher at start of transaction", { 
+          userId: freshOrderData.userId, 
+          voucherId: freshOrderData.voucherId
+        });
+        const voucherRef = db.collection('users').doc(freshOrderData.userId).collection('vouchers').doc(freshOrderData.voucherId);
+        voucherDoc = await transaction.get(voucherRef);
       }
 
       const now = new Date();
@@ -702,6 +1229,39 @@ export const confirmWebpayTransaction = onCall(async (request) => {
         updateData.estado = "Pendiente";
         updateData.inventoryProcessed = true;
         updateData.inventoryStatus = "processed";
+
+        // ✅ MARCAR VOUCHER COMO USADO (si existe)
+        // Usamos el voucherDoc que ya fue leído al inicio
+        if (voucherDoc && voucherDoc.exists && freshOrderData?.voucherId && freshOrderData?.userId) {
+          logger.info("📱 Marking voucher as used after successful payment", { 
+            userId: freshOrderData.userId, 
+            voucherId: freshOrderData.voucherId,
+            orderId 
+          });
+          
+          const voucher = voucherDoc.data();
+          
+          // Validar que no está usado ya
+          if (voucher?.status === 'used') {
+            logger.warn('Voucher already used', { userId: freshOrderData.userId, voucherId: freshOrderData.voucherId })
+          } else {
+            // Marcar como usado
+            const voucherRef = db.collection('users').doc(freshOrderData.userId).collection('vouchers').doc(freshOrderData.voucherId);
+            transaction.update(voucherRef, {
+              status: 'used',
+              usedAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            })
+            updateData.voucherProcessed = true;
+            updateData["voucherProcessedAt"] = now.toISOString();
+            
+            logger.info("✅ Voucher marked as used in transaction", {
+              userId: freshOrderData.userId,
+              voucherId: freshOrderData.voucherId,
+              orderId
+            })
+          }
+        }
 
         // Actualizar pedido
         transaction.update(orderRef, updateData);
@@ -837,6 +1397,49 @@ export const confirmWebpayTransaction = onCall(async (request) => {
       success: transactionResult.success,
     });
 
+    // Sumar puntos si es un usuario registrado (no guest) y el pago fue exitoso
+    if (transactionResult.success && orderData && orderData.customerType !== 'guest' && orderData.userId) {
+      try {
+        const { addPointsToUser } = await import('./utils/points-system.js')
+        // Usar el total guardado en la orden (incluye descuentos de voucher)
+        const orderTotal = orderData.total || transactionResult.amount || 0
+        logger.info('📊 Adding points to user after successful payment', { 
+          userId: orderData.userId, 
+          orderId,
+          orderTotal,
+          source: orderData.total ? 'order.total' : 'webpay.amount'
+        })
+        await addPointsToUser(orderData.userId, orderTotal, orderId)
+        
+        // ✅ Marcar en la orden que puntos ya fueron sumados
+        await orderRef.update({
+          pointsAdded: true,
+          pointsAddedAt: new Date().toISOString()
+        })
+        
+        logger.info('✅ Points added to user account', { 
+          userId: orderData.userId, 
+          orderId,
+          amount: orderTotal
+        })
+      } catch (error) {
+        logger.error('❌ Error adding points to user (non-critical):', error)
+        // No lanzamos error porque el pago ya se procesó exitosamente
+      }
+    }
+
+    // Generar token de seguimiento si es un pedido guest
+    let trackingToken: string | undefined
+    if (orderData && orderData.customerType === 'guest' && orderData.cliente?.email && orderData.cliente?.telefono) {
+      const { generateGuestTrackingToken } = await import('./utils/guest-token.js')
+      trackingToken = generateGuestTrackingToken(
+        orderData.cliente.email,
+        orderData.cliente.telefono,
+        90 // válido por 90 días
+      )
+      logger.info('Generated guest tracking token', { orderId, email: orderData.cliente.email })
+    }
+
     return {
       success: transactionResult.success,
       orderId,
@@ -844,6 +1447,8 @@ export const confirmWebpayTransaction = onCall(async (request) => {
       authorizationCode: transactionResult.authorizationCode,
       amount: transactionResult.amount,
       cardDetail: transactionResult.cardDetail,
+      trackingToken: trackingToken, // Token para seguimiento invitado
+      isGuestOrder: orderData ? orderData.customerType === 'guest' : false, // Flag para saber si mostrar otro flujo
     };
   } catch (error) {
     logger.error("Error confirming Webpay transaction:", error);
@@ -860,7 +1465,211 @@ export const confirmWebpayTransaction = onCall(async (request) => {
 });
 
 // ==================================================
-// FUNCTION 6: Limpieza Automática de Pedidos Huérfanos
+// FUNCTION 6: Canjear Puntos por Pizza
+// ==================================================
+/**
+ * Permite a usuarios registrados canjear puntos acumulados por pizzas gratis
+ * - Valida que el usuario tenga suficientes puntos
+ * - Crea un voucher canjeado
+ * - Descuenta los puntos de la cuenta
+ * - Registra la transacción en el historial
+ */
+export const redeemPointsForPizza = onCall(async (request) => {
+  const { pointsToRedeem } = request.data
+
+  logger.info("redeemPointsForPizza called", {
+    userId: request.auth?.uid,
+    pointsToRedeem,
+  })
+
+  // Validar autenticación
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Debes estar autenticado")
+  }
+
+  const userId = request.auth.uid
+
+  // Validar parámetros
+  if (!pointsToRedeem || pointsToRedeem <= 0) {
+    throw new HttpsError("invalid-argument", "Cantidad de puntos inválida")
+  }
+
+  try {
+    const { redeemPointsForPizza: redeemPointsService } = await import('./utils/points-system.js')
+    const result = await redeemPointsService(userId, pointsToRedeem)
+
+    if (!result.success) {
+      throw new HttpsError("permission-denied", result.error || "Error al canjear puntos")
+    }
+
+    logger.info("Points redeemed successfully", {
+      userId,
+      pointsRedeemed: pointsToRedeem,
+      voucherId: result.voucherId,
+      voucherCode: result.voucherCode,
+    })
+
+    return {
+      success: true,
+      voucherId: result.voucherId,
+      voucherCode: result.voucherCode,
+      message: "Voucher creado exitosamente. Úsalo en tu próximo pedido según su tramo de canje.",
+    }
+  } catch (error) {
+    logger.error("Error redeeming points:", error)
+
+    if (error instanceof HttpsError) {
+      throw error
+    }
+
+    throw new HttpsError(
+      "internal",
+      "Error al procesar el canje de puntos"
+    )
+  }
+})
+
+// ===VERSION ALTERNATIVA CON CORS MANUAL ===
+// Esta función usa onRequest en lugar de onCall para tener control explícito de CORS
+export const redeemPointsForPizzaHttp = onRequest(
+  {
+    cors: true, // Permitir cualquier origen (más permisivo pero funciona)
+  },
+  async (req, res) => {
+    // Verificar método
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Método no permitido" });
+      return;
+    }
+
+    try {
+      // Obtener el token de autenticación del header
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        res.status(401).json({ error: "Token no proporcionado" });
+        return;
+      }
+
+      const idToken = authHeader.substring(7);
+
+      // Verificar el token
+      let decodedToken;
+      try {
+        decodedToken = await admin.auth().verifyIdToken(idToken);
+      } catch (error) {
+        res.status(401).json({ error: "Token inválido o expirado" });
+        return;
+      }
+
+      const userId = decodedToken.uid;
+      const { pointsToRedeem } = req.body;
+
+      logger.info("redeemPointsForPizzaHttp called", {
+        userId,
+        pointsToRedeem,
+      });
+
+      // Validar parámetros
+      if (!pointsToRedeem || pointsToRedeem <= 0) {
+        res.status(400).json({ error: "Cantidad de puntos inválida" });
+        return;
+      }
+
+      // Llamar a la lógica de puntos
+      const { redeemPointsForPizza: redeemPointsService } = await import(
+        "./utils/points-system.js"
+      );
+      const result = await redeemPointsService(userId, pointsToRedeem);
+
+      if (!result.success) {
+        res.status(400).json({
+          success: false,
+          error: result.error || "Error al canjear puntos",
+        });
+        return;
+      }
+
+      logger.info("Points redeemed successfully via HTTP", {
+        userId,
+        pointsRedeemed: pointsToRedeem,
+        voucherId: result.voucherId,
+        voucherCode: result.voucherCode,
+      });
+
+      res.status(200).json({
+        success: true,
+        voucherId: result.voucherId,
+        voucherCode: result.voucherCode,
+        message: "Voucher creado exitosamente. Úsalo en tu próximo pedido según su tramo de canje.",
+      });
+    } catch (error) {
+      logger.error("Error redeeming points via HTTP:", error);
+      res.status(500).json({
+        success: false,
+        error: "Error al procesar el canje de puntos",
+      });
+    }
+  }
+);
+
+// ==================================================
+// FUNCTION 6A: Expiración Automática de Puntos
+// ==================================================
+/**
+ * Ejecuta una vez al día y descuenta puntos vencidos del saldo total.
+ * Los puntos se vencen por "bolsas" de acumulación según expiresAt.
+ */
+export const expirePointsDaily = onSchedule(
+  {
+    schedule: "every day 04:15",
+    timeZone: "America/Santiago",
+    region: "us-central1",
+  },
+  async () => {
+    logger.info("Starting daily points expiration job...");
+
+    try {
+      const db = admin.firestore();
+      const now = admin.firestore.Timestamp.now();
+      const usersSnapshot = await db.collection("users").get();
+
+      if (usersSnapshot.empty) {
+        logger.info("No users found for points expiration");
+        return;
+      }
+
+      const {expirePointsForUser} = await import("./utils/points-system.js");
+
+      let usersWithExpiredPoints = 0;
+      let totalExpiredPoints = 0;
+
+      for (const userDoc of usersSnapshot.docs) {
+        const userId = userDoc.id;
+
+        const expiredForUser = await db.runTransaction(async (transaction) => {
+          return expirePointsForUser(userId, now, transaction);
+        });
+
+        if (expiredForUser > 0) {
+          usersWithExpiredPoints += 1;
+          totalExpiredPoints += expiredForUser;
+          logger.info("Expired points for user", {userId, expiredForUser});
+        }
+      }
+
+      logger.info("Daily points expiration completed", {
+        usersScanned: usersSnapshot.size,
+        usersWithExpiredPoints,
+        totalExpiredPoints,
+      });
+    } catch (error) {
+      logger.error("Error running daily points expiration:", error);
+    }
+  }
+);
+
+// ==================================================
+// FUNCTION 7: Limpieza Automática de Pedidos Huérfanos
 // ==================================================
 /**
  * Función programada que se ejecuta cada 10 minutos
@@ -926,6 +1735,136 @@ export const cleanupAbandonedOrders = onSchedule({
   } catch (error) {
     logger.error("Error cleaning up abandoned orders:", error);
   }
+});
+
+// ==================================================
+// FUNCTION 6B: Limpieza Automática de Rate Limits
+// ==================================================
+/**
+ * Función programada que se ejecuta cada día
+ * Elimina documentos antiguos de rate-limit para mantener bajo costo
+ */
+export const cleanupRateLimits = onSchedule({
+  schedule: "every day 03:30",
+  timeZone: "America/Santiago",
+  region: "us-central1",
+}, async (_event) => {
+  logger.info("Starting cleanup of stale rate-limit records...");
+
+  try {
+    const db = admin.firestore();
+    const now = Date.now();
+    const retentionMs = 7 * 24 * 60 * 60 * 1000; // 7 dias
+    const cutoffIso = new Date(now - retentionMs).toISOString();
+
+    let totalDeleted = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const snapshot = await db
+        .collection("security_rate_limits")
+        .where("updatedAt", "<", cutoffIso)
+        .limit(400)
+        .get();
+
+      if (snapshot.empty) {
+        hasMore = false;
+        break;
+      }
+
+      const batch = db.batch();
+      snapshot.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+
+      await batch.commit();
+      totalDeleted += snapshot.size;
+
+      // Si trae menos que el limite, ya no quedan mas docs viejos.
+      if (snapshot.size < 400) {
+        hasMore = false;
+      }
+    }
+
+    logger.info("Rate-limit cleanup completed", {totalDeleted, cutoffIso});
+  } catch (error) {
+    logger.error("Error cleaning stale rate-limit records:", error);
+  }
+});
+
+// ==================================================
+// FUNCTION 6C: Seguimiento de pedidos para invitados
+// ==================================================
+export const getGuestOrderTracking = onCall(async (request) => {
+  const {token, email, phone} = request.data || {};
+
+  let lookupEmail = String(email || "").trim().toLowerCase();
+  let lookupPhone = normalizePhoneForLookup(phone);
+
+  if (token && typeof token === "string") {
+    const {validateGuestTrackingToken} = await import("./utils/guest-token.js");
+    const tokenValidation = validateGuestTrackingToken(token);
+
+    if (!tokenValidation.valid || !tokenValidation.email || !tokenValidation.phone) {
+      throw new HttpsError("permission-denied", tokenValidation.error || "Token inválido");
+    }
+
+    lookupEmail = tokenValidation.email.trim().toLowerCase();
+    lookupPhone = normalizePhoneForLookup(tokenValidation.phone);
+  }
+
+  if (!lookupEmail || !lookupPhone) {
+    throw new HttpsError("invalid-argument", "Email y teléfono son requeridos para seguimiento");
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(lookupEmail)) {
+    throw new HttpsError("invalid-argument", "Email inválido");
+  }
+
+  if (lookupPhone.length < 8) {
+    throw new HttpsError("invalid-argument", "Teléfono inválido");
+  }
+
+  const db = admin.firestore();
+  const ordersSnapshot = await db
+    .collection("orders")
+    .where("customerType", "==", "guest")
+    .where("cliente.email", "==", lookupEmail)
+    .limit(25)
+    .get();
+
+  const orders = ordersSnapshot.docs
+    .map((doc) => ({id: doc.id, ...doc.data()} as any))
+    .filter((order) => normalizePhoneForLookup(order?.cliente?.telefono) === lookupPhone)
+    .filter((order) => ACTIVE_GUEST_TRACKING_STATUSES.has(String(order?.estado || "")))
+    .sort((a, b) => {
+      const aTime = Date.parse(String(a?.timestamps?.created || "")) || 0;
+      const bTime = Date.parse(String(b?.timestamps?.created || "")) || 0;
+      return bTime - aTime;
+    })
+    .map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber || 0,
+      total: Number(order.total || 0),
+      estado: order.estado || "Pendiente",
+      tipoEntrega: order.tipoEntrega || "Retiro",
+      paymentStatus: order.paymentStatus || "pending",
+      metodoPago: order.metodoPago || "No especificado",
+      cliente: {
+        nombre: order?.cliente?.nombre || "",
+        email: order?.cliente?.email || "",
+        telefono: order?.cliente?.telefono || "",
+      },
+      createdAt: order?.timestamps?.created || null,
+      confirmedAt: order?.webpay?.confirmedAt || null,
+      inventoryStatus: order?.inventoryStatus || null,
+    }));
+
+  return {
+    success: true,
+    orders,
+  };
 });
 
 // ==================================================
@@ -1039,8 +1978,9 @@ import * as unansweredQuestions from './routes/unansweredQuestions';
  */
 export const chatbot = onCall(async (request) => {
   const { tenantId, sessionId, message } = request.data;
+  const userId = request.auth?.uid || null;
 
-  return await handleChatbotMessage({ tenantId, sessionId, message });
+  return await handleChatbotMessage({ tenantId, sessionId, message, userId });
 });
 
 /**
@@ -1110,7 +2050,12 @@ export const chatbotUpdateConfig = onCall(
       throw new HttpsError('unauthenticated', 'Usuario no autenticado');
     }
 
-    const { tenantId, config } = request.data;
+    const { tenantId } = request.data;
+    const config = request.data?.config || {
+      enabled: request.data?.enabled,
+      fallbackMessage: request.data?.fallbackMessage,
+      maxSessionIdleMinutes: request.data?.maxSessionIdleMinutes,
+    };
     return await adminChatbot.updateChatbotConfig(request.auth.uid, tenantId, config);
   }
 );

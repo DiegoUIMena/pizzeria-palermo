@@ -1,6 +1,43 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Order, getAllOrders, updateOrderStatus, listenToRecentOrders } from '../lib/orders'
 
+function formatOrderCreatedAt(order: Order): string {
+  const createdRaw: any = (order as any)?.timestamps?.created
+
+  let createdDate: Date | null = null
+
+  if (typeof createdRaw === 'string') {
+    const parsed = new Date(createdRaw)
+    if (!isNaN(parsed.getTime())) {
+      createdDate = parsed
+    }
+  } else if (createdRaw && typeof createdRaw?.toDate === 'function') {
+    try {
+      createdDate = createdRaw.toDate()
+    } catch {
+      createdDate = null
+    }
+  } else if (createdRaw instanceof Date) {
+    createdDate = createdRaw
+  }
+
+  // Priorizar timestamp UTC real y renderizar en zona horaria local de Chile.
+  if (createdDate) {
+    return createdDate.toLocaleString('es-CL', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'America/Santiago',
+    })
+  }
+
+  // Fallback legacy: mantener lo almacenado si no hay timestamp válido.
+  return order.fechaCreacion || ''
+}
+
 // Hook para obtener todos los pedidos (Admin) - OPTIMIZADO
 export const useAdminOrders = (estadoFiltro?: string) => {
   const [pedidos, setPedidos] = useState<Order[]>([])
@@ -171,7 +208,7 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
       estado: order.estado,
       tipoEntrega: order.tipoEntrega,
       metodoPago: order.metodoPago,
-      fechaCreacion: order.fechaCreacion,
+      fechaCreacion: formatOrderCreatedAt(order),
       tiempoEstimado: order.tiempoEstimado,
       tiempoEstimadoMinutos: order.tiempoEstimadoMinutos,
       tiempoEstimadoInicio: order.tiempoEstimadoInicio,

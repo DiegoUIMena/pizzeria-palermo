@@ -5,7 +5,7 @@ import { getStorage, connectStorageEmulator } from "firebase/storage"
 import { getFunctions, connectFunctionsEmulator } from "firebase/functions"
 import { getAnalytics, isSupported } from "firebase/analytics";
 
-// ✅ SEGURIDAD: Credenciales desde variables de entorno
+// [SECURITY] Credenciales desde variables de entorno
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -19,7 +19,7 @@ const firebaseConfig = {
 // Validar que las variables de entorno estén configuradas
 if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
   throw new Error(
-    '❌ Firebase config incompleto. Verifica que .env.local tenga todas las variables NEXT_PUBLIC_FIREBASE_*'
+    '[ERROR] Firebase config incompleto. Verifica que .env.local tenga todas las variables NEXT_PUBLIC_FIREBASE_*'
   );
 }
 
@@ -53,13 +53,16 @@ export const functions = getFunctions(app);
 
 // Para desarrollo - conectar a emuladores locales si están disponibles o usar reglas menos restrictivas
 if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-  // Si quieres usar emuladores, descomenta estas líneas:
+  // NOTA: Para usar emuladores locales, ejecuta: firebase emulators:start
+  // Las líneas comentadas abajo pueden descomentarse si todos los emuladores están corriendo:
   // connectAuthEmulator(auth, 'http://localhost:9099');
   // connectFirestoreEmulator(db, 'localhost', 8080);
   // connectStorageEmulator(storage, 'localhost', 9199);
   // connectFunctionsEmulator(functions, 'localhost', 5001);
   
-  console.log("Ejecutando en modo desarrollo - reglas de seguridad menos restrictivas");
+  const activeProject = firebaseConfig.projectId || "(sin-projectId)"
+  console.log(`Ejecutando en modo desarrollo - usando Firebase proyecto: ${activeProject}`)
+  console.log("Para usar emuladores locales, ejecuta: firebase emulators:start")
 }
 
 export default app

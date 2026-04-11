@@ -1,7 +1,7 @@
 "use client"
 import Link from "next/link"
 import Image from "next/image"
-import { Search, User, ShoppingCart, LogOut, ShoppingBag, UserCircle } from "lucide-react"
+import { Search, User, ShoppingCart, LogOut, ShoppingBag, UserCircle, Ticket } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
 import {
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useCart } from "../context/CartContext"
 import { useAuth } from "../context/AuthContext"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import Cart from "./Cart"
 import SearchModal from "./SearchModal"
 import SleepingCat from "./SleepingCat"
@@ -25,7 +25,30 @@ export default function Header() {
   const { isOpen } = useBusinessHours()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [showCartHint, setShowCartHint] = useState(false)
+  const previousItemCount = useRef(0)
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
+
+  useEffect(() => {
+    const hadNoItemsBefore = previousItemCount.current === 0
+    const nowHasItems = itemCount > 0
+
+    if (hadNoItemsBefore && nowHasItems) {
+      setShowCartHint(true)
+    }
+
+    if (!nowHasItems) {
+      setShowCartHint(false)
+    }
+
+    previousItemCount.current = itemCount
+  }, [itemCount])
+
+  useEffect(() => {
+    if (isCartOpen) {
+      setShowCartHint(false)
+    }
+  }, [isCartOpen])
 
   return (
     <>
@@ -99,7 +122,13 @@ export default function Header() {
                     <DropdownMenuItem asChild>
                       <Link href="/perfil" className="cursor-pointer flex items-center text-sm">
                         <User className="mr-2 h-4 w-4" />
-                        <span>Mi cuenta</span>
+                        <span>Mi perfil</span>
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/perfil/puntos" className="cursor-pointer flex items-center text-sm">
+                        <Ticket className="mr-2 h-4 w-4" />
+                        <span>Puntos Palermo</span>
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
@@ -125,27 +154,38 @@ export default function Header() {
               )}
 
               {/* Shopping Cart */}
-              <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-                <SheetTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className={`bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all relative w-8 h-8 sm:w-10 sm:h-10 ${
-                      itemCount > 0 ? 'animate-pulse-glow' : ''
-                    }`}
-                  >
-                    <ShoppingCart className="w-3 h-3 sm:w-4 sm:h-4" />
-                    {itemCount > 0 && (
-                      <span className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-pink-500 text-white rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center text-xs font-bold shadow-md">
-                        {itemCount}
-                      </span>
-                    )}
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-full sm:w-96 p-0">
-                  <Cart onClose={() => setIsCartOpen(false)} />
-                </SheetContent>
-              </Sheet>
+              <div className="relative">
+                {showCartHint && itemCount > 0 && (
+                  <div className="absolute right-full mr-2 top-1/2 -translate-y-1/2 z-50">
+                    <div className="relative rounded-lg bg-pink-600 px-3 py-2 text-xs sm:text-sm font-semibold text-white shadow-lg whitespace-nowrap animate-cart-hint-horizontal">
+                      Continua tu compra aqui
+                      <span className="absolute left-full top-1/2 -translate-y-1/2 h-0 w-0 border-t-[7px] border-b-[7px] border-l-[8px] border-t-transparent border-b-transparent border-l-pink-600" />
+                    </div>
+                  </div>
+                )}
+
+                <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
+                  <SheetTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className={`bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all relative w-8 h-8 sm:w-10 sm:h-10 ${
+                        itemCount > 0 ? 'animate-pulse-glow' : ''
+                      }`}
+                    >
+                      <ShoppingCart className="w-3 h-3 sm:w-4 sm:h-4" />
+                      {itemCount > 0 && (
+                        <span className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-pink-500 text-white rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center text-xs font-bold shadow-md">
+                          {itemCount}
+                        </span>
+                      )}
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="right" className="w-full sm:w-96 p-0">
+                    <Cart onClose={() => setIsCartOpen(false)} />
+                  </SheetContent>
+                </Sheet>
+              </div>
             </div>
           </div>
         </div>

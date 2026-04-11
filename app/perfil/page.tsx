@@ -160,6 +160,7 @@ export default function PerfilPage() {
               </Button>
             </CardFooter>
           </Card>
+
         </div>
       </main>
 

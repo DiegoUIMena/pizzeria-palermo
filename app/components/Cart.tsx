@@ -19,8 +19,9 @@ import { useDeliveryZones } from "../../hooks/useDeliveryZones"
 import { useBusinessHours } from "@/hooks/useBusinessHours"
 import PizzaConfigModal from "./PizzaConfigModal"
 import InventoryErrorModal from "./InventoryErrorModal"
-import { functions } from "@/lib/firebase"
+import { functions, db } from "@/lib/firebase"
 import { httpsCallable } from "firebase/functions"
+import { collection, getDocs, query, where } from "firebase/firestore"
 import { useFirestorePizzaConfig } from "@/hooks/useFirestorePizzaConfig"
 
 interface CartProps {
@@ -44,6 +45,10 @@ const Cart = ({ onClose }: CartProps) => {
   })
 
   const { isAuthenticated, user } = useAuth()
+  const [guestName, setGuestName] = useState("")
+  const [guestPhone, setGuestPhone] = useState("")
+  const [guestEmail, setGuestEmail] = useState("")
+  const [guestFormError, setGuestFormError] = useState("")
   const { isOpen, config } = useBusinessHours()
   const [isDelivery, setIsDelivery] = useState<boolean | null>(null) // null = no seleccionado
   const [currentView, setCurrentView] = useState<"cart" | "address" | "payment" | "confirmation">("cart")
@@ -52,6 +57,7 @@ const Cart = ({ onClose }: CartProps) => {
   const [isRedirectingToWebpay, setIsRedirectingToWebpay] = useState(false)
   const [orderNumber, setOrderNumber] = useState(Math.floor(Math.random() * 100000))
   const [confirmedTotal, setConfirmedTotal] = useState(0)
+  const [guestTrackingUrl, setGuestTrackingUrl] = useState("")
   
   // Crear overlay directamente en el DOM cuando se activa WebPay
   useEffect(() => {
@@ -187,6 +193,19 @@ const Cart = ({ onClose }: CartProps) => {
   const [discountError, setDiscountError] = useState("")
   const [isDiscountPanelOpen, setIsDiscountPanelOpen] = useState(false)
 
+  // Estados para vouchers
+  const [voucherCode, setVoucherCode] = useState("")
+  const [appliedVoucher, setAppliedVoucher] = useState<{
+    id: string
+    code: string
+    rewardType: 'fixed_discount' | 'pizza_cap'
+    rewardLabel: string
+    minimumOrderAmount: number
+    discount: number
+  } | null>(null)
+  const [voucherError, setVoucherError] = useState("")
+  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false)
+
   // Estados para dirección
   const [calle, setCalle] = useState("")
   const [numero, setNumero] = useState("")
@@ -228,15 +247,23 @@ const Cart = ({ onClose }: CartProps) => {
   // Solo se cobra delivery si la ubicación pertenece a una zona definida y disponible
   const deliveryCost = isDelivery && deliveryInfo.zone && deliveryInfo.disponible ? deliveryInfo.tarifa : 0
 
-  // Calcular descuento
-  let discountAmount = 0
+  const orderHasPromoOrCombo = items.some((item) => {
+    const name = item.name.toLowerCase()
+    return name.includes('promo') || name.includes('combo') || item.pizzaType === 'promo'
+  })
+
+  // Calcular descuento total (códigos + vouchers)
+  let discountFromCode = 0
   if (appliedDiscount) {
     if (appliedDiscount.percentage) {
-      discountAmount = Math.round((subtotal * appliedDiscount.percentage) / 100)
+      discountFromCode = Math.round((subtotal * appliedDiscount.percentage) / 100)
     } else if (appliedDiscount.amount) {
-      discountAmount = appliedDiscount.amount
+      discountFromCode = appliedDiscount.amount
     }
   }
+
+  const voucherDiscount = appliedVoucher?.discount || 0
+  const discountAmount = discountFromCode + voucherDiscount
 
   const totalFinal = subtotal + deliveryCost - discountAmount
 
@@ -294,6 +321,14 @@ const Cart = ({ onClose }: CartProps) => {
   // Función para determinar si el botón de pago debe estar deshabilitado
   const isPaymentButtonDisabled = () => {
     if (isProcessing) return true
+
+    if (!isAuthenticated) {
+      const hasGuestName = guestName.trim().length >= 2
+      const hasGuestPhone = guestPhone.trim().length >= 8
+      const hasValidGuestEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim())
+
+      if (!hasGuestName || !hasGuestPhone || !hasValidGuestEmail) return true
+    }
     
     // Si es pago en efectivo, validar que el monto sea correcto
     if (paymentMethod === "efectivo") {
@@ -306,6 +341,36 @@ const Cart = ({ onClose }: CartProps) => {
     }
     
     return false
+  }
+
+  const validateGuestCheckoutData = () => {
+    if (user?.id) {
+      setGuestFormError("")
+      return true
+    }
+
+    const trimmedName = guestName.trim()
+    const trimmedPhone = guestPhone.trim()
+    const trimmedEmail = guestEmail.trim()
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+    if (trimmedName.length < 2) {
+      setGuestFormError("Ingresa tu nombre para continuar")
+      return false
+    }
+
+    if (trimmedPhone.length < 8) {
+      setGuestFormError("Ingresa un teléfono válido para coordinar tu pedido")
+      return false
+    }
+
+    if (!emailRegex.test(trimmedEmail)) {
+      setGuestFormError("Ingresa un correo electrónico válido")
+      return false
+    }
+
+    setGuestFormError("")
+    return true
   }
 
   const handleContinue = () => {
@@ -331,7 +396,7 @@ const Cart = ({ onClose }: CartProps) => {
       return
     }
     
-    if (items.length > 0 && isAuthenticated) {
+    if (items.length > 0) {
       if (!isDelivery) {
         setCurrentView("payment")
       } else {
@@ -462,12 +527,38 @@ const Cart = ({ onClose }: CartProps) => {
     try {
       // Crear el pedido en Firestore
       console.log(`🔵 === CREANDO PEDIDO ===`)
+      const hasAuthenticatedUser = Boolean(user?.id)
+      const customerType = hasAuthenticatedUser ? "registered" : "guest"
+      const guestCliente = {
+        nombre: guestName.trim(),
+        telefono: guestPhone.trim(),
+        email: guestEmail.trim()
+      }
+      const customerData = hasAuthenticatedUser
+        ? {
+            nombre: user?.name || 'Usuario Anónimo',
+            telefono: user?.phone || '',
+            email: user?.email || ''
+          }
+        : guestCliente
+
+      if (!validateGuestCheckoutData()) {
+        toast({
+          title: "Faltan datos del cliente",
+          description: "Completa nombre, teléfono y correo válido para continuar con el pedido.",
+          variant: "destructive",
+        })
+        setIsProcessing(false)
+        return
+      }
+
       const orderData: any = {
-        userId: user?.id || 'anonymous',
+        userId: hasAuthenticatedUser ? user?.id : undefined,
+        customerType,
         cliente: {
-          nombre: user?.name || 'Usuario Anónimo',
-          telefono: user?.phone || '',
-          email: user?.email || ''
+          nombre: customerData.nombre,
+          telefono: customerData.telefono,
+          email: customerData.email
         },
         tipoEntrega: isDelivery ? "Delivery" as const : "Retiro" as const,
         metodoPago: paymentMethod === "efectivo" ? "Efectivo" as const : 
@@ -505,6 +596,13 @@ const Cart = ({ onClose }: CartProps) => {
       // Solo agregar notas si hay referencia
       if (referencia && referencia.trim() !== '') {
         orderData.notas = referencia
+      }
+
+      // Agregar información del voucher si está aplicado
+      if (appliedVoucher && hasAuthenticatedUser) {
+        orderData.voucherId = appliedVoucher.id
+        orderData.voucherCode = appliedVoucher.code
+        orderData.voucherDiscount = appliedVoucher.discount
       }
 
       // Crear el pedido (ya incluye validación de inventario)
@@ -565,10 +663,16 @@ const Cart = ({ onClose }: CartProps) => {
           // Llamar a la Cloud Function para iniciar transacción Webpay
           console.log('🔵 Llamando a initWebpayTransaction...')
           const initWebpayFunction = httpsCallable(functions, "initWebpayTransaction")
+          const guestWebpayToken = !isAuthenticated ? result.guestAccessToken : undefined
+
+          if (!isAuthenticated && !guestWebpayToken) {
+            throw new Error("No se pudo generar token seguro para pago invitado")
+          }
+
           const webpayResponse = await initWebpayFunction({
             orderId: result.id,
-            amount: Math.round(totalFinal), // Webpay requiere monto entero
-            returnUrl
+            returnUrl,
+            guestAccessToken: guestWebpayToken
           })
           
           console.log('🔵 Respuesta de initWebpayTransaction:', webpayResponse)
@@ -619,6 +723,18 @@ const Cart = ({ onClose }: CartProps) => {
       // Para otros métodos de pago (efectivo, transferencia), continuar con flujo normal
       // Usamos el número de pedido real devuelto por Firestore
       setOrderNumber(result.orderNumber)
+
+      if (!hasAuthenticatedUser) {
+        const trackingUrl = `/seguimiento-pedido/guest?email=${encodeURIComponent(customerData.email)}&phone=${encodeURIComponent(customerData.telefono)}`
+        setGuestTrackingUrl(trackingUrl)
+        localStorage.setItem(
+          "guestTrackingData",
+          JSON.stringify({
+            email: customerData.email,
+            phone: customerData.telefono,
+          })
+        )
+      }
       
       // Guardar el total confirmado antes de cambiar de vista
       setConfirmedTotal(totalFinal)
@@ -631,6 +747,9 @@ const Cart = ({ onClose }: CartProps) => {
         clearCart()
         setAppliedDiscount(null)
         setDiscountCode("")
+        setAppliedVoucher(null)
+        setVoucherCode("")
+        setGuestTrackingUrl("")
         setExpandedItems({})
         setCurrentView("cart")
         // Cerrar el Sheet después de limpiar con un pequeño delay para animación
@@ -663,6 +782,11 @@ const Cart = ({ onClose }: CartProps) => {
   }
 
   const handleApplyDiscount = () => {
+    if (appliedVoucher) {
+      setDiscountError("No puedes combinar código promocional con voucher de Puntos Palermo")
+      return
+    }
+
     const code = discountCode.toUpperCase().trim()
     if (!code) {
       setDiscountError("Ingresa un código de descuento")
@@ -688,6 +812,151 @@ const Cart = ({ onClose }: CartProps) => {
     setAppliedDiscount(null)
     setDiscountCode("")
     setDiscountError("")
+  }
+
+  const handleApplyVoucher = async () => {
+    if (!user?.id) {
+      setVoucherError("Debes estar autenticado para usar vouchers")
+      return
+    }
+
+    if (appliedDiscount) {
+      setVoucherError("No puedes combinar voucher con código promocional")
+      return
+    }
+
+    if (orderHasPromoOrCombo) {
+      setVoucherError("Este pedido incluye promo/combo y no permite aplicar voucher")
+      return
+    }
+
+    const code = voucherCode.toUpperCase().trim()
+    if (!code) {
+      setVoucherError("Ingresa el código del voucher")
+      return
+    }
+
+    try {
+      setIsValidatingVoucher(true)
+      setVoucherError("")
+
+      // Buscar por código explícito del voucher
+      const vouchersRef = collection(db, 'users', user.id, 'vouchers')
+      const byCodeQuery = query(vouchersRef, where('code', '==', code))
+      let vouchersSnap = await getDocs(byCodeQuery)
+
+      // Fallback legacy para vouchers antiguos sin campo code
+      if (vouchersSnap.empty) {
+        vouchersSnap = await getDocs(vouchersRef)
+      }
+      
+      let foundVoucher = null
+      let voucherId = ''
+      let matchedCode = ''
+      
+      for (const doc of vouchersSnap.docs) {
+        const data = doc.data()
+        const docCode = data.code || doc.id.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()
+        if (docCode === code) {
+          foundVoucher = data
+          voucherId = doc.id
+          matchedCode = docCode
+          break
+        }
+      }
+
+      if (!foundVoucher) {
+        setVoucherError("Código de voucher no válido")
+        setAppliedVoucher(null)
+        return
+      }
+
+      // Verificar uso histórico del voucher en órdenes del usuario
+      // (cubre casos antiguos donde el status del voucher quedó desincronizado)
+      const userOrdersRef = collection(db, 'orders')
+      const userOrdersSnap = await getDocs(query(userOrdersRef, where('userId', '==', user.id)))
+      const alreadyUsedInOrder = userOrdersSnap.docs.some(orderDoc => {
+        const orderData = orderDoc.data()
+        const isSameVoucher = orderData.voucherId === voucherId
+        const isCancelled = orderData.estado === 'Cancelado'
+        const isFailedPayment = orderData.paymentStatus === 'failed'
+        return isSameVoucher && !isCancelled && !isFailedPayment
+      })
+
+      if (alreadyUsedInOrder) {
+        setVoucherError("Este voucher ya ha sido utilizado")
+        setAppliedVoucher(null)
+        return
+      }
+
+      // Validar que no esté usado
+      if (foundVoucher.status === 'used') {
+        setVoucherError("Este voucher ya ha sido utilizado")
+        setAppliedVoucher(null)
+        return
+      }
+
+      // Validar que no esté expirado
+      if (foundVoucher.status === 'expired') {
+        setVoucherError("Este voucher ha expirado")
+        setAppliedVoucher(null)
+        return
+      }
+
+      // Validar fecha de expiración
+      const expiresAt = foundVoucher.expiresAt?.toDate?.() || foundVoucher.expiresAt
+      if (expiresAt && new Date(expiresAt) < new Date()) {
+        setVoucherError("Este voucher ha expirado")
+        setAppliedVoucher(null)
+        return
+      }
+
+      const rewardType = (foundVoucher.rewardType || ((foundVoucher.pizzasIncluded || foundVoucher.pizzasAwarded || 0) > 0 ? 'pizza_cap' : 'fixed_discount')) as 'fixed_discount' | 'pizza_cap'
+      const minimumOrderAmount = Number(foundVoucher.minimumOrderAmount || 0)
+      const discountAmount = Number(foundVoucher.discountAmount || 0)
+      const rewardLabel =
+        foundVoucher.rewardLabel ||
+        (rewardType === 'pizza_cap'
+          ? `Pizza gratis hasta $${discountAmount.toLocaleString('es-CL')}`
+          : `$${discountAmount.toLocaleString('es-CL')} de descuento`)
+
+      if (minimumOrderAmount > 0 && subtotal < minimumOrderAmount) {
+        setVoucherError(`Este voucher requiere compra mínima de $${minimumOrderAmount.toLocaleString('es-CL')}`)
+        setAppliedVoucher(null)
+        return
+      }
+
+      const discount = Math.min(subtotal, Math.max(0, discountAmount))
+
+      if (discount <= 0) {
+        setVoucherError("Este voucher no tiene un descuento válido")
+        setAppliedVoucher(null)
+        return
+      }
+
+      setAppliedVoucher({
+        id: voucherId,
+        code: matchedCode || code,
+        rewardType,
+        rewardLabel,
+        minimumOrderAmount,
+        discount,
+      })
+      setVoucherCode("")
+      setVoucherError("")
+    } catch (error) {
+      console.error('[CART] Error validando voucher:', error)
+      setVoucherError("Error al validar el voucher. Intenta nuevamente.")
+      setAppliedVoucher(null)
+    } finally {
+      setIsValidatingVoucher(false)
+    }
+  }
+
+  const handleRemoveVoucher = () => {
+    setAppliedVoucher(null)
+    setVoucherCode("")
+    setVoucherError("")
   }
 
   // Montar/desmontar el selector de ubicación para forzar recarga
@@ -854,12 +1123,23 @@ const Cart = ({ onClose }: CartProps) => {
               <ArrowRightCircle className="h-5 w-5 text-blue-600 mr-2" />
               Seguimiento de Pedido
             </h3>
-            <p className="text-gray-700">
-              Sigue el estado de tu pedido en la sección de 
-              <Link href="/pedidos" className="font-bold text-blue-600 hover:underline mx-1">
-                "Mis Pedidos"
-              </Link>
-            </p>
+            {isAuthenticated ? (
+              <p className="text-gray-700">
+                Sigue el estado de tu pedido en la sección de 
+                <Link href="/pedidos" className="font-bold text-blue-600 hover:underline mx-1">
+                  "Mis Pedidos"
+                </Link>
+              </p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-gray-700">
+                  Como invitado, puedes seguir el estado de este pedido desde aquí:
+                </p>
+                <Link href={guestTrackingUrl || "/seguimiento-pedido/guest"} className="inline-block font-bold text-blue-600 hover:underline">
+                  Ver seguimiento de mi pedido
+                </Link>
+              </div>
+            )}
           </div>
           
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4">
@@ -1097,10 +1377,16 @@ const Cart = ({ onClose }: CartProps) => {
                     <span>+${deliveryCost.toLocaleString()}</span>
                   </div>
                 )}
-                {appliedDiscount && discountAmount > 0 && (
+                {appliedDiscount && discountFromCode > 0 && (
                   <div className="flex justify-between text-green-600">
                     <span>Descuento ({appliedDiscount.code}):</span>
-                    <span>-${discountAmount.toLocaleString()}</span>
+                    <span>-${discountFromCode.toLocaleString()}</span>
+                  </div>
+                )}
+                {appliedVoucher && (
+                  <div className="flex justify-between text-green-600">
+                    <span>Voucher ({appliedVoucher.code}):</span>
+                    <span>-${appliedVoucher.discount.toLocaleString()}</span>
                   </div>
                 )}
                 <div className="flex justify-between font-bold text-lg border-t pt-2">
@@ -1111,6 +1397,59 @@ const Cart = ({ onClose }: CartProps) => {
             </div>
 
             {/* Métodos de pago */}
+            {!isAuthenticated && (
+              <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 space-y-3">
+                <div>
+                  <h3 className="font-medium text-amber-900">Compra como invitado</h3>
+                  <p className="text-xs text-amber-700">Usaremos estos datos para confirmar y coordinar tu pedido.</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="guestName" className="text-sm">Nombre completo</Label>
+                  <Input
+                    id="guestName"
+                    value={guestName}
+                    onChange={(e) => {
+                      setGuestName(e.target.value)
+                      if (guestFormError) setGuestFormError("")
+                    }}
+                    placeholder="Ej: Diego Pérez"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="guestPhone" className="text-sm">Teléfono</Label>
+                  <Input
+                    id="guestPhone"
+                    value={guestPhone}
+                    onChange={(e) => {
+                      setGuestPhone(e.target.value)
+                      if (guestFormError) setGuestFormError("")
+                    }}
+                    placeholder="Ej: +56 9 1234 5678"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="guestEmail" className="text-sm">Correo electrónico</Label>
+                  <Input
+                    id="guestEmail"
+                    type="email"
+                    value={guestEmail}
+                    onChange={(e) => {
+                      setGuestEmail(e.target.value)
+                      if (guestFormError) setGuestFormError("")
+                    }}
+                    placeholder="Ej: nombre@email.com"
+                  />
+                </div>
+
+                {guestFormError && (
+                  <p className="text-sm text-red-600">{guestFormError}</p>
+                )}
+              </div>
+            )}
+
             <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="space-y-3">
               <div className="flex items-center space-x-2">
                 <RadioGroupItem value="webpay" id="webpay" />
@@ -1121,7 +1460,9 @@ const Cart = ({ onClose }: CartProps) => {
                   <CreditCard className="h-4 w-4 text-pink-600 mr-3" />
                   <div>
                     <div className="font-medium text-gray-800">Webpay Plus</div>
-                    <div className="text-xs text-gray-500">Tarjeta de crédito o débito</div>
+                    <div className="text-xs text-gray-500">
+                      {isAuthenticated ? "Tarjeta de crédito o débito" : "Tarjeta de crédito o débito (modo invitado seguro)"}
+                    </div>
                   </div>
                 </Label>
               </div>
@@ -1206,7 +1547,7 @@ const Cart = ({ onClose }: CartProps) => {
           </div>
         </div>
 
-        {/* Sección de código de descuento colapsable */}
+        {/* Sección unificada: vouchers + códigos de descuento */}
         <div className="border-t border-gray-200 bg-gray-50">
           {/* Botón/pestaña para abrir el panel */}
           <button
@@ -1216,11 +1557,11 @@ const Cart = ({ onClose }: CartProps) => {
             <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-pink-600" />
               <span className="font-medium text-gray-800">
-                {appliedDiscount ? 'Descuento aplicado' : '¿Tienes un código de descuento?'}
+                {appliedVoucher || appliedDiscount ? 'Promoción aplicada' : 'Vouchers y códigos de descuento'}
               </span>
-              {appliedDiscount && (
+              {(appliedVoucher || appliedDiscount) && (
                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
-                  {appliedDiscount.code}
+                  Activo
                 </span>
               )}
             </div>
@@ -1241,49 +1582,121 @@ const Cart = ({ onClose }: CartProps) => {
             }}
           >
             <div className="p-4 bg-white border-t border-gray-200">
-              {appliedDiscount ? (
-                <div className="flex items-center justify-between bg-green-50 p-3 rounded-lg border border-green-200">
-                  <div>
-                    <span className="font-medium text-green-800">{appliedDiscount.code}</span>
-                    <p className="text-xs text-green-600">
-                      {appliedDiscount.percentage
-                        ? `${appliedDiscount.percentage}% de descuento aplicado`
-                        : `$${appliedDiscount.amount.toLocaleString()} de descuento aplicado`}
-                    </p>
+              <div className="space-y-4">
+                {/* Bloque Voucher */}
+                {user?.id && (
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🍕</span>
+                      <p className="text-sm font-semibold text-blue-900">Voucher de Puntos Palermo</p>
+                    </div>
+
+                    {appliedVoucher ? (
+                      <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
+                        <div>
+                          <p className="font-medium text-green-800">{appliedVoucher.rewardLabel}</p>
+                          <p className="text-xs text-gray-600">Código: {appliedVoucher.code}</p>
+                          {appliedVoucher.minimumOrderAmount > 0 && (
+                            <p className="text-xs text-amber-700">Compra mínima: ${appliedVoucher.minimumOrderAmount.toLocaleString()}</p>
+                          )}
+                          <p className="text-xs text-green-700">Ahorro: ${appliedVoucher.discount.toLocaleString()}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveVoucher}
+                          className="text-red-600 hover:bg-red-50"
+                        >
+                          Quitar
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <Input
+                            value={voucherCode}
+                            onChange={(e) => {
+                              setVoucherCode(e.target.value)
+                              if (voucherError) setVoucherError("")
+                            }}
+                            placeholder="Ingresa código del voucher"
+                            className="text-sm uppercase"
+                            disabled={isValidatingVoucher}
+                            maxLength={10}
+                          />
+                          <Button
+                            onClick={handleApplyVoucher}
+                            disabled={isValidatingVoucher || !voucherCode.trim()}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 whitespace-nowrap"
+                            size="sm"
+                          >
+                            {isValidatingVoucher ? "Validando..." : "Aplicar"}
+                          </Button>
+                        </div>
+                        {voucherError && (
+                          <div className="flex items-center gap-2 p-2 bg-red-50 rounded text-red-700 text-xs">
+                            <AlertCircle className="h-4 w-4" />
+                            <span>{voucherError}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleRemoveDiscount}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    Quitar
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex space-x-2">
-                    <Input
-                      placeholder="Ingresa tu código"
-                      value={discountCode}
-                      onChange={(e) => {
-                        setDiscountCode(e.target.value)
-                        setDiscountError("")
-                      }}
-                      className="flex-1"
-                    />
-                    <Button
-                      onClick={handleApplyDiscount}
-                      variant="outline"
-                      className="border-pink-300 text-pink-600 hover:bg-pink-50"
-                    >
-                      Aplicar
-                    </Button>
+                )}
+
+                {/* Bloque Código de Descuento */}
+                <div className="bg-pink-50 p-3 rounded-lg border border-pink-200 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-pink-600" />
+                    <p className="text-sm font-semibold text-pink-900">Código promocional</p>
                   </div>
-                  {discountError && <p className="text-xs text-red-600">{discountError}</p>}
-                  <p className="text-xs text-gray-500">Códigos de prueba: BIENVENIDO10, PIZZA20, DELIVERY5, PROMO15</p>
+
+                  {appliedDiscount ? (
+                    <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
+                      <div>
+                        <span className="font-medium text-green-800">{appliedDiscount.code}</span>
+                        <p className="text-xs text-green-600">
+                          {appliedDiscount.percentage
+                            ? `${appliedDiscount.percentage}% de descuento aplicado`
+                            : `$${appliedDiscount.amount.toLocaleString()} de descuento aplicado`}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveDiscount}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Quitar
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex space-x-2">
+                        <Input
+                          placeholder="Ingresa tu código"
+                          value={discountCode}
+                          onChange={(e) => {
+                            setDiscountCode(e.target.value)
+                            setDiscountError("")
+                          }}
+                          className="flex-1"
+                        />
+                        <Button
+                          onClick={handleApplyDiscount}
+                          variant="outline"
+                          className="border-pink-300 text-pink-600 hover:bg-pink-50"
+                        >
+                          Aplicar
+                        </Button>
+                      </div>
+                      {discountError && <p className="text-xs text-red-600">{discountError}</p>}
+                      <p className="text-xs text-gray-500">Códigos de prueba: BIENVENIDO10, PIZZA20, DELIVERY5, PROMO15</p>
+                      <p className="text-xs text-amber-700">No combina con vouchers de Puntos Palermo.</p>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
         </div>
@@ -1957,10 +2370,16 @@ const Cart = ({ onClose }: CartProps) => {
               <span className="font-medium">+${deliveryCost.toLocaleString()}</span>
             </div>
           )}
-          {appliedDiscount && discountAmount > 0 && (
+          {appliedDiscount && discountFromCode > 0 && (
             <div className="flex justify-between text-xs sm:text-sm text-green-600">
               <span>Descuento ({appliedDiscount.code})</span>
-              <span className="font-medium">-${discountAmount.toLocaleString()}</span>
+              <span className="font-medium">-${discountFromCode.toLocaleString()}</span>
+            </div>
+          )}
+          {appliedVoucher && (
+            <div className="flex justify-between text-xs sm:text-sm text-green-600">
+              <span>Voucher ({appliedVoucher.code})</span>
+              <span className="font-medium">-${appliedVoucher.discount.toLocaleString()}</span>
             </div>
           )}
           <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
@@ -2036,19 +2455,30 @@ const Cart = ({ onClose }: CartProps) => {
               : "Continuar"}
           </Button>
         ) : (
-          <Button
-            className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-xs sm:text-sm ${
-              !isOpen
-                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
-            }`}
-            onClick={!isOpen ? undefined : handleLoginRedirect}
-            disabled={!isOpen}
-          >
-            {!isOpen 
-              ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}` 
-              : "Inicia sesión para continuar"}
-          </Button>
+          <div className="space-y-2">
+            <Button
+              className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-sm sm:text-base ${
+                !isOpen || isDelivery === null
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
+              }`}
+              onClick={handleContinue}
+              disabled={!isOpen || isDelivery === null}
+            >
+              {!isOpen
+                ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}`
+                : "Continuar como invitado"}
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full font-semibold py-2.5 sm:py-3 text-xs sm:text-sm border-pink-300 text-pink-700 hover:bg-pink-50"
+              onClick={!isOpen ? undefined : handleLoginRedirect}
+              disabled={!isOpen}
+            >
+              Iniciar sesión (opcional)
+            </Button>
+          </div>
         )}
       </div>
       

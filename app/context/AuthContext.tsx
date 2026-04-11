@@ -99,20 +99,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
           if (userDoc.exists()) {
             const userData = userDoc.data() as User;
+            const firestoreRole = (userData.role || "customer") as "customer" | "admin" | "staff";
+            const effectiveRole =
+              (roleFromClaim === "admin" || roleFromClaim === "staff")
+                ? (roleFromClaim as "admin" | "staff")
+                : firestoreRole;
             
-            // PRIORIZAR el rol del custom claim sobre el de Firestore
-            // Los custom claims son la fuente de verdad para roles
+            // Preferir claim cuando existe admin/staff; si no, usar Firestore como fallback.
             setAuthState({
               user: {
                 ...userData,
                 id: firebaseUser.uid,
-                role: roleFromClaim as "customer" | "admin" | "staff" // Custom claim tiene prioridad
+                role: effectiveRole,
               },
               firebaseUser,
               isAuthenticated: true,
               isLoading: false,
             });
-            console.log("Usuario autenticado con rol:", roleFromClaim);
+            console.log("Usuario autenticado con rol:", effectiveRole);
           } else {
             // Si no existe el documento, crear uno básico
             const basicUserData: User = {
@@ -192,7 +196,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await signInWithEmailAndPassword(auth, email, password)
       // El estado se actualizará automáticamente por onAuthStateChanged
     } catch (error: any) {
-      console.error("Error al iniciar sesión:", error)
+      console.error("Error al iniciar sesión:", {
+        code: error?.code,
+        message: error?.message,
+        projectId: auth.app.options.projectId,
+      })
       throw new Error(getErrorMessage(error.code))
     }
   }
@@ -322,15 +330,22 @@ function getErrorMessage(errorCode: string): string {
       return "No existe una cuenta con este correo electrónico"
     case "auth/wrong-password":
       return "Contraseña incorrecta"
+    case "auth/invalid-credential":
+    case "auth/invalid-login-credentials":
+      return "Correo o contraseña incorrectos para este proyecto Firebase"
     case "auth/email-already-in-use":
       return "Ya existe una cuenta con este correo electrónico"
     case "auth/weak-password":
       return "La contraseña debe tener al menos 6 caracteres"
     case "auth/invalid-email":
       return "Correo electrónico inválido"
+    case "auth/operation-not-allowed":
+      return "El inicio de sesión con Email/Contraseña no está habilitado en Firebase Auth"
     case "auth/too-many-requests":
       return "Demasiados intentos fallidos. Intenta más tarde"
+    case "auth/network-request-failed":
+      return "Error de red al conectar con Firebase. Revisa tu conexión"
     default:
-      return "Ha ocurrido un error. Intenta nuevamente"
+      return `Ha ocurrido un error de autenticación (${errorCode || "desconocido"})`
   }
 }

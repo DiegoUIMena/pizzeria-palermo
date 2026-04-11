@@ -12,9 +12,9 @@ export default function ClosedBanner() {
   const [isVisible, setIsVisible] = useState(false)
   const [isDismissed, setIsDismissed] = useState(false)
 
-  // 🔍 DEBUG: Logging del estado
+  // [DEBUG] Logging del estado
   useEffect(() => {
-    console.log('🎨 ClosedBanner - Estado actual:', {
+    console.log('[ClosedBanner] Estado actual:', {
       isOpen,
       activeBannerUrl,
       isVisible,

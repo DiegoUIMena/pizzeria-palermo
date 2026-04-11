@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useReducer, type ReactNode } from "react"
+import { createContext, useContext, useEffect, useReducer, useState, type ReactNode } from "react"
 import { type Order, type OrderItem } from "../../lib/orders"
 import { functions } from "../../lib/firebase"
 import { httpsCallable } from "firebase/functions"
@@ -37,11 +37,14 @@ interface CartState {
   items: CartItem[]
 }
 
+const CART_STORAGE_KEY = "pizzeria-palermo-cart-v1"
+
 type CartAction =
   | { type: "ADD_ITEM"; payload: CartItem }
   | { type: "UPDATE_QUANTITY"; payload: { id: string; quantity: number } }
   | { type: "UPDATE_ITEM"; payload: CartItem }
   | { type: "REMOVE_ITEM"; payload: string }
+  | { type: "HYDRATE_ITEMS"; payload: CartItem[] }
   | { type: "CLEAR_CART" }
 
 const CartContext = createContext<{
@@ -52,12 +55,16 @@ const CartContext = createContext<{
   removeItem: (id: string) => void
   clearCart: () => void
   getTotal: () => number
-  createOrder: (orderData: CreateOrderData) => Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}>
+  createOrder: (orderData: CreateOrderData) => Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, guestAccessToken?: string, guestTokenExpiresAt?: string}>
 } | null>(null)
 
 // Tipo para los datos necesarios para crear un pedido
 interface CreateOrderData {
-  userId: string
+  userId?: string
+  customerType?: "guest" | "registered"
+  voucherId?: string
+  voucherCode?: string
+  voucherDiscount?: number
   cliente: {
     nombre: string
     telefono: string
@@ -135,6 +142,12 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   items: state.items.filter((item) => item.id !== action.payload),
       }
 
+    case "HYDRATE_ITEMS":
+      return {
+        ...state,
+        items: action.payload,
+      }
+
     case "CLEAR_CART":
       return { items: [] }
 
@@ -143,8 +156,87 @@ function cartReducer(state: CartState, action: CartAction): CartState {
   }
 }
 
+function sanitizeCartItem(raw: any): CartItem | null {
+  if (!raw || typeof raw !== "object") return null
+  if (typeof raw.id !== "string" || typeof raw.name !== "string") return null
+  if (typeof raw.price !== "number" || !Number.isFinite(raw.price)) return null
+
+  const quantity = Number(raw.quantity)
+  if (!Number.isFinite(quantity) || quantity <= 0) return null
+
+  return {
+    id: raw.id,
+    name: raw.name,
+    price: raw.price,
+    image: typeof raw.image === "string" ? raw.image : "/placeholder.svg",
+    quantity,
+    size: raw.size,
+    variant: raw.variant,
+    ingredients: Array.isArray(raw.ingredients) ? raw.ingredients : undefined,
+    premiumIngredients: Array.isArray(raw.premiumIngredients) ? raw.premiumIngredients : undefined,
+    sauces: Array.isArray(raw.sauces) ? raw.sauces : undefined,
+    drinks: Array.isArray(raw.drinks) ? raw.drinks : undefined,
+    extras: Array.isArray(raw.extras) ? raw.extras : undefined,
+    basePrice: typeof raw.basePrice === "number" ? raw.basePrice : undefined,
+    ingredientsPrice: typeof raw.ingredientsPrice === "number" ? raw.ingredientsPrice : undefined,
+    extrasPrice: typeof raw.extrasPrice === "number" ? raw.extrasPrice : undefined,
+    pizzaType: raw.pizzaType,
+    pizza1: raw.pizza1,
+    pizza2: raw.pizza2,
+    selectedMenuPizza: raw.selectedMenuPizza,
+    comments: raw.comments,
+    sinOregano: raw.sinOregano,
+    sinQueso: raw.sinQueso,
+    sinSalsaTomate: raw.sinSalsaTomate,
+  }
+}
+
+function getInitialCartState(): CartState {
+  if (typeof window === "undefined") {
+    return { items: [] }
+  }
+
+  try {
+    const stored = window.localStorage.getItem(CART_STORAGE_KEY)
+    if (!stored) {
+      return { items: [] }
+    }
+
+    const parsed = JSON.parse(stored)
+    if (!Array.isArray(parsed)) {
+      return { items: [] }
+    }
+
+    const items = parsed
+      .map(sanitizeCartItem)
+      .filter((item): item is CartItem => item !== null)
+
+    return { items }
+  } catch {
+    return { items: [] }
+  }
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(cartReducer, { items: [] })
+  const [storageHydrated, setStorageHydrated] = useState(false)
+
+  useEffect(() => {
+    const initialState = getInitialCartState()
+    if (initialState.items.length > 0) {
+      dispatch({ type: "HYDRATE_ITEMS", payload: initialState.items })
+    }
+    setStorageHydrated(true)
+  }, [])
+
+  useEffect(() => {
+    if (!storageHydrated) return
+    try {
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(state.items))
+    } catch {
+      // Ignorar errores de storage (modo privado, cuota, etc.)
+    }
+  }, [state.items, storageHydrated])
 
   const addItem = (item: CartItem) => {
     dispatch({ type: "ADD_ITEM", payload: item })
@@ -164,13 +256,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clearCart = () => {
     dispatch({ type: "CLEAR_CART" })
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(CART_STORAGE_KEY)
+      } catch {
+        // Ignorar errores de storage
+      }
+    }
   }
 
   const getTotal = () => {
     return state.items.reduce((total, item) => total + item.price * item.quantity, 0)
   }
 
-  const createOrder = async (orderData: CreateOrderData): Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any}> => {
+  const createOrder = async (orderData: CreateOrderData): Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, guestAccessToken?: string, guestTokenExpiresAt?: string}> => {
     try {
       // Convertir CartItem[] a OrderItem[]
       const orderItems: OrderItem[] = state.items.map(item => ({
@@ -187,7 +286,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         pizzaType: item.pizzaType,
         pizza1: item.pizza1,
         pizza2: item.pizza2,
-        selectedMenuPizza: item.selectedMenuPizza, // ⭐ AGREGADO: Pizza base seleccionada
+        selectedMenuPizza: item.selectedMenuPizza, // [ADDED] Pizza base seleccionada
         // Opciones de personalización
         sinOregano: item.sinOregano,
         sinQueso: item.sinQueso,
@@ -199,12 +298,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
       
       const payloadToSend = {
         userId: orderData.userId,
+        customerType: orderData.customerType || "registered",
         cliente: orderData.cliente,
         tipoEntrega: orderData.tipoEntrega,
         direccion: orderData.direccion,
         items: orderItems,
         total: getTotal(),
         metodoPago: orderData.metodoPago,
+        voucherId: orderData.voucherId,
+        voucherCode: orderData.voucherCode,
+        voucherDiscount: orderData.voucherDiscount,
         paymentDetails: orderData.paymentDetails,
         tiempoEstimado: orderData.tiempoEstimado,
         notas: orderData.notas
@@ -212,7 +315,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       
       const functionResponse = await createOrderFunction(payloadToSend)
 
-      const result = functionResponse.data as {id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, details?: any}
+      const result = functionResponse.data as {id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, details?: any, guestAccessToken?: string, guestTokenExpiresAt?: string}
 
       // Limpiar el carrito solo si el pedido fue exitoso
       if (result.success) {

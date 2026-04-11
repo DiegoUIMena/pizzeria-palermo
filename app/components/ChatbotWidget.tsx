@@ -18,7 +18,7 @@ interface Message {
   timestamp: Date
 }
 
-const TENANT_ID = 'pizzeria-palermo-17f6d' // Usar tu tenantId real
+const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID || 'pizzeria-palermo-17f6d'
 
 export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)

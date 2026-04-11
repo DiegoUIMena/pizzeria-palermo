@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Entorno TEST: acceso abierto para acelerar QA y evitar bloqueos por Auth no inicializado.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

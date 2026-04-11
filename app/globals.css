@@ -259,6 +259,20 @@
   }
 }
 
+@keyframes cartHintHorizontal {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-14px);
+  }
+}
+
+.animate-cart-hint-horizontal {
+  animation: cartHintHorizontal 0.9s ease-in-out infinite;
+}
+
 .animate-fadeIn {
   animation: fadeIn 0.5s ease-out;
 }
@@ -378,6 +392,12 @@ textarea:focus {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  /* Mantener visible la guía principal del carrito aun con reduced motion */
+  .animate-cart-hint-horizontal {
+    animation-duration: 0.9s !important;
+    animation-iteration-count: infinite !important;
   }
 }
 

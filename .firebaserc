@@ -1,7 +1,8 @@
 {
   "projects": {
     "pizzeriapalermo": "pizzeria-palermo-17f6d",
-    "default": "pizzeria-palermo-17f6d"
+    "default": "pizzeria-palermo-17f6d",
+    "test": "pizzeria-palermo-test-20260401"
   },
   "targets": {},
   "etags": {}

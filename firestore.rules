@@ -34,6 +34,28 @@ service cloud.firestore {
       
       // Solo admin puede eliminar usuarios
       allow delete: if isAdmin();
+      
+      // ============================================
+      // SUBCOLLECTION: Historial de Puntos
+      // ============================================
+      match /points_history/{transactionId} {
+        // Usuario puede leer su propio historial de puntos
+        allow read: if isAuthenticated() && request.auth.uid == userId;
+        
+        // Las Cloud Functions escriben (no se permite desde cliente)
+        allow write: if false;
+      }
+      
+      // ============================================
+      // SUBCOLLECTION: Vouchers Canjeados
+      // ============================================
+      match /vouchers/{voucherId} {
+        // Usuario puede leer sus propios vouchers
+        allow read: if isAuthenticated() && request.auth.uid == userId;
+        
+        // Las Cloud Functions escriben (no se permite desde cliente)
+        allow write: if false;
+      }
     }
     
     // ============================================

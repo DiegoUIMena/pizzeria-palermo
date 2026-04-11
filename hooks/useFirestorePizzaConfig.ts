@@ -34,6 +34,22 @@ export function useFirestorePizzaConfig() {
   const queryClient = useQueryClient()
   const [itemsMenu, setItemsMenu] = useState<any[]>([])
 
+  // Carga inicial de items_menu para evitar depender solo del listener realtime
+  const {
+    data: initialItemsMenu = [],
+    isLoading: itemsMenuInitialLoading,
+    error: itemsMenuInitialError,
+  } = useQuery({
+    queryKey: ['items_menu_initial'],
+    queryFn: async () => {
+      const snapshot = await getDocs(collection(db, 'items_menu'))
+      return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+    },
+    enabled: initialized,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+
   // Cargar ingredientes con React Query (cache de 5 minutos)
   const { 
     data: ingredients = [], 
@@ -134,6 +150,14 @@ export function useFirestorePizzaConfig() {
     }
   }, [initialized, queryClient])
 
+  // Si el realtime aún no entrega datos, usar carga inicial como fallback
+  useEffect(() => {
+    if (!initialized) return
+    if (itemsMenu.length === 0 && initialItemsMenu.length > 0) {
+      setItemsMenu(initialItemsMenu)
+    }
+  }, [initialized, itemsMenu.length, initialItemsMenu])
+
   // Función para refrescar datos manualmente
   const refreshData = () => {
     console.log("Forzando actualización de datos")
@@ -143,8 +167,9 @@ export function useFirestorePizzaConfig() {
     queryClient.invalidateQueries({ queryKey: ['precios_configuracion'] })
   }
 
-  const loading = ingredientsLoading || categoriesLoading || preciosLoading || itemsMenu.length === 0
-  const error = ingredientsError || categoriesError || preciosError
+  const waitingForItemsMenu = initialized && itemsMenu.length === 0 && itemsMenuInitialLoading
+  const loading = ingredientsLoading || categoriesLoading || preciosLoading || waitingForItemsMenu
+  const error = ingredientsError || categoriesError || preciosError || itemsMenuInitialError
 
   return { 
     loading, 

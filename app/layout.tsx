@@ -14,10 +14,9 @@ import { ClientComponents } from "./components/ClientComponents"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "Pizzeria Palermo - Las mejores pizzas artesanales",
-  description:
-    "Disfruta de nuestras deliciosas pizzas artesanales con ingredientes frescos. Pedidos online con delivery y retiro en local.",
-  keywords: "pizza, pizzeria, delivery, comida italiana, pedidos online",
+  title: "Pizzeria Palermo",
+  description: "Pizzas artesanales de calidad. Pedidos online con delivery y retiro en local.",
+  keywords: "pizza, pizzeria, delivery, italy, orders online",
   generator: "v0.dev",
 }
 

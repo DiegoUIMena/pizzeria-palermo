@@ -36,7 +36,8 @@ export interface ClientInfo {
 }
 
 export interface CreateOrderData {
-  userId: string;
+  userId?: string;
+  customerType?: "guest" | "registered";
   cliente: ClientInfo;
   tipoEntrega: "Delivery" | "Retiro";
   direccion?: OrderAddress;
@@ -47,6 +48,9 @@ export interface CreateOrderData {
     change?: number;
   };
   notas?: string;
+  voucherId?: string;
+  voucherCode?: string;
+  voucherDiscount?: number;
 }
 
 export interface Order extends CreateOrderData {
@@ -66,6 +70,14 @@ export interface Order extends CreateOrderData {
   tiempoEstimadoMinutos?: number;
   inventoryProcessed?: boolean;
   inventoryStatus?: "pending" | "processed" | "failed" | "reverted" | "cancelled_before_processing";
+  guestCheckout?: {
+    webpayTokenHash?: string;
+    webpayTokenExpiresAt?: string;
+    webpayInitAttempts?: number;
+    webpayTokenCreatedAt?: string;
+    lastFailedAttemptAt?: string;
+    lastSuccessfulInitAt?: string;
+  };
 }
 
 export interface ValidationResult {

@@ -18,14 +18,30 @@ export default function AdminLayout({
   const { user, isAuthenticated, isLoading } = useAuth()
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
+  const isTestHost =
+    typeof window !== 'undefined' &&
+    (
+      window.location.hostname === 'pizzeria-palermo-test-20260401.web.app' ||
+      window.location.hostname === 'pizzeria-palermo-test-20260401.firebaseapp.com'
+    )
+  const isTestProject =
+    process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID === 'pizzeria-palermo-test-20260401' ||
+    isTestHost
 
   useEffect(() => {
+    if (isTestProject) {
+      // Entorno de pruebas aislado: permitir acceso admin para QA sin bloquear por Auth.
+      setIsAuthorized(true)
+      setIsChecking(false)
+      return
+    }
+
     // Verificar autorización cuando el usuario esté cargado
     if (!isLoading) {
       // Si no está autenticado, redirigir a login
       if (!isAuthenticated) {
         console.log('[AdminLayout] Usuario no autenticado, redirigiendo a /auth')
-        setIsChecking(false) // ✅ Detener loading antes del redirect
+        setIsChecking(false) // [AUTH] Detener loading antes del redirect
         router.push('/auth?redirect=/admin')
         return
       }
@@ -33,7 +49,7 @@ export default function AdminLayout({
       // Si está autenticado pero no es admin, redirigir a inicio
       if (user?.role !== 'admin') {
         console.log('[AdminLayout] Usuario no es admin (rol:', user?.role, '), redirigiendo a inicio')
-        setIsChecking(false) // ✅ Detener loading antes del redirect
+        setIsChecking(false) // [AUTH] Detener loading antes del redirect
         router.push('/')
         return
       }
@@ -42,7 +58,7 @@ export default function AdminLayout({
       setIsAuthorized(true)
       setIsChecking(false)
     }
-  }, [user, isAuthenticated, isLoading, router])
+  }, [user, isAuthenticated, isLoading, router, isTestProject])
 
   // Mostrar pantalla de carga mientras verifica
   if (isLoading || isChecking) {
