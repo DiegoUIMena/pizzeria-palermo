@@ -25,16 +25,16 @@ export const useUserOrders = (userId: string | undefined) => {
     }
   }, [userId])
 
-  // Cargar pedidos cuando cambie el userId
-  useEffect(() => {
-    if (userId) {
-      loadOrders()
-    }
-  }, [userId, loadOrders])
-
   // Escuchar cambios en tiempo real
   useEffect(() => {
-    if (!userId) return
+    if (!userId) {
+      setOrders([])
+      setIsLoading(false)
+      return
+    }
+
+    setIsLoading(true)
+    setError(null)
 
     const unsubscribe = listenToUserOrders(userId, (updatedOrders) => {
       setOrders(updatedOrders)

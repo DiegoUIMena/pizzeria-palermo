@@ -337,18 +337,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
         errorMessage = 'Debes iniciar sesión para crear un pedido'
         errorCode = 'UNAUTHENTICATED'
       } else if (error?.code === 'functions/failed-precondition') {
-        // Distinguir entre error de horario e inventario
+        // Distinguir entre error de horario, inventario y otras precondiciones
         const message = error?.message || ''
+        const details = error?.details || null
         
         if (message.includes('horario comercial') || message.includes('Fuera de horario')) {
           errorMessage = message
           errorCode = 'BUSINESS_HOURS'
-        } else {
-          // Este es el error de inventario insuficiente
+        } else if (message.includes('INVENTORY_UNAVAILABLE') || Array.isArray(details)) {
           errorMessage = message || 'No hay suficiente stock disponible'
           errorCode = 'INVENTORY_UNAVAILABLE'
-          // Los detalles de validación vienen en error.details
-          validationDetails = error?.details || null
+          validationDetails = details
+        } else {
+          errorMessage = message || 'No se pudo completar el pedido por una validación de negocio'
+          errorCode = 'FAILED_PRECONDITION'
         }
       } else if (error?.message) {
         errorMessage = error.message

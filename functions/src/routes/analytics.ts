@@ -2,38 +2,17 @@
  * Endpoints de analytics y m\u00e9tricas del chatbot
  */
 
-import { HttpsError } from 'firebase-functions/v2/https';
 import { validateTenantId } from '../utils/validator';
+import { verifyAdminAccess } from '../utils/admin-access';
 import { getMetrics, getTopIntents } from '../services/metricsService';
 import { getRecentLogs, exportLogsToCSV } from '../services/logService';
 import { getActiveSessionsCount } from '../repositories/sessionRepository';
-import * as admin from 'firebase-admin';
-
-const db = admin.firestore();
-
-/**
- * Verifica acceso admin
- */
-async function verifyAdminAccess(userId: string, tenantId: string): Promise<void> {
-  const userRef = db.collection('users').doc(userId);
-  const userDoc = await userRef.get();
-
-  if (!userDoc.exists) {
-    throw new HttpsError('not-found', 'Usuario no encontrado');
-  }
-
-  const userData = userDoc.data();
-
-  if (userData?.role !== 'admin' && userData?.role !== 'superadmin') {
-    throw new HttpsError('permission-denied', 'Solo administradores pueden ver m\u00e9tricas');
-  }
-}
 
 /**
  * Obtener m\u00e9tricas generales
  */
 export async function getChatbotMetrics(userId: string, tenantId: string) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden ver métricas');
   
   const validatedTenantId = validateTenantId(tenantId);
   const metrics = await getMetrics(validatedTenantId);
@@ -62,7 +41,7 @@ export async function getChatbotMetrics(userId: string, tenantId: string) {
  * Obtener logs recientes
  */
 export async function getChatbotLogs(userId: string, tenantId: string, limit: number = 100) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden ver métricas');
   
   const validatedTenantId = validateTenantId(tenantId);
   const logs = await getRecentLogs(validatedTenantId, limit);
@@ -79,7 +58,7 @@ export async function exportChatbotLogs(
   fromDate?: string,
   toDate?: string
 ) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden ver métricas');
   
   const validatedTenantId = validateTenantId(tenantId);
   

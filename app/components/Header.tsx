@@ -181,7 +181,11 @@ export default function Header() {
                       )}
                     </Button>
                   </SheetTrigger>
-                  <SheetContent side="right" className="w-full sm:w-96 p-0">
+                  <SheetContent
+                    side="right"
+                    className="w-full sm:w-96 p-0"
+                    onInteractOutside={(event) => event.preventDefault()}
+                  >
                     <Cart onClose={() => setIsCartOpen(false)} />
                   </SheetContent>
                 </Sheet>

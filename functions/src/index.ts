@@ -36,7 +36,13 @@ import {
   refundWebpayTransaction,
 } from "./services/webpay.service";
 import {sendWelcomeEmail, sendRefundNotificationEmail} from "./services/email.service";
-import {sendWelcomeWhatsApp, sendRefundNotificationWhatsApp, isValidPhoneNumber} from "./services/whatsapp.service";
+import {
+  sendWelcomeWhatsApp,
+  sendRefundNotificationWhatsApp,
+  sendOrderReadyNotificationWhatsApp,
+  sendCustomWhatsAppMessage,
+  isValidPhoneNumber,
+} from "./services/whatsapp.service";
 import {CreateOrderData} from "./types/orders";
 
 // Inicializar Firebase Admin (solo una vez)
@@ -554,9 +560,36 @@ export const createOrder = onCall(async (request) => {
         ? "Pago Pendiente" 
         : "Pendiente";
 
+      // Para Webpay, el consumo se hace al confirmar el pago.
+      // Para otros métodos, se descuenta inmediatamente al vender.
+      const shouldConsumeInventoryOnCreate = orderData.metodoPago !== "Webpay Plus";
+
       // 8. AHORA: Hacer todas las escrituras
       const now = new Date();
       const orderRef = db.collection("orders").doc(); // Generar ID primero
+
+      if (shouldConsumeInventoryOnCreate) {
+        logger.info("Consuming inventory at order creation for non-webpay order", {
+          orderId: orderRef.id,
+          orderNumber,
+          metodoPago: orderData.metodoPago,
+        });
+
+        const consumeResult = await consumeInventoryForOrder(
+          orderData.items,
+          orderRef.id,
+          orderNumber,
+          transaction
+        );
+
+        if (!consumeResult.success) {
+          logger.error("Error consuming inventory in createOrder:", consumeResult.error);
+          throw new HttpsError(
+            "failed-precondition",
+            consumeResult.error || "Error al consumir inventario"
+          );
+        }
+      }
       
       const newOrder = {
         ...orderData,
@@ -592,10 +625,8 @@ export const createOrder = onCall(async (request) => {
         timestamps: {
           created: now.toISOString(),
         },
-        // ✅ NUEVO: Inventario NO se procesa al crear el pedido
-        // Se procesará cuando el admin ACEPTE el pedido (click en "Aceptar")
-        inventoryProcessed: false,
-        inventoryStatus: "pending",
+        inventoryProcessed: shouldConsumeInventoryOnCreate,
+        inventoryStatus: shouldConsumeInventoryOnCreate ? "processed" : "pending",
         priceCalculation: {
           subtotal: priceCalculation.subtotal,
           deliveryFee: priceCalculation.deliveryFee,
@@ -605,9 +636,8 @@ export const createOrder = onCall(async (request) => {
         },
       };
 
-      // ✅ CAMBIO IMPORTANTE: Ya NO consumimos inventario aquí
-      // El inventario se consumirá cuando el admin haga clic en "Aceptar"
-      // Esto permite rechazar pedidos sin afectar el stock
+      // En no-Webpay, el inventario ya se consumió en esta transacción.
+      // En Webpay, se consumirá al confirmar pago en confirmWebpayTransaction.
 
       // ✅ CRÍTICO: Escribir pedido en la transacción AL FINAL
       transaction.set(orderRef, newOrder);
@@ -639,9 +669,17 @@ export const createOrder = onCall(async (request) => {
     
     // Propagar errores específicos de inventario
     if (error instanceof HttpsError && error.code === "failed-precondition") {
+      if (error.message === "INVENTORY_UNAVAILABLE") {
+        return {
+          success: false,
+          error: "INVENTORY_UNAVAILABLE",
+          details: error.details,
+        };
+      }
+
       return {
         success: false,
-        error: "INVENTORY_UNAVAILABLE",
+        error: error.message || "FAILED_PRECONDITION",
         details: error.details,
       };
     }
@@ -855,6 +893,31 @@ export const updateOrderStatus = onCall(async (request) => {
       logger.info("❌ Pedido cancelado - Inventario NO consumido");
     }
 
+    // 6.1 Si se CANCELA un pedido con inventario ya consumido, restaurar stock
+    if (
+      newStatus === "Cancelado" &&
+      orderData?.inventoryProcessed &&
+      orderData?.inventoryStatus !== "restored_on_cancel"
+    ) {
+      logger.info("🔄 Pedido cancelado con inventario procesado - restaurando stock", {
+        orderId,
+        previousStatus: orderData?.estado,
+      });
+
+      const restoreResult = await restoreInventoryForOrder(orderData?.items || []);
+      if (!restoreResult.success) {
+        throw new HttpsError(
+          "failed-precondition",
+          "No se pudo restaurar inventario al cancelar"
+        );
+      }
+
+      updates["inventoryProcessed"] = false;
+      updates["inventoryStatus"] = "restored_on_cancel";
+      updates["inventoryRestoredAt"] = now.toISOString();
+      logger.info("✅ Inventario restaurado por cancelación de pedido", {orderId});
+    }
+
     // Al cancelar un pedido pagado CON WEBPAY, ejecutar reembolso antes de cambiar estado
     if (
       newStatus === "Cancelado" && 
@@ -912,6 +975,21 @@ export const updateOrderStatus = onCall(async (request) => {
     }
 
     await orderRef.update(updates);
+
+    const tipoEntrega = orderData?.tipoEntrega === "Delivery" ? "Delivery" : "Retiro";
+    const shouldSendReadyMessage =
+      (tipoEntrega === "Retiro" && newStatus === "Pedido Listo" && orderData?.estado !== "Pedido Listo") ||
+      (tipoEntrega === "Delivery" && newStatus === "En camino" && orderData?.estado !== "En camino");
+
+    if (
+      shouldSendReadyMessage &&
+      orderData?.cliente?.telefono &&
+      isValidPhoneNumber(orderData.cliente.telefono)
+    ) {
+      sendOrderReadyNotificationWhatsApp(orderData.cliente.telefono, tipoEntrega).catch((err) => {
+        logger.error("Error enviando WhatsApp de pedido listo:", err);
+      });
+    }
 
     logger.info("Order status updated successfully", {orderId, newStatus});
 
@@ -1190,12 +1268,16 @@ export const confirmWebpayTransaction = onCall(async (request) => {
       // Si el pago fue exitoso, leer ingredientes e items_menu AHORA (antes de writes)
       let inventorySnapshot: any = null;
       let itemsMenuSnapshot: any = null;
+      let agregadosConfigSnapshot: any = null;
       let voucherDoc: any = null;
       
       if (transactionResult.success && freshOrderData && freshOrderData.items) {
         logger.info("Reading inventory and menu items for consumption...");
         inventorySnapshot = await transaction.get(db.collection("ingredientes"));
         itemsMenuSnapshot = await transaction.get(db.collection("items_menu"));
+        agregadosConfigSnapshot = await transaction.get(
+          db.collection("settings").doc("agregados_config")
+        );
       }
 
       // ✅ LEER VOUCHER AL PRINCIPIO si existe (ANTES de cualquier escritura)
@@ -1293,16 +1375,43 @@ export const confirmWebpayTransaction = onCall(async (request) => {
 
           // Calcular y aplicar consumo (lógica extraída de consumeInventoryForOrder)
           const consumption: Record<string, number> = {};
+          let rollitosPacksToConsume = 0;
+          const agregadosConfigData = agregadosConfigSnapshot?.exists
+            ? (agregadosConfigSnapshot.data() || {})
+            : {};
+          const currentRollitosPackStock = Number.isFinite(Number(agregadosConfigData.rollitosPackStock))
+            ? Math.max(0, Math.floor(Number(agregadosConfigData.rollitosPackStock)))
+            : 99;
+
+          const normalizeText = (text: string) =>
+            (text || "")
+              .toLowerCase()
+              .normalize("NFD")
+              .replace(/[\u0300-\u036f]/g, "")
+              .trim();
+
+          const isRollitosLikeItem = (name: string) => {
+            const normalized = normalizeText(name);
+            return normalized.includes("rollito") && normalized.includes("canela");
+          };
           
           logger.info(`🍕 Processing ${freshOrderData.items.length} items for inventory consumption`);
           
           for (const item of freshOrderData.items) {
+            const itemNombreOriginal = item.nombre || "";
+            const cantidad = item.cantidad || 1;
+
+            if (isRollitosLikeItem(itemNombreOriginal)) {
+              rollitosPacksToConsume += cantidad;
+              logger.info(`🧁 Rollitos detected by name. Accounting ${cantidad} pack(s) and skipping ingredient recipe consumption.`);
+              continue;
+            }
+
             // Limpiar el nombre quitando el tamaño entre paréntesis si existe
             // Ejemplo: "amalfitana (familiar)" -> "amalfitana"
             let itemNombre = (item.nombre || "").toLowerCase();
             itemNombre = itemNombre.replace(/\s*\([^)]*\)\s*$/g, '').trim();
             
-            const cantidad = item.cantidad || 1;
             const size = (item.size || "Familiar").toLowerCase();
             
             logger.info(`📦 Processing item: ${item.nombre} -> cleaned: "${itemNombre}", size: ${size}, cantidad: ${cantidad}, pizzaType: ${item.pizzaType}`);
@@ -1339,6 +1448,16 @@ export const confirmWebpayTransaction = onCall(async (request) => {
             } else {
               // Pizza normal
               const pizzaEncontrada = pizzasConReceta[itemNombre];
+
+              const isRollitosOrderItem =
+                isRollitosLikeItem(itemNombreOriginal) ||
+                isRollitosLikeItem(String(pizzaEncontrada?.nombre || ""));
+
+              if (isRollitosOrderItem) {
+                rollitosPacksToConsume += cantidad;
+                logger.info(`🧁 Rollitos detected by menu/name match. Accounting ${cantidad} pack(s) and skipping ingredient recipe consumption.`);
+                continue;
+              }
               
               logger.info(`🔍 Buscando pizza "${itemNombre}" en menú. Encontrada: ${!!pizzaEncontrada}`);
               
@@ -1381,6 +1500,28 @@ export const confirmWebpayTransaction = onCall(async (request) => {
               logger.warn(`Ingredient not found in inventory: ${ingredientName}`);
             }
           });
+
+          if (rollitosPacksToConsume > 0) {
+            if (currentRollitosPackStock < rollitosPacksToConsume) {
+              throw new HttpsError(
+                "failed-precondition",
+                `Stock insuficiente de Rollitos de Canela: requerido ${rollitosPacksToConsume}, disponible ${currentRollitosPackStock}`
+              );
+            }
+
+            const newRollitosStock = currentRollitosPackStock - rollitosPacksToConsume;
+            const agregadosRef = db.collection("settings").doc("agregados_config");
+            transaction.set(
+              agregadosRef,
+              {
+                rollitosPackStock: newRollitosStock,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              },
+              {merge: true}
+            );
+
+            logger.info(`✅ Rollitos packs updated in Webpay flow: ${currentRollitosPackStock} -> ${newRollitosStock} (-${rollitosPacksToConsume})`);
+          }
 
           logger.info("✅ Inventory consumption processed successfully");
         }
@@ -1631,34 +1772,95 @@ export const expirePointsDaily = onSchedule(
     try {
       const db = admin.firestore();
       const now = admin.firestore.Timestamp.now();
-      const usersSnapshot = await db.collection("users").get();
+      const expiredBucketsSnapshot = await db
+        .collectionGroup("points_history")
+        .where("type", "==", "earned")
+        .where("expiresAt", "<=", now)
+        .get();
 
-      if (usersSnapshot.empty) {
-        logger.info("No users found for points expiration");
+      if (expiredBucketsSnapshot.empty) {
+        logger.info("No expired points buckets found");
         return;
       }
 
-      const {expirePointsForUser} = await import("./utils/points-system.js");
+      const expiredBucketsByUser = new Map<string, FirebaseFirestore.DocumentReference[]>();
+
+      expiredBucketsSnapshot.docs.forEach((docSnap) => {
+        const data = docSnap.data() as any;
+        const remainingPoints = Number(data?.remainingPoints || 0);
+        if (remainingPoints <= 0) return;
+
+        const userRef = docSnap.ref.parent.parent;
+        if (!userRef) return;
+
+        const userId = userRef.id;
+        if (!expiredBucketsByUser.has(userId)) {
+          expiredBucketsByUser.set(userId, []);
+        }
+        expiredBucketsByUser.get(userId)!.push(docSnap.ref);
+      });
 
       let usersWithExpiredPoints = 0;
       let totalExpiredPoints = 0;
+      let processedBuckets = 0;
 
-      for (const userDoc of usersSnapshot.docs) {
-        const userId = userDoc.id;
+      for (const [userId, bucketRefs] of expiredBucketsByUser.entries()) {
+        const userRef = db.collection("users").doc(userId);
+        const historyRef = userRef.collection("points_history");
 
         const expiredForUser = await db.runTransaction(async (transaction) => {
-          return expirePointsForUser(userId, now, transaction);
+          const userDoc = await transaction.get(userRef);
+          if (!userDoc.exists) return 0;
+
+          let pointsToExpire = 0;
+
+          for (const bucketRef of bucketRefs) {
+            const bucketDoc = await transaction.get(bucketRef);
+            if (!bucketDoc.exists) continue;
+
+            const bucketData = bucketDoc.data() as any;
+            const remaining = Number(bucketData?.remainingPoints || 0);
+            if (remaining <= 0) continue;
+
+            pointsToExpire += remaining;
+            transaction.update(bucketRef, {
+              remainingPoints: 0,
+              expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+
+          if (pointsToExpire <= 0) return 0;
+
+          const currentPoints = Number(userDoc.data()?.totalPoints || 0);
+          const nextPoints = Math.max(0, currentPoints - pointsToExpire);
+          transaction.update(userRef, {
+            totalPoints: nextPoints,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          transaction.set(historyRef.doc(), {
+            type: "expired",
+            points: pointsToExpire,
+            description: `Vencimiento automático de ${pointsToExpire} punto(s)`,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+
+          return pointsToExpire;
         });
 
         if (expiredForUser > 0) {
           usersWithExpiredPoints += 1;
           totalExpiredPoints += expiredForUser;
-          logger.info("Expired points for user", {userId, expiredForUser});
+          processedBuckets += bucketRefs.length;
+          logger.info("Expired points for user", {userId, expiredForUser, buckets: bucketRefs.length});
         }
       }
 
       logger.info("Daily points expiration completed", {
-        usersScanned: usersSnapshot.size,
+        usersWithExpiredBuckets: expiredBucketsByUser.size,
+        bucketsScanned: expiredBucketsSnapshot.size,
+        bucketsProcessed: processedBuckets,
         usersWithExpiredPoints,
         totalExpiredPoints,
       });
@@ -1959,6 +2161,59 @@ export const sendWelcomeWhatsAppToUser = onCall(async (request) => {
     throw new HttpsError(
       "internal",
       "Error al enviar WhatsApp de bienvenida"
+    );
+  }
+});
+
+// ==================================================
+// FUNCTION 9: Enviar datos de delivery al repartidor por WhatsApp
+// ==================================================
+export const sendDeliveryDataWhatsApp = onCall(async (request) => {
+  const {phone, message} = request.data;
+
+  logger.info("sendDeliveryDataWhatsApp called", {
+    phone,
+    messageLength: typeof message === "string" ? message.length : 0,
+  });
+
+  if (!phone || !message) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Teléfono y mensaje son requeridos"
+    );
+  }
+
+  if (!isValidPhoneNumber(phone)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Número de teléfono inválido. Debe incluir código de país (+56)"
+    );
+  }
+
+  try {
+    const ok = await sendCustomWhatsAppMessage(phone, message);
+
+    if (!ok) {
+      throw new Error("No se pudo enviar el WhatsApp personalizado");
+    }
+
+    return {
+      success: true,
+      message: "Datos de delivery enviados correctamente",
+    };
+  } catch (error: any) {
+    logger.error("Error enviando datos de delivery por WhatsApp:", error);
+
+    if (error.message.includes("not configured")) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Servicio de WhatsApp no configurado. Contacta al administrador."
+      );
+    }
+
+    throw new HttpsError(
+      "internal",
+      "Error al enviar datos de delivery por WhatsApp"
     );
   }
 });

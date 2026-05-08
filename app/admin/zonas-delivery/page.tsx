@@ -6,17 +6,26 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { MapPin, Edit, Download, Upload } from "lucide-react"
 import DeliveryZoneMapAbsolute from "../../components/DeliveryZoneMapAbsolute"
 import { type DeliveryZone } from "../../../lib/delivery-zones"
 import { useDeliveryZones } from "../../../hooks/useDeliveryZones"
 import { toast } from "@/hooks/use-toast"
+import {
+  getDeliveryDriverConfig,
+  saveDeliveryDriverConfig,
+  type DeliveryDriverContact,
+} from "../../../lib/delivery-driver-config"
 
 export default function ZonasDeliveryPage() {
   // Usar el hook personalizado para gestionar las zonas
   const { zones, loading, error, saveZones } = useDeliveryZones()
   const [localZones, setLocalZones] = useState<DeliveryZone[]>([])
   const [isMapOpen, setIsMapOpen] = useState(false)
+  const [deliveryContacts, setDeliveryContacts] = useState<DeliveryDriverContact[]>([])
+  const [loadingContacts, setLoadingContacts] = useState(true)
+  const [savingContacts, setSavingContacts] = useState(false)
 
   // Actualizar las zonas locales cuando se cargan desde Firestore
   useEffect(() => {
@@ -38,6 +47,131 @@ export default function ZonasDeliveryPage() {
       console.error("Error: zones no es un array", zones);
     }
   }, [zones]);
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadDeliveryContacts = async () => {
+      try {
+        setLoadingContacts(true)
+        const config = await getDeliveryDriverConfig()
+
+        if (!mounted) return
+
+        setDeliveryContacts(config.contactos)
+      } catch (error) {
+        console.error("Error cargando contactos de delivery:", error)
+        toast({
+          title: "Error",
+          description: "No se pudieron cargar los teléfonos de delivery.",
+          variant: "destructive",
+        })
+      } finally {
+        if (mounted) {
+          setLoadingContacts(false)
+        }
+      }
+    }
+
+    loadDeliveryContacts()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const addDeliveryContact = () => {
+    const newContact: DeliveryDriverContact = {
+      id: `repartidor-${Date.now()}`,
+      nombre: "",
+      telefono: "",
+      activo: deliveryContacts.length === 0,
+    }
+
+    setDeliveryContacts((prev) => [...prev, newContact])
+  }
+
+  const updateDeliveryContact = (
+    id: string,
+    field: "nombre" | "telefono",
+    value: string
+  ) => {
+    setDeliveryContacts((prev) =>
+      prev.map((contact) =>
+        contact.id === id
+          ? {
+              ...contact,
+              [field]: value,
+            }
+          : contact
+      )
+    )
+  }
+
+  const setActiveDeliveryContact = (id: string) => {
+    setDeliveryContacts((prev) =>
+      prev.map((contact) => ({
+        ...contact,
+        activo: contact.id === id,
+      }))
+    )
+  }
+
+  const removeDeliveryContact = (id: string) => {
+    setDeliveryContacts((prev) => {
+      const next = prev.filter((contact) => contact.id !== id)
+
+      if (next.length > 0 && !next.some((contact) => contact.activo)) {
+        next[0] = { ...next[0], activo: true }
+      }
+
+      return next
+    })
+  }
+
+  const saveDeliveryContacts = async () => {
+    const cleaned = deliveryContacts
+      .map((contact) => ({
+        ...contact,
+        nombre: contact.nombre.trim(),
+        telefono: contact.telefono.trim(),
+      }))
+      .filter((contact) => contact.nombre && contact.telefono)
+
+    if (cleaned.length === 0) {
+      toast({
+        title: "Faltan datos",
+        description: "Debes configurar al menos un repartidor con nombre y teléfono.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!cleaned.some((contact) => contact.activo)) {
+      cleaned[0] = { ...cleaned[0], activo: true }
+    }
+
+    setSavingContacts(true)
+
+    try {
+      await saveDeliveryDriverConfig({ contactos: cleaned })
+      setDeliveryContacts(cleaned)
+
+      toast({
+        title: "Configuración guardada",
+        description: "El número activo de delivery se actualizó correctamente.",
+      })
+    } catch (error) {
+      console.error("Error guardando contactos de delivery:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar la configuración de teléfonos de delivery.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingContacts(false)
+    }
+  }
 
   const handleSaveZones = async (updatedZones: DeliveryZone[]) => {
     console.log("Zonas recibidas desde el editor de mapa:", updatedZones);
@@ -187,7 +321,6 @@ export default function ZonasDeliveryPage() {
           Array.isArray(zone.poligono)
         )) {
           setLocalZones(importedZones)
-          setHasChanges(true)
           toast({
             title: "Zonas importadas",
             description: `Se han importado ${importedZones.length} zonas. No olvides guardar los cambios.`,
@@ -314,6 +447,78 @@ export default function ZonasDeliveryPage() {
             ))
           )}
         </div>
+
+        <Card className="mt-10 bg-white dark:bg-gray-800 border dark:border-gray-700">
+          <CardHeader>
+            <CardTitle className="dark:text-white">Teléfonos de Repartidor</CardTitle>
+            <CardDescription className="dark:text-gray-400">
+              Configura varios números de delivery y deja activo solo el del turno actual.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loadingContacts ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400">Cargando configuración de repartidores...</p>
+            ) : (
+              <div className="space-y-4">
+                {deliveryContacts.map((contact) => (
+                  <div
+                    key={contact.id}
+                    className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center border rounded-lg p-3"
+                  >
+                    <div className="md:col-span-4">
+                      <Input
+                        placeholder="Nombre del repartidor"
+                        value={contact.nombre}
+                        onChange={(e) => updateDeliveryContact(contact.id, "nombre", e.target.value)}
+                      />
+                    </div>
+                    <div className="md:col-span-4">
+                      <Input
+                        placeholder="Teléfono (ej: +56912345678)"
+                        value={contact.telefono}
+                        onChange={(e) => updateDeliveryContact(contact.id, "telefono", e.target.value)}
+                      />
+                    </div>
+                    <div className="md:col-span-2 flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant={contact.activo ? "default" : "outline"}
+                        className={contact.activo ? "bg-green-600 hover:bg-green-700" : ""}
+                        onClick={() => setActiveDeliveryContact(contact.id)}
+                      >
+                        {contact.activo ? "Activo" : "Activar"}
+                      </Button>
+                    </div>
+                    <div className="md:col-span-2 flex justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="text-red-600 border-red-300 hover:bg-red-50"
+                        onClick={() => removeDeliveryContact(contact.id)}
+                      >
+                        Eliminar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <Button type="button" variant="outline" onClick={addDeliveryContact}>
+                    Agregar Número
+                  </Button>
+                  <Button
+                    type="button"
+                    className="bg-pink-600 hover:bg-pink-700 text-white"
+                    onClick={saveDeliveryContacts}
+                    disabled={savingContacts}
+                  >
+                    {savingContacts ? "Guardando..." : "Guardar Configuración"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <DeliveryZoneMapAbsolute 
           isOpen={isMapOpen} 

@@ -9,6 +9,7 @@ import {
   where, 
   orderBy, 
   limit,
+  startAfter,
   onSnapshot,
   Timestamp 
 } from 'firebase/firestore'
@@ -369,11 +370,9 @@ export const getOrdersPaginated = async (options: GetOrdersOptions = {}): Promis
     }
 
     // Agregar cursor de paginación si existe
-    if (lastVisible) {
-      q = query(q, limit(limitCount + 1)) // +1 para saber si hay más
-    } else {
-      q = query(q, limit(limitCount + 1))
-    }
+    q = lastVisible
+      ? query(q, startAfter(lastVisible), limit(limitCount + 1)) // +1 para saber si hay más
+      : query(q, limit(limitCount + 1))
 
     const querySnapshot = await getDocs(q)
     const orders: Order[] = []
@@ -484,23 +483,7 @@ export const listenToUserOrders = (userId: string, callback: (orders: Order[]) =
 
 // Función para escuchar cambios en todos los pedidos en tiempo real (Admin)
 export const listenToAllOrders = (callback: (orders: Order[]) => void): () => void => {
-  const q = query(
-    collection(db, 'orders'),
-    orderBy('timestamps.created', 'desc')
-  )
-  
-  const unsubscribe = onSnapshot(q, (querySnapshot) => {
-    const orders: Order[] = []
-    querySnapshot.forEach((doc) => {
-      orders.push({
-        id: doc.id,
-        ...doc.data()
-      } as Order)
-    })
-    callback(orders)
-  })
-  
-  return unsubscribe
+  return subscribeToSharedAllOrders(callback)
 }
 
 // ✅ OPTIMIZACIÓN: Listener con límite para pedidos recientes
@@ -593,13 +576,13 @@ export const listenToRecentOrders = (
 // Función para obtener un pedido específico
 export const getOrderById = async (orderId: string): Promise<Order | null> => {
   try {
-    const orderDoc = await getDocs(query(collection(db, 'orders'), where('__name__', '==', orderId)))
-    
-    if (!orderDoc.empty) {
-      const doc = orderDoc.docs[0]
+    const orderRef = doc(db, 'orders', orderId)
+    const orderDoc = await getDoc(orderRef)
+
+    if (orderDoc.exists()) {
       return {
-        id: doc.id,
-        ...doc.data()
+        id: orderDoc.id,
+        ...orderDoc.data()
       } as Order
     }
     
@@ -607,6 +590,61 @@ export const getOrderById = async (orderId: string): Promise<Order | null> => {
   } catch (error) {
     console.error('Error al obtener pedido por ID:', error)
     throw error
+  }
+}
+
+let sharedAllOrdersSnapshot: Order[] | null = null
+let sharedAllOrdersUnsubscribe: (() => void) | null = null
+const sharedAllOrdersSubscribers = new Set<(orders: Order[]) => void>()
+
+function mapOrdersSnapshotToArray(querySnapshot: any): Order[] {
+  const orders: Order[] = []
+  querySnapshot.forEach((docSnap: any) => {
+    orders.push({
+      id: docSnap.id,
+      ...docSnap.data()
+    } as Order)
+  })
+  return orders
+}
+
+function subscribeToSharedAllOrders(callback: (orders: Order[]) => void): () => void {
+  sharedAllOrdersSubscribers.add(callback)
+
+  if (sharedAllOrdersSnapshot) {
+    callback(sharedAllOrdersSnapshot)
+  }
+
+  if (!sharedAllOrdersUnsubscribe) {
+    const sharedQuery = query(
+      collection(db, 'orders'),
+      orderBy('timestamps.created', 'desc')
+    )
+
+    sharedAllOrdersUnsubscribe = onSnapshot(sharedQuery, (querySnapshot) => {
+      const orders = mapOrdersSnapshotToArray(querySnapshot)
+      sharedAllOrdersSnapshot = orders
+
+      sharedAllOrdersSubscribers.forEach((subscriber) => {
+        try {
+          subscriber(orders)
+        } catch (error) {
+          console.error('Error en callback de listenToAllOrders compartido:', error)
+        }
+      })
+    }, (error) => {
+      console.error('Error en listener compartido de pedidos:', error)
+    })
+  }
+
+  return () => {
+    sharedAllOrdersSubscribers.delete(callback)
+
+    if (sharedAllOrdersSubscribers.size === 0 && sharedAllOrdersUnsubscribe) {
+      sharedAllOrdersUnsubscribe()
+      sharedAllOrdersUnsubscribe = null
+      sharedAllOrdersSnapshot = null
+    }
   }
 }
 

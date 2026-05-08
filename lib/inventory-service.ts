@@ -3,6 +3,7 @@ import { collection, getDocs, doc, runTransaction, Timestamp, addDoc, getDoc, up
 import { consumeRecipeForOrder, isItemAvailable, RecipeLine } from './recipes'
 import { computeEstado } from './inventory'
 import { toGrams } from './units'
+import { getAgregadosConfig } from './agregados-config'
 
 // Interfaz para los resultados de validación
 interface ValidationResult {
@@ -100,6 +101,34 @@ async function getCachedData() {
   cache.lastFetch = now
 
   return { itemsMenu, ingredientes, ingredientesByName, ingredientsById }
+}
+
+const normalizeText = (text: string): string => {
+  return (text || '')
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+const isGauchitosItem = (item: any): boolean => {
+  const itemName = normalizeText(item?.nombre || item?.name || '')
+  return (
+    itemName === 'gauchitos' ||
+    itemName.includes('gauchitos') ||
+    itemName.includes('gauchito') ||
+    itemName.includes('cauchitos') ||
+    itemName.includes('cauchito')
+  )
+}
+
+async function shouldSkipInventoryForItem(item: any): Promise<boolean> {
+  if (!isGauchitosItem(item)) {
+    return false
+  }
+
+  const config = await getAgregadosConfig()
+  return Boolean(config.gauchitosDisponible)
 }
 
 // Helper para procesar recetas de pizzas Duo según la lógica especificada:
@@ -357,13 +386,10 @@ export async function validateInventoryForOrder(orderItems: any[]): Promise<Vali
       const qty = item.cantidad || item.quantity || 1
       const itemName = (item.nombre || item.name || '').toLowerCase().trim()
 
-      // Función auxiliar para normalizar texto
-      const normalizeText = (text: string): string => {
-        return (text || '').toLowerCase()
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .trim();
-      };
+      if (await shouldSkipInventoryForItem(item)) {
+        console.log(`Validación - Omitiendo control de inventario por configuración para "${item.nombre || item.name}"`)
+        continue
+      }
 
       // 1. Verificar si es una pizza Duo
       const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
@@ -817,12 +843,10 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
           const itemName = (item.nombre || item.name || '').toLowerCase().trim()
           
           // Buscar receta en items_menu
-          const normalizeText = (text: string): string => {
-            return (text || '').toLowerCase()
-                    .normalize("NFD")
-                    .replace(/[\u0300-\u036f]/g, "")
-                    .trim();
-          };
+          if (await shouldSkipInventoryForItem(item)) {
+            console.log(`Consumo - Omitiendo descuento de inventario por configuración para "${item.nombre || item.name}"`)
+            continue
+          }
           
           const normalizedItemName = normalizeText(itemName);
           

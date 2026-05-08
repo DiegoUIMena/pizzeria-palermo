@@ -1778,19 +1778,63 @@ const Cart = ({ onClose }: CartProps) => {
 
       <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4">
         {items.map((item) => {
-          const extraIngredients = calculateExtraIngredients(item)
-          const ingredientPrices = getIngredientPrices(item.size || "Familiar")
-          const isExpanded = expandedItems[item.id] || false
+          // Solo agrupar items que fueron creados desde botones de variantes (tienen propiedad 'variant')
+          const isVariantItem = item.variant === "Tradicional" || item.variant === "Zero"
+          const isLipton = item.name?.toLowerCase().includes("lipton") || false
+          const shouldGroup = isVariantItem && !isLipton
+          
+          let displayItem = item
+          let variantInfo: Array<{ variant: string; quantity: number }> = []
+          let totalQuantity = item.quantity
+          
+          if (shouldGroup) {
+            // Buscar la variante Tradicional y Zero del mismo producto
+            const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
+            
+            const tradicional = items.find(i => 
+              i.variant === "Tradicional" && 
+              i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
+            )
+            const zero = items.find(i => 
+              i.variant === "Zero" && 
+              i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
+            )
+            
+            // Si es "Zero" pero existe "Tradicional", no renderizar aquí (se mostrará agrupado desde "Tradicional")
+            // Si es "Zero" y NO existe "Tradicional", renderizar normalmente
+            if (item.variant === "Zero" && tradicional) {
+              return null
+            }
+            
+            // Si es "Tradicional" o "Zero" sin su contraparte, procesar normalmente
+            totalQuantity = 0
+            if (tradicional) {
+              variantInfo.push({ variant: "Tradicional", quantity: tradicional.quantity })
+              totalQuantity += tradicional.quantity
+            }
+            if (zero) {
+              variantInfo.push({ variant: "Zero", quantity: zero.quantity })
+              totalQuantity += zero.quantity
+            }
+            
+            // Usar el Tradicional como base para displayItem, o el primero disponible
+            const baseItem = tradicional || zero
+            displayItem = baseItem ? { ...baseItem, quantity: totalQuantity } : item
+          }
+          
+          const extraIngredients = calculateExtraIngredients(displayItem)
+          const ingredientPrices = getIngredientPrices(displayItem.size || "Familiar")
+          const isExpanded = expandedItems[displayItem.id] || false
 
           return (
             <div
-              key={item.id}
+              key={displayItem.id}
               className="bg-gray-50 rounded-lg sm:rounded-xl p-2 sm:p-4 border border-gray-200 hover:shadow-md transition-shadow"
             >
               <div className="flex items-start space-x-2 sm:space-x-3">
                 <Image
-                  src={item.image || "/placeholder.svg"}
-                  alt={item.name}
+                  src={displayItem.image || "/placeholder.svg"}
+                  alt={displayItem.name}
                   width={50}
                   height={50}
                   className="rounded-lg object-cover flex-shrink-0 sm:w-[60px] sm:h-[60px]"
@@ -1803,10 +1847,21 @@ const Cart = ({ onClose }: CartProps) => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between mb-1 sm:mb-2">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight">{item.name}</h3>
-                      {item.size && (
+                      <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight">
+                        {shouldGroup ? displayItem.name.replace(/ (Tradicional|Zero)$/, "") : displayItem.name}
+                      </h3>
+                      {shouldGroup && variantInfo.length > 0 && (
+                        <div className="text-[10px] sm:text-xs text-gray-600 mt-0.5 sm:mt-1">
+                          {variantInfo.map((vi, idx) => (
+                            <span key={idx} className="inline-block mr-2">
+                              <span className="font-medium">{vi.quantity}x {vi.variant}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {displayItem.size && !shouldGroup && (
                         <span className="text-[10px] sm:text-xs text-pink-600 font-medium bg-pink-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full inline-block mt-0.5 sm:mt-1">
-                          {item.size}
+                          {displayItem.size}
                         </span>
                       )}
                     </div>
@@ -1816,8 +1871,19 @@ const Cart = ({ onClose }: CartProps) => {
                         variant="ghost"
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 sm:p-1 h-auto"
                         onClick={() => {
-                          removeItem(item.id)
-                          setShowInventoryError(false) // Limpiar error cuando se elimina un item
+                          if (shouldGroup && variantInfo.length > 0) {
+                            // Eliminar ambas variantes (Tradicional y Zero)
+                            const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
+                            items.forEach(i => {
+                              if ((i.variant === "Tradicional" || i.variant === "Zero") && 
+                                  i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison) {
+                                removeItem(i.id)
+                              }
+                            })
+                          } else {
+                            removeItem(displayItem.id)
+                          }
+                          setShowInventoryError(false)
                         }}
                         title="Eliminar pedido"
                       >
@@ -1827,16 +1893,16 @@ const Cart = ({ onClose }: CartProps) => {
                   </div>
 
                   {/* Botón para expandir/contraer detalles - solo para pizzas personalizadas (excepto DUO) */}
-                  {item.pizzaType !== 'duo' && ((item.ingredients && item.ingredients.length > 0) || 
-                   (item.premiumIngredients && item.premiumIngredients.length > 0) || 
-                   (item.sauces && item.sauces.length > 0) || 
-                   (item.drinks && item.drinks.length > 0) || 
-                   (item.extras && item.extras.length > 0)) ? (
+                  {displayItem.pizzaType !== 'duo' && ((displayItem.ingredients && displayItem.ingredients.length > 0) || 
+                   (displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0) || 
+                   (displayItem.sauces && displayItem.sauces.length > 0) || 
+                   (displayItem.drinks && displayItem.drinks.length > 0) || 
+                   (displayItem.extras && displayItem.extras.length > 0)) ? (
                     <div className="mb-1.5 sm:mb-3">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => toggleItemExpansion(item.id.toString())}
+                        onClick={() => toggleItemExpansion(displayItem.id.toString())}
                         className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-1 sm:p-2 h-auto text-[10px] sm:text-xs"
                       >
                         <span className="mr-0.5 sm:mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
@@ -1853,22 +1919,22 @@ const Cart = ({ onClose }: CartProps) => {
 
                         <div className="flex justify-between">
                           <span className="text-gray-600">
-                            {item.name.includes("DUO") 
-                              ? `Pizza DUO (${item.size}):` 
-                              : item.selectedMenuPizza && item.selectedMenuPizza !== 'base'
-                                ? `Pizza base ${item.selectedMenuPizza} (${item.size}):`
-                                : `Pizza base (${item.size}):`}
+                            {displayItem.name.includes("DUO") 
+                              ? `Pizza DUO (${displayItem.size}):` 
+                              : displayItem.selectedMenuPizza && displayItem.selectedMenuPizza !== 'base'
+                                ? `Pizza base ${displayItem.selectedMenuPizza} (${displayItem.size}):`
+                                : `Pizza base (${displayItem.size}):`}
                           </span>
-                          <span>${(item.basePrice || 0).toLocaleString()}</span>
+                          <span>${(displayItem.basePrice || 0).toLocaleString()}</span>
                         </div>
 
                         {/* Ingredientes simples individuales */}
-                        {item.ingredients && item.ingredients.length > 0 && (
+                        {displayItem.ingredients && displayItem.ingredients.length > 0 && (
                           <>
-                            {item.ingredients.map((ingredient, index) => {
+                            {displayItem.ingredients.map((ingredient, index) => {
                               // En Promo: los primeros 2 están incluidos en la base, no mostrarlos
                               // En Premium: todos los ingredientes se cobran, mostrar todos
-                              if (item.name.includes("Promo") && index < 2) return null
+                              if (displayItem.name.includes("Promo") && index < 2) return null
                               
                               // Extraer nombre y cantidad del formato "Nombre (cantidad)"
                               const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
@@ -1887,9 +1953,9 @@ const Cart = ({ onClose }: CartProps) => {
                         )}
 
                         {/* Ingredientes premium individuales */}
-                        {item.premiumIngredients && item.premiumIngredients.length > 0 && (
+                        {displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0 && (
                           <>
-                            {item.premiumIngredients.map((ingredient, index) => {
+                            {displayItem.premiumIngredients.map((ingredient, index) => {
                               // Extraer nombre y cantidad del formato "Nombre (cantidad)"
                               const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
                               const ingredientName = match ? match[1] : ingredient
@@ -1907,9 +1973,9 @@ const Cart = ({ onClose }: CartProps) => {
                         )}
 
                         {/* Salsas individuales */}
-                        {item.sauces && item.sauces.length > 0 && (
+                        {displayItem.sauces && displayItem.sauces.length > 0 && (
                           <>
-                            {item.sauces.map((sauce, index) => {
+                            {displayItem.sauces.map((sauce, index) => {
                               // Extraer nombre y cantidad del formato "Nombre (cantidad)"
                               const match = sauce.match(/^(.+?)\s*\((\d+)\)$/)
                               const sauceName = match ? match[1] : sauce
@@ -1928,9 +1994,9 @@ const Cart = ({ onClose }: CartProps) => {
                         )}
 
                         {/* Bebidas individuales */}
-                        {item.drinks && item.drinks.length > 0 && (
+                        {displayItem.drinks && displayItem.drinks.length > 0 && (
                           <>
-                            {item.drinks.map((drink, index) => {
+                            {displayItem.drinks.map((drink, index) => {
                               // Extraer nombre y cantidad del formato "Nombre (cantidad)"
                               const match = drink.match(/^(.+?)\s*\((\d+)\)$/)
                               const drinkName = match ? match[1] : drink
@@ -1949,9 +2015,9 @@ const Cart = ({ onClose }: CartProps) => {
                         )}
 
                         {/* Agregados individuales */}
-                        {item.extras && item.extras.length > 0 && (
+                        {displayItem.extras && displayItem.extras.length > 0 && (
                           <>
-                            {item.extras.map((extra, index) => {
+                            {displayItem.extras.map((extra, index) => {
                               // Extraer nombre y cantidad del formato "Nombre (cantidad)"
                               const match = extra.match(/^(.+?)\s*\((\d+)\)$/)
                               const extraName = match ? match[1] : extra
@@ -1979,13 +2045,13 @@ const Cart = ({ onClose }: CartProps) => {
 
                   {/* Opciones de Personalización - Solo para pizzas reales */}
                   {(() => {
-                    const itemNameLower = item.name.toLowerCase()
+                    const itemNameLower = displayItem.name.toLowerCase()
                     // Excluir salsas, bebidas, gauchitos y rollitos
                     const excludedItems = ['salsa', 'coca', 'lipton', 'sprite', 'fanta', 'agua', 'jugo', 'gauchitos', 'rollitos']
                     const isExcluded = excludedItems.some(excluded => itemNameLower.includes(excluded))
                     
-                    // Mostrar para todo excepto los productos excluidos
-                    return !isExcluded
+                    // Mostrar para todo excepto los productos excluidos y bebidas agrupadas
+                    return !isExcluded && !shouldGroup
                   })() && (
                   <div className="mt-2 mb-2 flex items-center gap-2">
                     <button
@@ -2049,38 +2115,46 @@ const Cart = ({ onClose }: CartProps) => {
                         variant="outline"
                         className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
                         onClick={() => {
-                          updateQuantity(item.id, Math.max(0, item.quantity - 1))
-                          setShowInventoryError(false) // Limpiar error cuando se modifica la cantidad
+                          if (shouldGroup) {
+                            updateQuantity(item.id, Math.max(0, item.quantity - 1))
+                          } else {
+                            updateQuantity(displayItem.id, Math.max(0, displayItem.quantity - 1))
+                          }
+                          setShowInventoryError(false)
                         }}
                       >
                         <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                       </Button>
-                      <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{item.quantity}</span>
+                      <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{displayItem.quantity}</span>
                       <Button
                         size="icon"
                         variant="outline"
                         className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
                         onClick={() => {
-                          updateQuantity(item.id, item.quantity + 1)
-                          setShowInventoryError(false) // Limpiar error cuando se modifica la cantidad
+                          if (shouldGroup) {
+                            updateQuantity(item.id, item.quantity + 1)
+                          } else {
+                            updateQuantity(displayItem.id, displayItem.quantity + 1)
+                          }
+                          setShowInventoryError(false)
                         }}
                       >
                         <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                       </Button>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-sm sm:text-base text-gray-800">${(item.price * item.quantity).toLocaleString()}</div>
-                      {item.quantity > 1 && (
-                        <div className="text-[10px] sm:text-xs text-gray-500">${item.price.toLocaleString()} c/u</div>
+                      <div className="font-bold text-sm sm:text-base text-gray-800">${(displayItem.price * displayItem.quantity).toLocaleString()}</div>
+                      {displayItem.quantity > 1 && (
+                        <div className="text-[10px] sm:text-xs text-gray-500">${displayItem.price.toLocaleString()} c/u</div>
                       )}
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
 
       {/* Secciones de Upselling */}
       {/* Funciones auxiliares para detectar categorías en el carrito */}

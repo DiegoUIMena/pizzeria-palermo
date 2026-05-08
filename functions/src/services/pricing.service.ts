@@ -24,10 +24,28 @@ interface PriceConfig {
   extras: Record<string, number>;
 }
 
+interface MenuPizzaPrice {
+  familiar: number;
+  mediana: number;
+  fetchedAt: number;
+}
+
+interface DeliveryZoneDoc {
+  tarifa: number;
+  polygon: Array<[number, number]>;
+}
+
 // Cache de configuración de precios (se actualiza desde Firebase)
 let CACHED_PRICE_CONFIG: PriceConfig | null = null;
 let lastFetchTime = 0;
 const CACHE_TTL = 15 * 60 * 1000; // 15 minutos
+
+const MENU_PRICE_CACHE_TTL = 15 * 60 * 1000;
+const DELIVERY_ZONES_CACHE_TTL = 5 * 60 * 1000;
+
+const MENU_PRICE_CACHE = new Map<string, MenuPizzaPrice>();
+let CACHED_DELIVERY_ZONES: DeliveryZoneDoc[] | null = null;
+let lastDeliveryZonesFetchTime = 0;
 
 /**
  * Obtener configuración de precios desde Firebase
@@ -134,21 +152,13 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
       }
     } else if (item.pizzaType === "premium") {
       // ⭐ NUEVO: Si hay pizza base seleccionada, usar su precio
-      if (item.selectedMenuPizza && item.selectedMenuPizza !== 'base') {
+      if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
         try {
-          const db = admin.firestore();
-          const menuItemsSnapshot = await db.collection('items_menu').get();
-          const selectedPizzaDoc = menuItemsSnapshot.docs.find(doc => {
-            const data = doc.data();
-            return data.nombre === item.selectedMenuPizza;
-          });
-
-          if (selectedPizzaDoc) {
-            const selectedPizza = selectedPizzaDoc.data();
-            // Usar precio según tamaño
-            totalPrice = size === "mediana" 
-              ? (selectedPizza.precioMediana ?? selectedPizza.precio)
-              : selectedPizza.precio;
+          const selectedPizzaPrice = await getMenuPizzaPriceByName(item.selectedMenuPizza);
+          if (selectedPizzaPrice) {
+            totalPrice = size === "mediana"
+              ? selectedPizzaPrice.mediana
+              : selectedPizzaPrice.familiar;
             console.log(`✅ Usando precio de pizza base "${item.selectedMenuPizza}": $${totalPrice}`);
           } else {
             console.warn(`⚠️ No se encontró la pizza "${item.selectedMenuPizza}", usando precio base genérico`);
@@ -203,12 +213,7 @@ async function calculateDeliveryFee(
 
   try {
     const db = admin.firestore();
-
-    // Obtener zonas de delivery
-    const zonesSnapshot = await db
-      .collection("delivery-zones")
-      .where("activa", "==", true)
-      .get();
+    const zones = await getActiveDeliveryZones(db);
 
     // Función para verificar si un punto está dentro de un polígono
     function pointInPolygon(
@@ -235,10 +240,9 @@ async function calculateDeliveryFee(
     }
 
     // Buscar la zona que contiene el punto
-    for (const doc of zonesSnapshot.docs) {
-      const zone = doc.data();
-      if (zone.coordenadas && Array.isArray(zone.coordenadas)) {
-        const isInside = pointInPolygon([lat, lng], zone.coordenadas);
+    for (const zone of zones) {
+      if (zone.polygon.length >= 3) {
+        const isInside = pointInPolygon([lat, lng], zone.polygon);
         if (isInside) {
           return zone.tarifa || 0;
         }
@@ -251,6 +255,89 @@ async function calculateDeliveryFee(
     console.error("Error calculating delivery fee:", error);
     return 0;
   }
+}
+
+async function getMenuPizzaPriceByName(name: string): Promise<{ familiar: number; mediana: number } | null> {
+  const normalizedName = String(name || "").trim();
+  if (!normalizedName) return null;
+
+  const cacheKey = normalizedName.toLowerCase();
+  const cached = MENU_PRICE_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.fetchedAt < MENU_PRICE_CACHE_TTL) {
+    return { familiar: cached.familiar, mediana: cached.mediana };
+  }
+
+  try {
+    const db = admin.firestore();
+    const snapshot = await db
+      .collection("items_menu")
+      .where("nombre", "==", normalizedName)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return null;
+    }
+
+    const data = snapshot.docs[0].data() as any;
+    const familiar = Number(data?.precio ?? 0);
+    const mediana = Number(data?.precioMediana ?? data?.precio ?? 0);
+
+    if (familiar <= 0 && mediana <= 0) {
+      return null;
+    }
+
+    MENU_PRICE_CACHE.set(cacheKey, {
+      familiar,
+      mediana,
+      fetchedAt: Date.now(),
+    });
+
+    return { familiar, mediana };
+  } catch (error) {
+    console.error("❌ Error obteniendo precio de pizza base:", error);
+    return null;
+  }
+}
+
+function parsePolygon(raw: any): Array<[number, number]> {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((point: any) => {
+      if (Array.isArray(point) && point.length >= 2) {
+        return [Number(point[0]), Number(point[1])] as [number, number];
+      }
+      if (point && typeof point === "object" && typeof point.lat === "number" && typeof point.lng === "number") {
+        return [point.lat, point.lng] as [number, number];
+      }
+      return null;
+    })
+    .filter((point): point is [number, number] => Array.isArray(point));
+}
+
+async function getActiveDeliveryZones(db: FirebaseFirestore.Firestore): Promise<DeliveryZoneDoc[]> {
+  const now = Date.now();
+  if (CACHED_DELIVERY_ZONES && now - lastDeliveryZonesFetchTime < DELIVERY_ZONES_CACHE_TTL) {
+    return CACHED_DELIVERY_ZONES;
+  }
+
+  const zonesSnapshot = await db
+    .collection("delivery-zones")
+    .where("disponible", "==", true)
+    .get();
+
+  const zones = zonesSnapshot.docs.map((docSnap) => {
+    const data = docSnap.data() as any;
+    const polygon = parsePolygon(data.poligono ?? data.coordenadas);
+    return {
+      tarifa: Number(data.tarifa ?? 0),
+      polygon,
+    } as DeliveryZoneDoc;
+  }).filter((zone) => zone.polygon.length >= 3);
+
+  CACHED_DELIVERY_ZONES = zones;
+  lastDeliveryZonesFetchTime = now;
+  return zones;
 }
 
 /**

@@ -65,6 +65,26 @@ export default function LocationPicker({
   const handleMapLocationSelect = (lat: number, lng: number, address?: string) => {
     // Actualizar el estado local
     setLocalSelectedLocation({ lat, lng, address });
+
+    // Calcular disponibilidad y tarifa igual que en el mapa principal
+    const result = detectarZonaCliente(lat, lng, zones);
+    let finalDisponible = false;
+    let finalTarifa = 0;
+    let zonaDetectada = result.zona;
+
+    if (zonaDetectada) {
+      finalDisponible = !!result.disponible;
+      finalTarifa = finalDisponible ? result.tarifa : 0;
+      setZoneStatus({ name: zonaDetectada.nombre, available: finalDisponible });
+    } else {
+      zonaDetectada = null;
+      setZoneStatus({ name: "Fuera de zona", available: false });
+    }
+
+    if (onDeliveryInfoChange) {
+      onDeliveryInfoChange(zonaDetectada, finalTarifa, finalDisponible);
+    }
+
     // Notificar al componente padre
     onLocationSelect(lat, lng, address);
   }
@@ -100,29 +120,39 @@ export default function LocationPicker({
     [onDeliveryInfoChange],
   )
   
-  // Actualizar localSelectedLocation cuando cambia selectedLocation (solo una vez al inicio)
+  // Mantener sincronizado el estado local cuando selectedLocation cambie externamente
   useEffect(() => {
-    if (selectedLocation && !localSelectedLocation) {
-      console.log("🔍 Inicializando ubicación seleccionada desde props");
+    if (selectedLocation) {
+      const changed =
+        !localSelectedLocation ||
+        localSelectedLocation.lat !== selectedLocation.lat ||
+        localSelectedLocation.lng !== selectedLocation.lng ||
+        localSelectedLocation.address !== selectedLocation.address;
+
+      if (!changed) return;
+
+      console.log("🔍 Sincronizando ubicación seleccionada desde props");
       setLocalSelectedLocation(selectedLocation);
-      
-      // Verificar la zona al inicializar
+
       const { lat, lng } = selectedLocation;
       const result = detectarZonaCliente(lat, lng, zones);
-      console.log("Verificando zona inicial:", result);
-      
+      console.log("Verificando zona sincronizada:", result);
+
       setZoneStatus({
         name: result.zona?.nombre || "Fuera de zona",
-        available: result.disponible
+        available: !!(result.zona && result.disponible),
       });
-      
+
       setLocationDebug(`Ubicación inicial: ${lat.toFixed(6)}, ${lng.toFixed(6)}${selectedLocation.address ? ` | ${selectedLocation.address}` : ''}`);
-      
+
       if (onDeliveryInfoChange) {
-        onDeliveryInfoChange(result.zona, result.tarifa, result.disponible);
+        const zona = result.zona || null;
+        const disponible = !!(result.zona && result.disponible);
+        const tarifa = disponible ? result.tarifa : 0;
+        onDeliveryInfoChange(zona, tarifa, disponible);
       }
     }
-  }, [selectedLocation]); // Removido onDeliveryInfoChange para evitar re-renders
+  }, [selectedLocation, localSelectedLocation, zones, onDeliveryInfoChange]);
 
   const handleMapPickerLocationSelect = (lat: number, lng: number, address?: string) => {
     console.log("LocationPicker: ubicación seleccionada:", lat, lng, address);

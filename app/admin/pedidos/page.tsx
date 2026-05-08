@@ -31,6 +31,7 @@ import { db } from "@/lib/firebase"
 import { doc, updateDoc } from "firebase/firestore"
 import { getFunctions, httpsCallable } from "firebase/functions"
 import { useToast } from "../../../hooks/use-toast"
+import { getActiveDeliveryPhone } from "../../../lib/delivery-driver-config"
 
 interface Pedido {
   id: string
@@ -94,13 +95,12 @@ export default function AdminPedidos() {
   // Estado para el modal de impresión
   const [modalImpresionAbierto, setModalImpresionAbierto] = useState(false)
   const [pedidoAImprimir, setPedidoAImprimir] = useState<Pedido | null>(null)
-  
+
   // Estado para tracking de botones en proceso (aunque con optimistic update no es necesario)
   const [botonesEnProceso, setBotonesEnProceso] = useState<Set<string>>(new Set())
-  
+
   // Referencias para tracking
   const pedidosNotificadosRef = useRef<Set<string>>(new Set());
-  const whatsappWindowRef = useRef<Window | null>(null);
 
   const { pedidos, isLoading, error, actualizarEstado: actualizarEstadoOriginal } = useFormattedAdminOrders(filtroEstado)
   const { toast } = useToast()
@@ -309,21 +309,18 @@ export default function AdminPedidos() {
   // Función para imprimir desde el modal
   const confirmarImpresion = () => {
     if (!pedidoAImprimir) return;
-    
+
     const printContent = document.getElementById('comanda-para-imprimir');
     if (!printContent) return;
-    
-    // Crear un iframe oculto para imprimir sin modificar el DOM principal
+
     const iframe = document.createElement('iframe');
     iframe.style.position = 'absolute';
     iframe.style.width = '0';
     iframe.style.height = '0';
     iframe.style.border = '0';
     document.body.appendChild(iframe);
-    
-    // Esperar a que el iframe esté listo
+
     iframe.onload = () => {
-      // Crear los estilos para la impresión
       const printStyles = `
         <style>
           @media print {
@@ -333,78 +330,70 @@ export default function AdminPedidos() {
             li { margin-bottom: 1px; }
           }
           body { font-family: Arial, sans-serif; }
-          .comanda-title { 
-            font-size: 20px; text-align: center; 
-            border-bottom: 1px solid #000; padding-bottom: 10px; 
-            margin-bottom: 15px; 
+          .comanda-title {
+            font-size: 20px; text-align: center;
+            border-bottom: 1px solid #000; padding-bottom: 10px;
+            margin-bottom: 15px;
           }
           .comanda-info { margin-bottom: 5px; }
           .comanda-divider { border-top: 1px dashed #000; margin: 10px 0; }
-          .comanda-item { 
-            margin-bottom: 8px; border-bottom: 1px dotted #ccc; 
-            padding-bottom: 8px; 
+          .comanda-item {
+            margin-bottom: 8px; border-bottom: 1px dotted #ccc;
+            padding-bottom: 8px;
           }
-          .comanda-total { 
-            font-size: 16px; font-weight: bold; text-align: right; 
-            margin-top: 10px; border-top: 1px solid #000; padding-top: 5px; 
+          .comanda-total {
+            font-size: 16px; font-weight: bold; text-align: right;
+            margin-top: 10px; border-top: 1px solid #000; padding-top: 5px;
           }
-          .comanda-estado { 
-            text-align: center; font-size: 16px; margin: 15px 0; 
-            padding: 5px; border: 1px solid #000; 
+          .comanda-estado {
+            text-align: center; font-size: 16px; margin: 15px 0;
+            padding: 5px; border: 1px solid #000;
           }
         </style>
       `;
-      
-      // Escribir el contenido en el iframe
+
       const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (iframeDoc) {
-        iframeDoc.open();
-        iframeDoc.write(printStyles + printContent.innerHTML);
-        iframeDoc.close();
-        
-        // Imprimir después de un breve retraso para asegurar que el contenido se cargue
-        setTimeout(() => {
-          iframe.contentWindow?.print();
-          
-          // Eliminar el iframe después de imprimir
-          setTimeout(() => {
-            document.body.removeChild(iframe);
-            
-            // Cerrar el modal sin recargar la página
-            setModalImpresionAbierto(false);
-            
-            // Marcar el pedido como atendido para que no vuelva a activar la alarma
-            if (pedidoAImprimir.documentId) {
-              marcarPedidoAtendido(pedidoAImprimir.documentId);
-              
-              // Eliminar el pedido de las colecciones de pedidos que activan alarmas
-              setPedidosNuevosSinAtender(prev => {
-                const updated = new Set(prev);
-                updated.delete(pedidoAImprimir.documentId);
-                return updated;
-              });
-              
-              setPedidosConPocoTiempo(prev => {
-                const updated = new Set(prev);
-                updated.delete(pedidoAImprimir.documentId);
-                return updated;
-              });
-            }
-          }, 100);
-        }, 200);
+      if (!iframeDoc) {
+        return;
       }
+
+      iframeDoc.open();
+      iframeDoc.write(printStyles + printContent.innerHTML);
+      iframeDoc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow?.print();
+
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+
+          setModalImpresionAbierto(false);
+
+          if (pedidoAImprimir.documentId) {
+            marcarPedidoAtendido(pedidoAImprimir.documentId);
+
+            setPedidosNuevosSinAtender(prev => {
+              const updated = new Set(prev);
+              updated.delete(pedidoAImprimir.documentId);
+              return updated;
+            });
+
+            setPedidosConPocoTiempo(prev => {
+              const updated = new Set(prev);
+              updated.delete(pedidoAImprimir.documentId);
+              return updated;
+            });
+          }
+        }, 100);
+      }, 200);
     };
-    
-    // Establecer el src del iframe para activar el evento onload
+
     iframe.src = 'about:blank';
   }
   
   // Función para enviar los datos del delivery a WhatsApp
   const enviarPedidoAWhatsApp = (pedido: Pedido) => {
     if (pedido.tipoEntrega !== "Delivery" || !pedido.direccion) return;
-    
-    // Número del repartidor (código de país Chile +56)
-    const numeroRepartidor = "56956047580"; // El número proporcionado
     
     // Calcular valor total a cobrar
     const valorDelivery = pedido.valorDelivery || 0;
@@ -458,55 +447,36 @@ ${pedido.tiempoEstimadoFin ? `*HORA ESTIMADA DE ENTREGA:* ${new Date(pedido.tiem
 ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
 `.trim();
     
-    // Codificar el mensaje para URL
-    const mensajeCodificado = encodeURIComponent(mensaje);
-    
-    // Detectar dispositivo y plataforma
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
-    if (isMobile) {
-      // En dispositivos móviles, intentar abrir la app nativa de WhatsApp
-      try {
-        // URL para abrir la app nativa
-        const appUrl = `whatsapp://send?phone=${numeroRepartidor}&text=${mensajeCodificado}`;
-        window.location.href = appUrl;
-        
-        // Como respaldo, después de un breve retraso, intentar el método web
-        // en caso de que la app no esté instalada
-        setTimeout(() => {
-          const webUrl = `https://api.whatsapp.com/send?phone=${numeroRepartidor}&text=${mensajeCodificado}`;
-          window.location.href = webUrl;
-        }, 500);
-      } catch (e) {
-        console.error("Error al abrir WhatsApp app:", e);
-        // Intentar método web como respaldo
-        window.location.href = `https://api.whatsapp.com/send?phone=${numeroRepartidor}&text=${mensajeCodificado}`;
-      }
-    } else {
-      // En computadoras de escritorio, usar la aplicación de WhatsApp Desktop instalada
-      // Esto abrirá la aplicación de WhatsApp Desktop en lugar de WhatsApp Web
-      const desktopUrl = `whatsapp://send?phone=${numeroRepartidor}&text=${mensajeCodificado}`;
-      
-      try {
-        // Intentar abrir WhatsApp Desktop usando el protocolo whatsapp://
-        window.location.href = desktopUrl;
-        
-        // No necesitamos mantener referencia a ventanas porque se abrirá la aplicación nativa
-        return;
-      } catch (e) {
-        console.error('Error al abrir WhatsApp Desktop:', e);
-        
-        // Como respaldo, si la aplicación de escritorio no se abre, usar WhatsApp Web
-        const webUrl = `https://web.whatsapp.com/send?phone=${numeroRepartidor}&text=${mensajeCodificado}`;
-        
-        // Informar al usuario que estamos usando WhatsApp Web como respaldo
-        console.log("Usando WhatsApp Web como respaldo porque no se pudo abrir la aplicación de escritorio");
-        
-        // Intentar abrir en una nueva ventana
-        const newWindow = window.open(webUrl, 'whatsapp_web_window');
-        whatsappWindowRef.current = newWindow;
-      }
-    }
+    getActiveDeliveryPhone()
+      .then((numeroRepartidor) => {
+        const functions = getFunctions();
+        const sendDeliveryDataWhatsApp = httpsCallable(functions, "sendDeliveryDataWhatsApp");
+
+        return sendDeliveryDataWhatsApp({
+          phone: numeroRepartidor,
+          message: mensaje,
+        });
+      })
+      .then((response) => {
+        const result = response as { data?: { success?: boolean } };
+
+        if (!result.data?.success) {
+          throw new Error("No se pudo enviar el WhatsApp al repartidor");
+        }
+
+        toast({
+          title: "Datos enviados",
+          description: "La información del delivery fue enviada al repartidor por WhatsApp.",
+        });
+      })
+      .catch((error) => {
+        console.error("Error al enviar datos de delivery por WhatsApp:", error);
+        toast({
+          title: "No se pudo enviar WhatsApp",
+          description: "Revisa la configuración de teléfonos en Zonas Delivery o la integración de WhatsApp/Twilio.",
+          variant: "destructive",
+        });
+      });
   }
 
   // Establecer tiempo estimado
@@ -708,86 +678,6 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
     // La sincronización con Firebase ahora se maneja en el GlobalOrderMonitor
     return () => {}
   }, [])
-
-  // Efecto para manejar la ventana de WhatsApp
-  useEffect(() => {
-    // Detectar si hay una ventana de WhatsApp ya abierta
-    try {
-      // Intentar encontrar ventanas de WhatsApp Web ya abiertas
-      const checkExistingWindows = () => {
-        // Este enfoque tiene limitaciones por seguridad del navegador
-        // pero intentamos detectar si hay una pestaña con WhatsApp Web abierta
-        const isWhatsAppOpen = localStorage.getItem('whatsapp_window_open') === 'true';
-        if (isWhatsAppOpen) {
-          console.log('Ventana de WhatsApp detectada como abierta anteriormente');
-        }
-      };
-      
-      checkExistingWindows();
-    } catch (e) {
-      console.log('Error al buscar ventanas existentes:', e);
-    }
-    
-    // Limpieza cuando el componente se desmonte
-    return () => {
-      // Si tenemos una referencia a la ventana de WhatsApp y está abierta
-      if (whatsappWindowRef.current && !whatsappWindowRef.current.closed) {
-        // No cerramos la ventana, solo limpiamos la referencia
-        console.log('Limpiando referencia a ventana de WhatsApp');
-        whatsappWindowRef.current = null;
-      }
-    };
-  }, []);
-  
-  // Agregar efecto para mejorar la gestión de ventanas de WhatsApp Web
-  useEffect(() => {
-    // Función para manejar mensajes de otras ventanas
-    const handleMessage = (event: MessageEvent) => {
-      // Verificar si el mensaje es para usar WhatsApp
-      if (event.data && event.data.type === 'USE_WHATSAPP' && event.data.url) {
-        // Intentar usar la ventana referenciada
-        if (whatsappWindowRef.current && !whatsappWindowRef.current.closed) {
-          try {
-            whatsappWindowRef.current.location.href = event.data.url;
-            whatsappWindowRef.current.focus();
-          } catch (e) {
-            console.error('Error al redirigir ventana existente:', e);
-            // Abrir nueva ventana como respaldo
-            const newWindow = window.open(event.data.url, 'whatsapp_web_window');
-            whatsappWindowRef.current = newWindow;
-          }
-        } else {
-          // Abrir nueva ventana
-          const newWindow = window.open(event.data.url, 'whatsapp_web_window');
-          whatsappWindowRef.current = newWindow;
-        }
-      }
-    };
-    
-    // Agregar listener para recibir mensajes
-    window.addEventListener('message', handleMessage);
-    
-    // Intentar detectar pestañas de WhatsApp ya abiertas
-    const detectarPestañasWhatsApp = () => {
-      // Esta es una técnica de detección limitada, pero puede ayudar en algunos casos
-      try {
-        // Guardar si ya habíamos detectado una pestaña antes
-        const whatsappTabDetected = localStorage.getItem('whatsapp_tab_detected');
-        if (whatsappTabDetected === 'true') {
-          console.log('Ya se había detectado previamente una pestaña de WhatsApp Web');
-        }
-      } catch (e) {
-        console.error('Error al detectar pestañas:', e);
-      }
-    };
-    
-    detectarPestañasWhatsApp();
-    
-    // Limpiar al desmontar
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
-  }, []);
 
   // Los pedidos ya vienen filtrados por estado desde el listener
   // Aquí solo filtramos por búsqueda de texto

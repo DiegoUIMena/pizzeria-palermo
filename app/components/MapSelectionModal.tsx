@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { MapPin } from "lucide-react"
@@ -21,10 +21,20 @@ export default function MapSelectionModal({
   onLocationSelect,
   initialLocation,
   showDeliveryZones = true,
+  address: initialAddress,
 }: MapSelectionModalProps) {
   const [selectedLocation, setSelectedLocation] = useState<{ lat: number; lng: number } | null>(initialLocation || null)
   const [address, setAddress] = useState<string>("")
   const [mapKey, setMapKey] = useState<number>(Date.now()) // Estado para forzar re-renderizado
+
+  // Sincronizar la ubicación inicial del mapa integrado al abrir pantalla completa.
+  useEffect(() => {
+    if (!isOpen) return
+
+    setSelectedLocation(initialLocation || null)
+    setAddress(initialAddress || "")
+    setMapKey(Date.now())
+  }, [isOpen, initialLocation?.lat, initialLocation?.lng, initialAddress])
 
   // Función para reiniciar el mapa
   const resetMap = () => {

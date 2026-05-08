@@ -406,6 +406,21 @@ export default function FixedMapPicker({
     }
   }, [showZones, mapInitialized]);
 
+  // Sincronizar marcador cuando cambie la ubicación inicial desde el componente padre
+  useEffect(() => {
+    if (!mapInitialized || !mapInstanceRef.current || !initialLocation) return;
+
+    const hasChanged =
+      !selectedLocation ||
+      selectedLocation.lat !== initialLocation.lat ||
+      selectedLocation.lng !== initialLocation.lng;
+
+    if (!hasChanged) return;
+
+    console.log("📍 Sincronizando marcador con initialLocation:", initialLocation);
+    updateMarker(initialLocation.lat, initialLocation.lng);
+  }, [initialLocation, mapInitialized]);
+
   // Función para crear un icono de marcador
   const createMarkerIcon = () => {
     if (!window.L) {

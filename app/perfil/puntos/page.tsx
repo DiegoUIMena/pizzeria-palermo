@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/app/context/AuthContext'
 import { useRouter } from 'next/navigation'
 import { db } from '@/lib/firebase'
-import { doc, getDoc, collection, getDocs, query, where } from 'firebase/firestore'
+import { doc, getDoc, collection, getDocs } from 'firebase/firestore'
 import { getAuth } from 'firebase/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -126,26 +126,9 @@ export default function PuntosPage() {
       // Cargar vouchers
       console.log('[PUNTOS] Buscando vouchers del usuario...')
       const vouchersRef = collection(db, 'users', user!.id, 'vouchers')
-      const ordersRef = collection(db, 'orders')
       
       try {
         const vouchersSnap = await getDocs(vouchersRef)
-        const userOrdersSnap = await getDocs(query(ordersRef, where('userId', '==', user!.id)))
-
-        // Estado derivado: si un voucher aparece en una orden no fallida/no cancelada,
-        // se considera usado aunque el documento de voucher haya quedado desfasado.
-        const usedVoucherIds = new Set<string>()
-        userOrdersSnap.docs.forEach(orderDoc => {
-          const data = orderDoc.data()
-          const voucherId = data.voucherId
-          if (!voucherId) return
-
-          const isCancelled = data.estado === 'Cancelado'
-          const isFailedPayment = data.paymentStatus === 'failed'
-          if (!isCancelled && !isFailedPayment) {
-            usedVoucherIds.add(voucherId)
-          }
-        })
         
         console.log('[PUNTOS] Documentos de vouchers:', vouchersSnap.size)
         const vouchersList = vouchersSnap.docs.map(doc => ({
@@ -164,7 +147,7 @@ export default function PuntosPage() {
           expiresAt: doc.data().expiresAt?.toDate?.()?.toLocaleDateString('es-CL') || '',
           createdAt: doc.data().createdAt?.toDate?.()?.toLocaleDateString('es-CL') || '',
           used: doc.data().used || false,
-          status: (usedVoucherIds.has(doc.id) ? 'used' : (doc.data().status || 'active')) as 'active' | 'used' | 'expired',
+          status: (doc.data().status || (doc.data().used ? 'used' : 'active')) as 'active' | 'used' | 'expired',
         }))
 
         console.log('[PUNTOS] Vouchers obtenidos:', vouchersList.length)

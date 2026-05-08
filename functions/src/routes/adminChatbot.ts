@@ -5,35 +5,17 @@
 
 import { HttpsError } from 'firebase-functions/v2/https';
 import { validateTenantId, validateIntentData } from '../utils/validator';
+import { verifyAdminAccess } from '../utils/admin-access';
 import * as chatbotRepo from '../repositories/chatbotRepository';
 import * as admin from 'firebase-admin';
 
 const db = admin.firestore();
 
 /**
- * Verifica que el usuario sea admin del tenant
- */
-async function verifyAdminAccess(userId: string, tenantId: string): Promise<void> {
-  const userRef = db.collection('users').doc(userId);
-  const userDoc = await userRef.get();
-
-  if (!userDoc.exists) {
-    throw new HttpsError('not-found', 'Usuario no encontrado');
-  }
-
-  const userData = userDoc.data();
-
-  // Verificar que sea admin
-  if (userData?.role !== 'admin' && userData?.role !== 'superadmin') {
-    throw new HttpsError('permission-denied', 'Solo administradores pueden gestionar el chatbot');
-  }
-}
-
-/**
  * Listar todos los intents
  */
 export async function listIntents(userId: string, tenantId: string) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden gestionar el chatbot');
   
   const validatedTenantId = validateTenantId(tenantId);
   const intents = await chatbotRepo.getAllIntents(validatedTenantId);
@@ -45,7 +27,7 @@ export async function listIntents(userId: string, tenantId: string) {
  * Crear un intent
  */
 export async function createIntent(userId: string, tenantId: string, intentData: any) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden gestionar el chatbot');
   
   const validatedTenantId = validateTenantId(tenantId);
   const validatedData = validateIntentData(intentData);
@@ -66,7 +48,7 @@ export async function createIntent(userId: string, tenantId: string, intentData:
  * Actualizar un intent
  */
 export async function updateIntent(userId: string, tenantId: string, intentId: string, updates: any) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden gestionar el chatbot');
   
   const validatedTenantId = validateTenantId(tenantId);
   const validatedData = validateIntentData(updates);
@@ -100,7 +82,7 @@ export async function updateIntent(userId: string, tenantId: string, intentId: s
  * Eliminar un intent
  */
 export async function deleteIntent(userId: string, tenantId: string, intentId: string) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden gestionar el chatbot');
   
   const validatedTenantId = validateTenantId(tenantId);
 
@@ -128,7 +110,7 @@ export async function updateChatbotConfig(
     maxSessionIdleMinutes?: number;
   }
 ) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden gestionar el chatbot');
   
   const validatedTenantId = validateTenantId(tenantId);
   const tenantRef = db.collection('tenants').doc(validatedTenantId);
@@ -159,7 +141,7 @@ export async function updateChatbotConfig(
  * Obtener configuraci\u00f3n del chatbot
  */
 export async function getChatbotConfig(userId: string, tenantId: string) {
-  await verifyAdminAccess(userId, tenantId);
+  await verifyAdminAccess(userId, 'Solo administradores pueden gestionar el chatbot');
   
   const validatedTenantId = validateTenantId(tenantId);
   const tenantRef = db.collection('tenants').doc(validatedTenantId);

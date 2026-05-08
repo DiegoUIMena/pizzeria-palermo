@@ -533,7 +533,7 @@ export default function PromoSection() {
     { key: "Pizzas Vegetarianas", label: "🥬 Pizzas Vegetarianas", icon: "/iconos/vegetariana.svg", iconLabel: "VEGETARIANAS" },
     { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne", icon: "/iconos/tradicionales.svg", iconLabel: "TRADICIONALES" },
     { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar", icon: "/iconos/mar.svg", iconLabel: "DEL MAR" },
-    { key: "Quiero armar mi pizza", label: "🍕 Armar tu Pizza", href: "/armar-pizza", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
+    { key: "Quiero armar mi pizza", label: "🍕 Armar tu Pizza", href: "/armar-pizza-nueva", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
     { key: "Combos", label: "🎁 Combos", icon: "/iconos/combos.svg", iconLabel: "COMBOS" },
     { key: "Acompañamientos", label: "🍟 Acompañamientos", icon: "/iconos/agregados.svg", iconLabel: "AGREGADOS" },
     { key: "Bebidas", label: "🥤 Bebidas", icon: "/iconos/bebidas.svg", iconLabel: "BEBIDAS" },
@@ -1000,28 +1000,74 @@ export default function PromoSection() {
                           </div>
                         )}
 
-                      {/* Selector de variantes para bebidas */}
-                      {activeCategory === "Acompañamientos" && item.variants && (
+                      {/* Selector de variantes para bebidas y acompañamientos (excluyendo Lipton) */}
+                      {(activeCategory === "Acompañamientos" || (activeCategory === "Bebidas" && !item.name.toLowerCase().includes("lipton"))) && item.variants && (
                         <div className="flex space-x-2">
                           <button
-                            onClick={() => handleSizeChange(item.id, "familiar")}
-                            className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors ${
+                            onClick={() => {
+                              // Agregar directamente al carrito
+                              addItem({
+                                id: `${item.id}-familiar`,
+                                name: `${formatItemName(item.name)} Tradicional`,
+                                price: item.price,
+                                image: getImagePath(item.name, item.image),
+                                quantity: 1,
+                                variant: "Tradicional",
+                              })
+                            }}
+                            className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors relative ${
                               (selectedSizes[item.id] || "familiar") === "familiar"
                                 ? "bg-pink-600 text-white shadow-md"
                                 : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                             }`}
                           >
                             Tradicional
+                            {(() => {
+                              const cartItem = items.find(cartItem => cartItem.id === `${item.id}-familiar`)
+                              const quantity = cartItem?.quantity || 0
+                              return quantity > 0 ? (
+                                <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  (selectedSizes[item.id] || "familiar") === "familiar" 
+                                    ? "bg-white text-pink-600" 
+                                    : "bg-pink-600 text-white"
+                                }`}>
+                                  {quantity}
+                                </span>
+                              ) : null
+                            })()}
                           </button>
                           <button
-                            onClick={() => handleSizeChange(item.id, "mediana")}
-                            className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors ${
+                            onClick={() => {
+                              // Agregar directamente al carrito
+                              addItem({
+                                id: `${item.id}-mediana`,
+                                name: `${formatItemName(item.name)} Zero`,
+                                price: item.price,
+                                image: getImagePath(item.name, item.image),
+                                quantity: 1,
+                                variant: "Zero",
+                              })
+                            }}
+                            className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors relative ${
                               selectedSizes[item.id] === "mediana"
                                 ? "bg-pink-600 text-white shadow-md"
                                 : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                             }`}
                           >
                             Zero
+                            {(() => {
+                              const cartItem = items.find(cartItem => cartItem.id === `${item.id}-mediana`)
+                              const quantity = cartItem?.quantity || 0
+                              return quantity > 0 ? (
+                                <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
+                                  selectedSizes[item.id] === "mediana" 
+                                    ? "bg-white text-pink-600" 
+                                    : "bg-pink-600 text-white"
+                                }`}>
+                                  {quantity}
+                                </span>
+                              ) : null
+                            })()}
                           </button>
                         </div>
                       )}
@@ -1043,11 +1089,26 @@ export default function PromoSection() {
                             ) : (
                               <Button
                                 className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 px-4 h-10 flex items-center gap-2"
-                                onClick={() => handleAddToCart(item)}
+                                onClick={() => {
+                                  // Solo agregar si NO es una bebida con botones de variantes
+                                  if (!(item.variants && !item.name.toLowerCase().includes("lipton"))) {
+                                    handleAddToCart(item)
+                                  }
+                                }}
                               >
                                 {(() => {
                                   // Para productos con variantes (bebidas)
                                   if (item.variants) {
+                                    // Si tiene botones de variantes (no es Lipton), sumar ambas variantes
+                                    if (!item.name.toLowerCase().includes("lipton")) {
+                                      const familiarItem = items.find(cartItem => cartItem.id === `${item.id}-familiar`)
+                                      const medianaItem = items.find(cartItem => cartItem.id === `${item.id}-mediana`)
+                                      const totalQuantity = (familiarItem?.quantity || 0) + (medianaItem?.quantity || 0)
+                                      return totalQuantity > 0 ? (
+                                        <span className="font-bold text-sm">{totalQuantity}</span>
+                                      ) : null
+                                    }
+                                    // Para Lipton, mostrar solo la variante seleccionada
                                     const selectedVariant = selectedSizes[item.id] || "familiar"
                                     const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedVariant}`)
                                     const quantity = cartItem?.quantity || 0

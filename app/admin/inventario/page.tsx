@@ -17,6 +17,7 @@ import { toast } from "@/hooks/use-toast"
 import RecipeEditor from "./RecipeEditor"
 import AddPizzaModal from "./AddPizzaModal"
 import { useFirestorePizzaConfig } from '@/hooks/useFirestorePizzaConfig'
+import { getAgregadosConfig, saveAgregadosConfig } from "@/lib/agregados-config"
 import { db } from "@/lib/firebase"
 import { doc, updateDoc } from "firebase/firestore"
 
@@ -38,6 +39,16 @@ export default function AdminInventario() {
   const [showAddPizzaModal, setShowAddPizzaModal] = useState(false)
   const [deletePizzaTarget, setDeletePizzaTarget] = useState<{ id: string; nombre: string } | null>(null)
   const [editorInitialPizza, setEditorInitialPizza] = useState<string | null>(null)
+  const [rollitosPackStock, setRollitosPackStock] = useState(99)
+  const [gauchitosDisponible, setGauchitosDisponible] = useState(true)
+  const [loadingAgregados, setLoadingAgregados] = useState(true)
+  const [savingAgregados, setSavingAgregados] = useState(false)
+  const [salsasDisponibles, setSalsasDisponibles] = useState({
+    ajo: true,
+    chimichurri: true,
+    bbq: true,
+    pesto: true,
+  })
   const { itemsMenu: pizzasFromHook = [], refreshData } = useFirestorePizzaConfig()
 
   // Formulario para nuevo/editar ingrediente
@@ -61,6 +72,134 @@ export default function AdminInventario() {
     })
     return () => unsubscribe()
   }, [])
+
+  useEffect(() => {
+    let mounted = true
+
+    const loadAgregadosConfig = async () => {
+      try {
+        setLoadingAgregados(true)
+        const config = await getAgregadosConfig()
+
+        if (!mounted) return
+
+        setRollitosPackStock(config.rollitosPackStock)
+        setGauchitosDisponible(config.gauchitosDisponible)
+        setSalsasDisponibles(config.salsasDisponibles)
+      } catch (error) {
+        console.error("Error cargando configuración de agregados:", error)
+        toast({
+          title: "Error",
+          description: "No se pudo cargar la configuración de agregados.",
+          variant: "destructive",
+        })
+      } finally {
+        if (mounted) {
+          setLoadingAgregados(false)
+        }
+      }
+    }
+
+    loadAgregadosConfig()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
+
+  const handleSaveAgregadosConfig = async () => {
+    try {
+      setSavingAgregados(true)
+      await saveAgregadosConfig({
+        rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
+        gauchitosDisponible,
+        salsasDisponibles,
+      })
+
+      toast({
+        title: "Configuración guardada",
+        description: "Los agregados se actualizaron correctamente.",
+      })
+    } catch (error) {
+      console.error("Error guardando configuración de agregados:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar la configuración de agregados.",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingAgregados(false)
+    }
+  }
+
+  const handleGauchitosToggle = async (checked: boolean) => {
+    setGauchitosDisponible(checked)
+
+    try {
+      await saveAgregadosConfig({
+        rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
+        gauchitosDisponible: checked,
+        salsasDisponibles,
+      })
+    } catch (error) {
+      console.error("Error guardando disponibilidad de Gauchitos:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar la disponibilidad de Gauchitos.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleSalsaToggle = async (
+    key: keyof typeof salsasDisponibles,
+    checked: boolean
+  ) => {
+    const nextSalsas = {
+      ...salsasDisponibles,
+      [key]: checked,
+    }
+
+    setSalsasDisponibles(nextSalsas)
+
+    try {
+      await saveAgregadosConfig({
+        rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
+        gauchitosDisponible,
+        salsasDisponibles: nextSalsas,
+      })
+    } catch (error) {
+      console.error("Error guardando disponibilidad de salsas:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar la disponibilidad de la salsa.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleRollitosStockBlur = async () => {
+    const safeStock = Math.max(0, Math.floor(rollitosPackStock || 0))
+
+    if (safeStock !== rollitosPackStock) {
+      setRollitosPackStock(safeStock)
+    }
+
+    try {
+      await saveAgregadosConfig({
+        rollitosPackStock: safeStock,
+        gauchitosDisponible,
+        salsasDisponibles,
+      })
+    } catch (error) {
+      console.error("Error guardando stock de Rollitos:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar el stock de Rollitos.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const categorias = ["Lácteos", "Carnes", "Vegetales", "Harinas", "Salsas", "Bebidas", "Otros"]
 
@@ -630,6 +769,190 @@ export default function AdminInventario() {
       </main>
       {/* Lista de pizzas y acceso a sus recetas */}
       <div className="container mx-auto px-4 py-8">
+        <h2 className="text-2xl font-semibold mb-4">Agregados</h2>
+        <Card className="mb-8 border border-gray-200 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle>Configuración de Agregados</CardTitle>
+            <CardDescription>
+              Define stock de Rollitos de Canela (packs) y disponibilidad de Gauchitos para habilitar su compra en el carrito.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {loadingAgregados ? (
+              <p className="text-sm text-gray-500">Cargando configuración...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <img
+                        src="/pizzas/canela.jpg"
+                        alt="Rollitos de Canela"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="rollitosPackStock">Rollitos de Canela - Packs disponibles</Label>
+                      <Input
+                        id="rollitosPackStock"
+                        type="number"
+                        min="0"
+                        value={rollitosPackStock}
+                        onChange={(e) => setRollitosPackStock(Number.parseInt(e.target.value) || 0)}
+                        onBlur={handleRollitosStockBlur}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <img
+                        src="/pizzas/gauchitos.jpg"
+                        alt="Gauchitos"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="gauchitosDisponible">Gauchitos</Label>
+                      <div className="h-10 px-3 border rounded-md flex items-center justify-between">
+                        <span className={`text-sm font-medium ${gauchitosDisponible ? 'text-green-600' : 'text-red-600'}`}>
+                          {gauchitosDisponible ? 'Disponible' : 'Sin Stock'}
+                        </span>
+                        <Switch
+                          id="gauchitosDisponible"
+                          checked={gauchitosDisponible}
+                          onCheckedChange={handleGauchitosToggle}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <img
+                        src="/pizzas/salsa de ajo.jpg"
+                        alt="Salsa de Ajo"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="salsaAjoDisponible">Salsa de Ajo</Label>
+                      <div className="h-10 px-3 border rounded-md flex items-center justify-between">
+                        <span className={`text-sm font-medium ${salsasDisponibles.ajo ? 'text-green-600' : 'text-red-600'}`}>
+                          {salsasDisponibles.ajo ? 'Disponible' : 'Sin Stock'}
+                        </span>
+                        <Switch
+                          id="salsaAjoDisponible"
+                          checked={salsasDisponibles.ajo}
+                          onCheckedChange={(checked) => handleSalsaToggle("ajo", checked)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <img
+                        src="/pizzas/salsa chimichurri.jpg"
+                        alt="Salsa Chimichurri"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="salsaChimichurriDisponible">Salsa Chimichurri</Label>
+                      <div className="h-10 px-3 border rounded-md flex items-center justify-between">
+                        <span className={`text-sm font-medium ${salsasDisponibles.chimichurri ? 'text-green-600' : 'text-red-600'}`}>
+                          {salsasDisponibles.chimichurri ? 'Disponible' : 'Sin Stock'}
+                        </span>
+                        <Switch
+                          id="salsaChimichurriDisponible"
+                          checked={salsasDisponibles.chimichurri}
+                          onCheckedChange={(checked) => handleSalsaToggle("chimichurri", checked)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <img
+                        src="/pizzas/salsa bbq.jpg"
+                        alt="Salsa BBQ"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="salsaBBQDisponible">Salsa BBQ</Label>
+                      <div className="h-10 px-3 border rounded-md flex items-center justify-between">
+                        <span className={`text-sm font-medium ${salsasDisponibles.bbq ? 'text-green-600' : 'text-red-600'}`}>
+                          {salsasDisponibles.bbq ? 'Disponible' : 'Sin Stock'}
+                        </span>
+                        <Switch
+                          id="salsaBBQDisponible"
+                          checked={salsasDisponibles.bbq}
+                          onCheckedChange={(checked) => handleSalsaToggle("bbq", checked)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                      <img
+                        src="/pizzas/salsa pesto.jpg"
+                        alt="Salsa Pesto"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }}
+                      />
+                    </div>
+                    <div className="flex-1 space-y-2">
+                      <Label htmlFor="salsaPestoDisponible">Salsa Pesto</Label>
+                      <div className="h-10 px-3 border rounded-md flex items-center justify-between">
+                        <span className={`text-sm font-medium ${salsasDisponibles.pesto ? 'text-green-600' : 'text-red-600'}`}>
+                          {salsasDisponibles.pesto ? 'Disponible' : 'Sin Stock'}
+                        </span>
+                        <Switch
+                          id="salsaPestoDisponible"
+                          checked={salsasDisponibles.pesto}
+                          onCheckedChange={(checked) => handleSalsaToggle("pesto", checked)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    onClick={handleSaveAgregadosConfig}
+                    className="bg-pink-600 text-white hover:bg-pink-700"
+                    disabled={savingAgregados}
+                  >
+                    {savingAgregados ? "Guardando..." : "Guardar Agregados"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
         <h2 className="text-2xl font-semibold mb-4">Recetas de Pizzas</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {(() => {
@@ -640,7 +963,6 @@ export default function AdminInventario() {
               "Coca Cola Lata 350cc",
               "Salsa Chimichurri",
               "Coca Cola 1.5 Litro",
-              "Pesto Margarita",
               "Salsa BBQ",
               "Lipton Lata",
               "Lipton Botella",

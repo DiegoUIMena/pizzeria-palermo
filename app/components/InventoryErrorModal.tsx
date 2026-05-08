@@ -40,65 +40,34 @@ export default function InventoryErrorModal({
     return null
   }
 
+  // Extraer nombres únicos de productos con falta de stock
+  const productosConFalta = validationDetails && validationDetails.length > 0
+    ? [...new Set(validationDetails.map((item: any) => item.item || item.nombre))]
+    : []
+
+  const productosTexto = productosConFalta.join(", ")
+
   return (
     <>
       {console.log("InventoryErrorModal: Renderizando con isOpen =", isOpen)}
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <div className="flex items-center gap-2 text-red-600">
             <AlertCircle className="h-6 w-6" />
-            <DialogTitle className="text-xl font-bold">¡Atención! Inventario insuficiente</DialogTitle>
+            <DialogTitle className="text-xl font-bold">¡Atención!</DialogTitle>
           </div>
-          <DialogDescription className="text-base mt-2 font-semibold">
-            No podemos procesar tu pedido porque no hay suficiente stock de algunos ingredientes.
-          </DialogDescription>
         </DialogHeader>
 
-        {validationDetails && validationDetails.length > 0 ? (
-          <div className="space-y-4 my-4">
-            {validationDetails.map((item, index) => (
-              <div key={index} className="p-4 bg-red-50 border-2 border-red-300 rounded-md shadow-sm">
-                <h3 className="font-bold text-red-800 mb-3 text-lg flex items-center">
-                  <span className="bg-red-100 text-red-800 p-1 rounded-full mr-2 w-6 h-6 flex items-center justify-center text-sm">
-                    {index + 1}
-                  </span>
-                  {item.item}
-                </h3>
-                
-                {item.missing && item.missing.length > 0 && (
-                  <div className="space-y-3 ml-3 bg-white p-3 rounded-md">
-                    {item.missing.map((ing: any, idx: number) => (
-                      <div key={idx} className="flex flex-col md:flex-row md:justify-between text-sm border-b border-gray-100 pb-2">
-                        <span className="font-medium text-gray-800 mb-1 md:mb-0">
-                          {ing.ingrediente}:
-                        </span>
-                        <div className="flex flex-col md:items-end">
-                          <span className="text-red-600">
-                            Necesario: <strong>{ing.needed} {ing.unidad}</strong>
-                          </span>
-                          <span className="text-gray-600">
-                            Disponible: {ing.available} {ing.unidad}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="my-4 p-4 bg-red-50 border border-red-200 rounded-md text-center">
-            <p className="text-red-700 font-medium">
-              No hay suficiente stock para procesar tu pedido. Por favor, modifica tu selección.
-            </p>
-          </div>
-        )}
-        
-        <div className="bg-yellow-50 p-4 rounded-md border border-yellow-200 mb-4">
-          <p className="text-sm text-gray-800 font-medium">
-            Por favor, modifica tu pedido eliminando o cambiando los productos que contienen estos ingredientes.
+        <div className="my-4 p-4 bg-red-50 border border-red-200 rounded-md text-center space-y-3">
+          <p className="text-red-800 font-semibold text-base">
+            No podemos procesar tu pedido.
+          </p>
+          <p className="text-red-700 font-bold text-lg">
+            STOCK INSUFICIENTE de {productosTexto}
+          </p>
+          <p className="text-gray-700 text-sm">
+            Daremos aviso a Palermo para solucionarlo a la brevedad.
           </p>
         </div>
 

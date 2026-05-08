@@ -195,6 +195,83 @@ _Pizzería Palermo - Las mejores pizzas artesanales_`;
 }
 
 /**
+ * Enviar notificación de pedido listo por WhatsApp
+ */
+export async function sendOrderReadyNotificationWhatsApp(
+  recipientPhone: string,
+  tipoEntrega: "Delivery" | "Retiro"
+): Promise<boolean> {
+  try {
+    const client = getTwilioClient();
+    const whatsappNumber = twilioWhatsAppNumber.value();
+
+    if (!whatsappNumber) {
+      throw new Error("Twilio WhatsApp number not configured");
+    }
+
+    const cleanedPhone = cleanPhoneNumber(recipientPhone);
+    const message = tipoEntrega === "Delivery"
+      ? "Pedido listo, delivery en camino. Palermo Pizzas"
+      : "Tu Pedido está listo, te esperamos. Palermo Pizzas";
+
+    const result = await client.messages.create({
+      from: `whatsapp:${whatsappNumber}`,
+      to: `whatsapp:${cleanedPhone}`,
+      body: message,
+    });
+
+    logger.info("WhatsApp de pedido listo enviado", {
+      messageSid: result.sid,
+      recipient: cleanedPhone,
+      tipoEntrega,
+      status: result.status,
+    });
+
+    return true;
+  } catch (error) {
+    logger.error("Error enviando WhatsApp de pedido listo:", error);
+    // No bloquear el flujo de actualización de estado por un fallo de notificación
+    return false;
+  }
+}
+
+/**
+ * Enviar un mensaje personalizado por WhatsApp
+ */
+export async function sendCustomWhatsAppMessage(
+  recipientPhone: string,
+  message: string
+): Promise<boolean> {
+  try {
+    const client = getTwilioClient();
+    const whatsappNumber = twilioWhatsAppNumber.value();
+
+    if (!whatsappNumber) {
+      throw new Error("Twilio WhatsApp number not configured");
+    }
+
+    const cleanedPhone = cleanPhoneNumber(recipientPhone);
+
+    const result = await client.messages.create({
+      from: `whatsapp:${whatsappNumber}`,
+      to: `whatsapp:${cleanedPhone}`,
+      body: message,
+    });
+
+    logger.info("WhatsApp personalizado enviado", {
+      messageSid: result.sid,
+      recipient: cleanedPhone,
+      status: result.status,
+    });
+
+    return true;
+  } catch (error) {
+    logger.error("Error enviando WhatsApp personalizado:", error);
+    return false;
+  }
+}
+
+/**
  * Validar que un número de teléfono sea válido
  */
 export function isValidPhoneNumber(phone: string): boolean {

@@ -6,6 +6,8 @@ import * as admin from 'firebase-admin';
 import { Intent } from '../services/detectIntent';
 
 const db = admin.firestore();
+const INTENTS_CACHE_TTL_MS = 60 * 1000;
+const intentsCache = new Map<string, { data: Intent[]; fetchedAt: number }>();
 
 export interface IntentDocument extends Omit<Intent, 'id'> {
   createdAt?: admin.firestore.Timestamp;
@@ -16,6 +18,11 @@ export interface IntentDocument extends Omit<Intent, 'id'> {
  * Obtiene todos los intents de un tenant
  */
 export async function getAllIntents(tenantId: string): Promise<Intent[]> {
+  const cached = intentsCache.get(tenantId);
+  if (cached && Date.now() - cached.fetchedAt < INTENTS_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const intentsRef = db
     .collection('tenants')
     .doc(tenantId)
@@ -24,14 +31,13 @@ export async function getAllIntents(tenantId: string): Promise<Intent[]> {
 
   const snapshot = await intentsRef.get();
 
-  if (snapshot.empty) {
-    return [];
-  }
-
-  return snapshot.docs.map(doc => ({
+  const intents = snapshot.empty ? [] : snapshot.docs.map(doc => ({
     id: doc.id,
     ...doc.data()
   })) as Intent[];
+
+  intentsCache.set(tenantId, { data: intents, fetchedAt: Date.now() });
+  return intents;
 }
 
 /**
@@ -77,6 +83,8 @@ export async function createIntent(
     updatedAt: admin.firestore.FieldValue.serverTimestamp()
   });
 
+  intentsCache.delete(tenantId);
+
   return newIntent.id;
 }
 
@@ -98,6 +106,8 @@ export async function updateIntent(
     ...updates,
     updatedAt: admin.firestore.FieldValue.serverTimestamp()
   });
+
+  intentsCache.delete(tenantId);
 }
 
 /**
@@ -114,6 +124,7 @@ export async function deleteIntent(
     .doc(intentId);
 
   await intentRef.delete();
+  intentsCache.delete(tenantId);
 }
 
 /**

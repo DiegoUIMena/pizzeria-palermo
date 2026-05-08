@@ -33,7 +33,6 @@ export default function GlobalOrderMonitor() {
   // Referencias para tracking
   const pedidosNotificadosRef = useRef<Set<string>>(new Set())
   const pedidosSinAtenderRef = useRef<Set<string>>(new Set())
-  const ultimaActualizacionFirebaseRef = useRef<Record<string, number>>({})
   const ultimoTickRef = useRef<number>(Date.now())
   
   // Cargar tiempos guardados en localStorage al inicio
@@ -337,50 +336,6 @@ export default function GlobalOrderMonitor() {
     
     return () => clearInterval(timer)
   }, [isLoading, reproducirAlarmaTiempoAgotandose, pedidosConPocoTiempo, tiemposEstimados, guardarTiemposEnStorage])
-
-  // Sincronizar con Firebase cada minuto
-  useEffect(() => {
-    const iv = setInterval(async () => {
-      for (const id in cuentasRegresivas) {
-        const currentValue = cuentasRegresivas[id]
-        // Solo actualizar si:
-        // 1. El valor ha cambiado desde la última actualización
-        // 2. El valor es múltiplo de 60 (cada minuto)
-        // 3. El tiempo es mayor que 0
-        if (
-          currentValue > 0 && 
-          currentValue % 60 === 0 && 
-          ultimaActualizacionFirebaseRef.current[id] !== currentValue
-        ) {
-          try {
-            // Encontrar el pedido correspondiente
-            const pedido = pedidos.find(p => p.documentId === id)
-            if (pedido) {
-              const tiempoRestanteMinutos = Math.floor(currentValue / 60)
-              const tiempoEntrega = new Date(new Date().getTime() + currentValue * 1000)
-              const tiempoEstimadoFin = tiempoEntrega.toISOString()
-              const tiempoFormateado = `${tiempoRestanteMinutos} minutos (${tiempoEntrega.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`
-              
-              // Actualizar en Firebase
-              const pedidoRef = doc(db, "orders", id)
-              await updateDoc(pedidoRef, {
-                tiempoEstimado: tiempoFormateado,
-                tiempoEstimadoFin,
-              })
-              
-              // Actualizar última actualización
-              ultimaActualizacionFirebaseRef.current[id] = currentValue
-              console.log(`[GLOBAL] Tiempo actualizado en Firebase para pedido ${id}: ${tiempoFormateado}`)
-            }
-          } catch (error) {
-            console.error(`[GLOBAL] Error al actualizar tiempo para pedido ${id}:`, error)
-          }
-        }
-      }
-    }, 5000) // Verificar cada 5 segundos, pero solo actualizar cada minuto
-    
-    return () => clearInterval(iv)
-  }, [cuentasRegresivas, pedidos])
 
   // Método para establecer tiempo estimado (exportado a través de window para que otras partes de la app lo usen)
   const establecerTiempoEstimado = useCallback(async (pedidoId: string, minutos: number) => {

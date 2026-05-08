@@ -24,6 +24,136 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+interface AgregadosConfig {
+  rollitosPackStock: number;
+  gauchitosDisponible: boolean;
+  salsasDisponibles: {
+    ajo: boolean;
+    chimichurri: boolean;
+    bbq: boolean;
+    pesto: boolean;
+  };
+}
+
+const DEFAULT_AGREGADOS_CONFIG: AgregadosConfig = {
+  rollitosPackStock: 99,
+  gauchitosDisponible: true,
+  salsasDisponibles: {
+    ajo: true,
+    chimichurri: true,
+    bbq: true,
+    pesto: true,
+  },
+};
+
+type SalsaKey = keyof AgregadosConfig["salsasDisponibles"];
+
+function detectSalsaKey(value: string): SalsaKey | null {
+  const normalized = normalizeText(value || "");
+
+  if (normalized.includes("chimichurri")) {
+    return "chimichurri";
+  }
+  if (normalized.includes("pesto")) {
+    return "pesto";
+  }
+  if (normalized.includes("bbq") || normalized.includes("barbecue")) {
+    return "bbq";
+  }
+  if (normalized.includes("ajo")) {
+    return "ajo";
+  }
+
+  return null;
+}
+
+function detectStandaloneSalsaKey(value: string): SalsaKey | null {
+  const normalized = normalizeText(value || "");
+  if (!normalized.includes("salsa")) {
+    return null;
+  }
+
+  return detectSalsaKey(value);
+}
+
+function getUnavailableSauceLabel(
+  key: SalsaKey,
+  config: AgregadosConfig
+): string | null {
+  if (config.salsasDisponibles[key]) {
+    return null;
+  }
+
+  const labels: Record<SalsaKey, string> = {
+    ajo: "Salsa de Ajo",
+    chimichurri: "Salsa Chimichurri",
+    bbq: "Salsa BBQ",
+    pesto: "Salsa Pesto",
+  };
+
+  return labels[key];
+}
+
+function isGauchitosLikeItem(name: string): boolean {
+  const normalizedName = normalizeText(name || "");
+  return normalizedName.includes("gauchito") || normalizedName.includes("cauchito");
+}
+
+function isRollitosLikeItem(name: string): boolean {
+  const normalizedName = normalizeText(name || "");
+  return normalizedName.includes("rollito") && normalizedName.includes("canela");
+}
+
+async function getAgregadosConfig(
+  transaction?: admin.firestore.Transaction
+): Promise<AgregadosConfig> {
+  try {
+    const db = admin.firestore();
+    const ref = db.collection("settings").doc("agregados_config");
+    const snap = transaction ? await transaction.get(ref) : await ref.get();
+
+    if (!snap.exists) {
+      return DEFAULT_AGREGADOS_CONFIG;
+    }
+
+    const data = snap.data() || {};
+    const rollitosRaw = Number(data.rollitosPackStock);
+    const salsasData = data.salsasDisponibles || {};
+
+    return {
+      rollitosPackStock:
+        Number.isFinite(rollitosRaw) && rollitosRaw >= 0
+          ? Math.floor(rollitosRaw)
+          : DEFAULT_AGREGADOS_CONFIG.rollitosPackStock,
+      gauchitosDisponible:
+        typeof data.gauchitosDisponible === "boolean"
+          ? data.gauchitosDisponible
+          : DEFAULT_AGREGADOS_CONFIG.gauchitosDisponible,
+      salsasDisponibles: {
+        ajo:
+          typeof salsasData.ajo === "boolean"
+            ? salsasData.ajo
+            : DEFAULT_AGREGADOS_CONFIG.salsasDisponibles.ajo,
+        chimichurri:
+          typeof salsasData.chimichurri === "boolean"
+            ? salsasData.chimichurri
+            : DEFAULT_AGREGADOS_CONFIG.salsasDisponibles.chimichurri,
+        bbq:
+          typeof salsasData.bbq === "boolean"
+            ? salsasData.bbq
+            : DEFAULT_AGREGADOS_CONFIG.salsasDisponibles.bbq,
+        pesto:
+          typeof salsasData.pesto === "boolean"
+            ? salsasData.pesto
+            : DEFAULT_AGREGADOS_CONFIG.salsasDisponibles.pesto,
+      },
+    };
+  } catch (error) {
+    logger.error("Error reading agregados_config, using defaults", error);
+    return DEFAULT_AGREGADOS_CONFIG;
+  }
+}
+
 /**
  * Procesar ingredientes extras de un item con cantidades estándar
  * Similar a buildRecipeLinesFromIngredients del frontend
@@ -32,7 +162,8 @@ async function processExtrasForItem(
   item: OrderItem,
   ingredientesMap: Record<string, any>,
   consumption: Record<string, number>,
-  cantidad: number
+  cantidad: number,
+  agregadosConfig: AgregadosConfig
 ): Promise<void> {
   const pizzaSize = (item.size || 'Familiar').toLowerCase();
   const isMediana = pizzaSize === 'mediana';
@@ -61,6 +192,15 @@ async function processExtrasForItem(
     arr.forEach(s => {
       const parsed = parseItemString(s);
       const normalizedName = normalizeText(parsed.name);
+      
+      // 🔧 IMPORTANTE: Si es una salsa disponible por configuración, saltarla
+      if (arrayName === 'sauces') {
+        const sauceKey = detectSalsaKey(normalizedName);
+        if (sauceKey && agregadosConfig.salsasDisponibles[sauceKey]) {
+          logger.info(`      🔍 Salsa ${parsed.name} disponible por configuración, saltando consumo`);
+          return;
+        }
+      }
       
       logger.info(`      🔍 Procesando: "${s}"`);
       logger.info(`         Parseado: name="${parsed.name}", quantity=${parsed.quantity}`);
@@ -162,6 +302,7 @@ export async function validateInventoryForOrder(
 ): Promise<ValidationResult> {
   try {
     const db = admin.firestore();
+    const agregadosConfig = await getAgregadosConfig(transaction);
 
     // ✅ MEJORA: Usar transacción si se proporciona para lecturas consistentes
     const inventorySnapshot = transaction
@@ -200,11 +341,82 @@ export async function validateInventoryForOrder(
     const required: Record<string, number> = {};
 
     for (const item of items) {
+      const itemNombreOriginal = item.nombre || "";
+      const cantidad = item.cantidad || 1;
+
+      const standaloneSauceKey = detectStandaloneSalsaKey(itemNombreOriginal);
+      if (standaloneSauceKey) {
+        const unavailableSauce = getUnavailableSauceLabel(standaloneSauceKey, agregadosConfig);
+        if (unavailableSauce) {
+          return {
+            success: false,
+            insufficientItems: [{
+              ingrediente: unavailableSauce,
+              requerido: cantidad,
+              disponible: 0,
+            }],
+          };
+        }
+
+        logger.info(`Skipping recipe validation for standalone sauce item ${itemNombreOriginal} by config`);
+        continue;
+      }
+
+      for (const sauce of item.sauces || []) {
+        const sauceKey = detectSalsaKey(sauce);
+        if (!sauceKey) {
+          continue;
+        }
+
+        const unavailableSauce = getUnavailableSauceLabel(sauceKey, agregadosConfig);
+        if (unavailableSauce) {
+          return {
+            success: false,
+            insufficientItems: [{
+              ingrediente: unavailableSauce,
+              requerido: cantidad,
+              disponible: 0,
+            }],
+          };
+        }
+      }
+
+      if (isRollitosLikeItem(itemNombreOriginal)) {
+        if (agregadosConfig.rollitosPackStock >= cantidad) {
+          logger.info(`Skipping recipe validation for ${itemNombreOriginal} by config packs`);
+          continue;
+        }
+
+        return {
+          success: false,
+          insufficientItems: [{
+            ingrediente: "Rollitos de Canela (packs)",
+            requerido: cantidad,
+            disponible: Math.max(0, agregadosConfig.rollitosPackStock),
+          }],
+        };
+      }
+
+      if (isGauchitosLikeItem(itemNombreOriginal)) {
+        if (agregadosConfig.gauchitosDisponible) {
+          logger.info(`Skipping inventory validation for ${itemNombreOriginal} by config`);
+          continue;
+        }
+
+        return {
+          success: false,
+          insufficientItems: [{
+            ingrediente: "Gauchitos",
+            requerido: cantidad,
+            disponible: 0,
+          }],
+        };
+      }
+
       // Limpiar el nombre quitando el tamaño entre paréntesis si existe
       let itemNombre = (item.nombre || "").toLowerCase();
       itemNombre = itemNombre.replace(/\s*\([^)]*\)\s*$/g, '').trim();
-      
-      const cantidad = item.cantidad || 1;
+
       const size = (item.size || "Familiar").toLowerCase();
 
       // Buscar la pizza en items_menu
@@ -214,6 +426,46 @@ export async function validateInventoryForOrder(
           pizzaEncontrada = pizza;
           break;
         }
+      }
+
+      const isGauchitosOrderItem =
+        isGauchitosLikeItem(itemNombreOriginal) ||
+        isGauchitosLikeItem(String((pizzaEncontrada as any)?.nombre || ""));
+
+      const isRollitosOrderItem =
+        isRollitosLikeItem(itemNombreOriginal) ||
+        isRollitosLikeItem(String((pizzaEncontrada as any)?.nombre || ""));
+
+      if (isRollitosOrderItem) {
+        if (agregadosConfig.rollitosPackStock >= cantidad) {
+          logger.info(`Skipping recipe validation for ${itemNombreOriginal} by config packs (matched by menu/name)`);
+          continue;
+        }
+
+        return {
+          success: false,
+          insufficientItems: [{
+            ingrediente: "Rollitos de Canela (packs)",
+            requerido: cantidad,
+            disponible: Math.max(0, agregadosConfig.rollitosPackStock),
+          }],
+        };
+      }
+
+      if (isGauchitosOrderItem) {
+        if (agregadosConfig.gauchitosDisponible) {
+          logger.info(`Skipping inventory validation for ${itemNombreOriginal} by config (matched by menu/name)`);
+          continue;
+        }
+
+        return {
+          success: false,
+          insufficientItems: [{
+            ingrediente: "Gauchitos",
+            requerido: cantidad,
+            disponible: 0,
+          }],
+        };
       }
 
       if (pizzaEncontrada) {
@@ -312,6 +564,26 @@ export async function validateInventoryForOrder(
     }> = [];
 
     Object.entries(required).forEach(([ingredientName, quantityNeeded]) => {
+      // 🔧 IMPORTANTE: Las salsas se controlan por configuración, no por inventario
+      const sauceKey = detectSalsaKey(ingredientName);
+      if (sauceKey) {
+        // Si la salsa está disponible en la configuración, no validar inventario
+        if (agregadosConfig.salsasDisponibles[sauceKey]) {
+          logger.info(`✅ Salsa ${ingredientName} disponible por configuración, saltando validación de inventario`);
+          return;
+        }
+        // Si la salsa NO está disponible, reportar error
+        const unavailableSauce = getUnavailableSauceLabel(sauceKey, agregadosConfig);
+        if (unavailableSauce) {
+          insufficientItems.push({
+            ingrediente: unavailableSauce,
+            requerido: quantityNeeded,
+            disponible: 0,
+          });
+          return;
+        }
+      }
+
       const inventoryItem = inventory[ingredientName];
 
       if (!inventoryItem) {
@@ -378,6 +650,8 @@ export async function consumeInventoryForOrder(
 
     // ✅ MEJORA: Si ya hay una transacción, usarla. Si no, crear una nueva
     const executeConsumption = async (t: admin.firestore.Transaction) => {
+      const agregadosConfig = await getAgregadosConfig(t);
+
       // 1. Obtener todos los ingredientes (INCLUYENDO cantidades estándar)
       const inventorySnapshot = await t.get(
         db.collection("ingredientes")
@@ -425,14 +699,58 @@ export async function consumeInventoryForOrder(
 
       // 3. Calcular consumo necesario por ingrediente
       const consumption: Record<string, number> = {};
+      let rollitosPacksToConsume = 0;
+      let gauchitosUnitsProcessed = 0;
+      let standaloneSaucesProcessed = 0;
 
       for (const item of items) {
+        const itemNombreOriginal = item.nombre || "";
+        const cantidad = item.cantidad || 1;
+
+        const standaloneSauceKey = detectStandaloneSalsaKey(itemNombreOriginal);
+        if (standaloneSauceKey) {
+          const unavailableSauce = getUnavailableSauceLabel(standaloneSauceKey, agregadosConfig);
+          if (unavailableSauce) {
+            throw new Error(`${unavailableSauce} no disponible`);
+          }
+
+          standaloneSaucesProcessed += cantidad;
+          logger.info(`Skipping ingredient consumption for standalone sauce item ${itemNombreOriginal} by config`);
+          continue;
+        }
+
+        for (const sauce of item.sauces || []) {
+          const sauceKey = detectSalsaKey(sauce);
+          if (!sauceKey) {
+            continue;
+          }
+
+          const unavailableSauce = getUnavailableSauceLabel(sauceKey, agregadosConfig);
+          if (unavailableSauce) {
+            throw new Error(`${unavailableSauce} no disponible`);
+          }
+        }
+
+        if (isRollitosLikeItem(itemNombreOriginal)) {
+          rollitosPacksToConsume += cantidad;
+          logger.info(`Skipping ingredient consumption for ${itemNombreOriginal} and accounting ${cantidad} rollitos pack(s)`);
+          continue;
+        }
+
+        if (isGauchitosLikeItem(itemNombreOriginal)) {
+          if (!agregadosConfig.gauchitosDisponible) {
+            logger.warn(`Gauchitos disabled in config while consuming order ${orderId || "unknown-order"}, skipping inventory discount`);
+          }
+          logger.info(`Skipping inventory consumption for ${itemNombreOriginal} by config`);
+          gauchitosUnitsProcessed += cantidad;
+          continue;
+        }
+
         // Limpiar el nombre quitando el tamaño entre paréntesis si existe
         // Ejemplo: "amalfitana (familiar)" -> "amalfitana"
         let itemNombre = (item.nombre || "").toLowerCase();
         itemNombre = itemNombre.replace(/\s*\([^)]*\)\s*$/g, '').trim();
         
-        const cantidad = item.cantidad || 1;
         const size = (item.size || "Familiar").toLowerCase();
         
         logger.info(`Processing item: ${item.nombre} -> cleaned: "${itemNombre}", size: ${size}, cantidad: ${cantidad}`);
@@ -605,7 +923,7 @@ export async function consumeInventoryForOrder(
             logger.info(`   📊 Consumption ANTES de procesar extras:`, consumption);
             
             // Procesar ingredientes EXTRAS adicionales con cantidades estándar
-            await processExtrasForItem(item, ingredientesMap, consumption, cantidad);
+            await processExtrasForItem(item, ingredientesMap, consumption, cantidad, agregadosConfig);
             
             logger.info(`   📊 Consumption DESPUÉS de procesar extras:`, consumption);
           } else {
@@ -623,6 +941,26 @@ export async function consumeInventoryForOrder(
             pizzaEncontrada = pizza;
             break;
           }
+        }
+
+        const isGauchitosOrderItem =
+          isGauchitosLikeItem(itemNombreOriginal) ||
+          isGauchitosLikeItem(String((pizzaEncontrada as any)?.nombre || ""));
+
+        const isRollitosOrderItem =
+          isRollitosLikeItem(itemNombreOriginal) ||
+          isRollitosLikeItem(String((pizzaEncontrada as any)?.nombre || ""));
+
+        if (isRollitosOrderItem) {
+          rollitosPacksToConsume += cantidad;
+          logger.info(`Skipping ingredient consumption for ${itemNombreOriginal} and accounting ${cantidad} rollitos pack(s) (matched by menu/name)`);
+          continue;
+        }
+
+        if (isGauchitosOrderItem) {
+          logger.info(`Skipping inventory consumption for ${itemNombreOriginal} by config (matched by menu/name)`);
+          gauchitosUnitsProcessed += cantidad;
+          continue;
         }
 
         if (pizzaEncontrada) {
@@ -648,7 +986,7 @@ export async function consumeInventoryForOrder(
             });
             
             // ✅ AHORA PROCESAR EXTRAS ADICIONALES (SI EXISTEN)
-            await processExtrasForItem(item, ingredientesMap, consumption, cantidad);
+            await processExtrasForItem(item, ingredientesMap, consumption, cantidad, agregadosConfig);
             
           } else {
             // ❌ RECETA NO DEFINIDA - ERROR CRÍTICO
@@ -694,17 +1032,66 @@ export async function consumeInventoryForOrder(
 
       // ⚠️ VALIDACIÓN CRÍTICA: Verificar que se calculó algún consumo
       const totalItemsConsumed = Object.keys(consumption).length;
-      if (totalItemsConsumed === 0) {
+      const hasRollitosConsumption = rollitosPacksToConsume > 0;
+      const hasGauchitosProcessed = gauchitosUnitsProcessed > 0;
+      const hasStandaloneSaucesProcessed = standaloneSaucesProcessed > 0;
+      if (
+        totalItemsConsumed === 0 &&
+        !hasRollitosConsumption &&
+        !hasGauchitosProcessed &&
+        !hasStandaloneSaucesProcessed
+      ) {
         logger.error("❌ CRITICAL: No se calculó consumo para ningún ingrediente");
         logger.error("Items recibidos:", JSON.stringify(items, null, 2));
         throw new Error("No se pudo calcular el consumo de inventario. Verifica que las pizzas tengan recetas definidas.");
       }
 
-      logger.info(`✅ Se calculó consumo para ${totalItemsConsumed} ingrediente(s)`);
+      if (totalItemsConsumed > 0) {
+        logger.info(`✅ Se calculó consumo para ${totalItemsConsumed} ingrediente(s)`);
+      } else if (hasRollitosConsumption) {
+        logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de Rollitos packs: ${rollitosPacksToConsume}`);
+      } else if (hasStandaloneSaucesProcessed) {
+        logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de salsas procesadas: ${standaloneSaucesProcessed}`);
+      } else {
+        logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de Gauchitos procesados: ${gauchitosUnitsProcessed}`);
+      }
 
-      // 4. Actualizar stocks en la transacción
       const transactionItems: any[] = [];
-      
+
+      // 4.1 Consumir stock de Rollitos (packs) en la misma transacción
+      if (rollitosPacksToConsume > 0) {
+        if (agregadosConfig.rollitosPackStock < rollitosPacksToConsume) {
+          throw new Error(
+            `Stock insuficiente de Rollitos de Canela: requerido ${rollitosPacksToConsume}, disponible ${agregadosConfig.rollitosPackStock}`
+          );
+        }
+
+        const agregadosRef = db.collection("settings").doc("agregados_config");
+        const newRollitosStock = agregadosConfig.rollitosPackStock - rollitosPacksToConsume;
+        t.set(
+          agregadosRef,
+          {
+            rollitosPackStock: newRollitosStock,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          {merge: true}
+        );
+
+        logger.info(
+          `✅ Rollitos packs updated: ${agregadosConfig.rollitosPackStock} -> ${newRollitosStock} (-${rollitosPacksToConsume})`
+        );
+
+        transactionItems.push({
+          ingredienteId: "agregados_config.rollitosPackStock",
+          nombre: "Rollitos de Canela (packs)",
+          cantidadConsumida: rollitosPacksToConsume,
+          unidad: "pack",
+          stockAnterior: agregadosConfig.rollitosPackStock,
+          stockNuevo: newRollitosStock,
+        });
+      }
+
+      // 4.2 Actualizar stocks de ingredientes en la transacción
       Object.entries(consumption).forEach(([ingredientName, quantity]) => {
         const invItem = inventory[ingredientName];
         if (invItem) {
@@ -798,6 +1185,7 @@ export async function restoreInventoryForOrder(items: any[]) {
 
   // 3. Calcular restauración necesaria por ingrediente
   const restoration: Record<string, number> = {};
+  let rollitosPacksToRestore = 0;
 
   for (const item of items) {
     // Limpiar el nombre quitando el tamaño entre paréntesis si existe
@@ -806,6 +1194,12 @@ export async function restoreInventoryForOrder(items: any[]) {
     
     const cantidad = item.cantidad || 1;
     const size = (item.size || "Familiar").toLowerCase();
+
+    if (isRollitosLikeItem(item.nombre || "")) {
+      rollitosPacksToRestore += cantidad;
+      logger.info(`Skipping ingredient restoration for ${item.nombre} and restoring ${cantidad} rollitos pack(s)`);
+      continue;
+    }
 
     logger.info(`Restoring item: ${item.nombre} -> cleaned: "${itemNombre}", size: ${size}, cantidad: ${cantidad}`);
 
@@ -879,6 +1273,16 @@ export async function restoreInventoryForOrder(items: any[]) {
     }
 
     if (pizzaEncontrada) {
+      const isRollitosOrderItem =
+        isRollitosLikeItem(item.nombre || "") ||
+        isRollitosLikeItem(String((pizzaEncontrada as any)?.nombre || ""));
+
+      if (isRollitosOrderItem) {
+        rollitosPacksToRestore += cantidad;
+        logger.info(`Skipping ingredient restoration for ${item.nombre} and restoring ${cantidad} rollitos pack(s) (matched by menu/name)`);
+        continue;
+      }
+
       logger.info(`Found pizza for restoration: ${pizzaEncontrada.nombre}`);
 
       const recetaArray = size.includes("mediana") ? pizzaEncontrada.recetaMediana : pizzaEncontrada.receta;
@@ -932,6 +1336,19 @@ export async function restoreInventoryForOrder(items: any[]) {
     } else {
       logger.warn(`Ingredient not found in inventory: ${ingredientName}`);
     }
+  }
+
+  if (rollitosPacksToRestore > 0) {
+    const agregadosRef = db.collection("settings").doc("agregados_config");
+    batch.set(
+      agregadosRef,
+      {
+        rollitosPackStock: admin.firestore.FieldValue.increment(rollitosPacksToRestore),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      {merge: true}
+    );
+    logger.info(`✅ Restoring rollitos packs: +${rollitosPacksToRestore}`);
   }
 
   await batch.commit();
