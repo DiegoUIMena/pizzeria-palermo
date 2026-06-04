@@ -133,17 +133,44 @@ export function Step6CustomizationOptions({
             🥤 Agrega Bebidas (Opcional)
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {bebidas.map((bebida) => (
-              <ExtraCard
-                key={bebida.id}
-                id={bebida.id}
-                nombre={bebida.nombre}
-                precio={bebida.precio}
-                imagen={bebida.imagen}
-                selected={bebidasSeleccionadas.includes(bebida.id)}
-                onToggle={() => toggleExtra(bebida.id, 'bebida')}
-              />
-            ))}
+            {bebidas.map((bebida) => {
+              // Si la bebida tiene variantes (por ejemplo Tradicional / Zero), mostrar botones separados
+              if (bebida.variantes && !bebida.nombre.toLowerCase().includes('lipton')) {
+                // Devolver dos elementos separados para que cada uno ocupe su propia celda del grid
+                return [
+                  <ExtraCard
+                    key={`${bebida.id}-familiar`}
+                    id={`${bebida.id}-familiar`}
+                    nombre={`${bebida.nombre} Tradicional`}
+                    precio={bebida.precio}
+                    imagen={bebida.imagen}
+                    selected={bebidasSeleccionadas.includes(`${bebida.id}-familiar`)}
+                    onToggle={() => toggleExtra(`${bebida.id}-familiar`, 'bebida')}
+                  />,
+                  <ExtraCard
+                    key={`${bebida.id}-mediana`}
+                    id={`${bebida.id}-mediana`}
+                    nombre={`${bebida.nombre} Zero`}
+                    precio={bebida.precio}
+                    imagen={bebida.imagen}
+                    selected={bebidasSeleccionadas.includes(`${bebida.id}-mediana`)}
+                    onToggle={() => toggleExtra(`${bebida.id}-mediana`, 'bebida')}
+                  />
+                ]
+              }
+
+              return (
+                <ExtraCard
+                  key={bebida.id}
+                  id={bebida.id}
+                  nombre={bebida.nombre}
+                  precio={bebida.precio}
+                  imagen={bebida.imagen}
+                  selected={bebidasSeleccionadas.includes(bebida.id)}
+                  onToggle={() => toggleExtra(bebida.id, 'bebida')}
+                />
+              )
+            })}
           </div>
         </div>
       )}

@@ -17,6 +17,18 @@ export interface OrderItem {
   pizzaType?: string;
   pizza1?: string;  // Para pizzas DUO
   pizza2?: string;  // Para pizzas DUO
+  half1?: {
+    baseType: 'menu' | 'custom';
+    variety: string | null;
+    simpleIngredients: string[];
+    premiumIngredients: string[];
+  };
+  half2?: {
+    baseType: 'menu' | 'custom';
+    variety: string | null;
+    simpleIngredients: string[];
+    premiumIngredients: string[];
+  };
   selectedMenuPizza?: string | null;  // Pizza base seleccionada para Premium/Promo
 }
 
@@ -51,6 +63,7 @@ export interface CreateOrderData {
   voucherId?: string;
   voucherCode?: string;
   voucherDiscount?: number;
+  discountCode?: string;
 }
 
 export interface Order extends CreateOrderData {

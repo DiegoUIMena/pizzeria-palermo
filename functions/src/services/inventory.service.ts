@@ -33,6 +33,14 @@ interface AgregadosConfig {
     bbq: boolean;
     pesto: boolean;
   };
+  bebidasDisponibles: {
+    liptonLata: boolean;
+    liptonBotella: boolean;
+    cocaLataTradicional: boolean;
+    cocaLataZero: boolean;
+    cocaBotellaTradicional: boolean;
+    cocaBotellaZero: boolean;
+  };
 }
 
 const DEFAULT_AGREGADOS_CONFIG: AgregadosConfig = {
@@ -44,9 +52,18 @@ const DEFAULT_AGREGADOS_CONFIG: AgregadosConfig = {
     bbq: true,
     pesto: true,
   },
+  bebidasDisponibles: {
+    liptonLata: true,
+    liptonBotella: true,
+    cocaLataTradicional: true,
+    cocaLataZero: true,
+    cocaBotellaTradicional: true,
+    cocaBotellaZero: true,
+  },
 };
 
 type SalsaKey = keyof AgregadosConfig["salsasDisponibles"];
+type BebidaKey = keyof AgregadosConfig["bebidasDisponibles"];
 
 function detectSalsaKey(value: string): SalsaKey | null {
   const normalized = normalizeText(value || "");
@@ -76,6 +93,39 @@ function detectStandaloneSalsaKey(value: string): SalsaKey | null {
   return detectSalsaKey(value);
 }
 
+function detectBebidaKey(value: string): BebidaKey | null {
+  const normalized = normalizeText(value || "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes("lipton") && normalized.includes("botella")) {
+    return "liptonBotella";
+  }
+  if (normalized.includes("lipton") && normalized.includes("lata")) {
+    return "liptonLata";
+  }
+  if (normalized.includes("coca") && normalized.includes("1.5") && normalized.includes("zero")) {
+    return "cocaBotellaZero";
+  }
+  if (normalized.includes("coca") && normalized.includes("1.5")) {
+    return "cocaBotellaTradicional";
+  }
+  if (normalized.includes("coca") && normalized.includes("lata") && normalized.includes("zero")) {
+    return "cocaLataZero";
+  }
+  if (normalized.includes("coca") && normalized.includes("lata")) {
+    return "cocaLataTradicional";
+  }
+
+  return null;
+}
+
+function detectStandaloneBebidaKey(value: string): BebidaKey | null {
+  return detectBebidaKey(value);
+}
+
 function getUnavailableSauceLabel(
   key: SalsaKey,
   config: AgregadosConfig
@@ -89,6 +139,26 @@ function getUnavailableSauceLabel(
     chimichurri: "Salsa Chimichurri",
     bbq: "Salsa BBQ",
     pesto: "Salsa Pesto",
+  };
+
+  return labels[key];
+}
+
+function getUnavailableBebidaLabel(
+  key: BebidaKey,
+  config: AgregadosConfig
+): string | null {
+  if (config.bebidasDisponibles[key]) {
+    return null;
+  }
+
+  const labels: Record<BebidaKey, string> = {
+    liptonLata: "Lipton Lata",
+    liptonBotella: "Lipton Botella",
+    cocaLataTradicional: "Coca Cola Lata Tradicional",
+    cocaLataZero: "Coca Cola Lata Zero",
+    cocaBotellaTradicional: "Coca Cola 1.5 Litro Tradicional",
+    cocaBotellaZero: "Coca Cola 1.5 Litro Zero",
   };
 
   return labels[key];
@@ -119,6 +189,7 @@ async function getAgregadosConfig(
     const data = snap.data() || {};
     const rollitosRaw = Number(data.rollitosPackStock);
     const salsasData = data.salsasDisponibles || {};
+    const bebidasData = data.bebidasDisponibles || {};
 
     return {
       rollitosPackStock:
@@ -146,6 +217,32 @@ async function getAgregadosConfig(
           typeof salsasData.pesto === "boolean"
             ? salsasData.pesto
             : DEFAULT_AGREGADOS_CONFIG.salsasDisponibles.pesto,
+      },
+      bebidasDisponibles: {
+        liptonLata:
+          typeof bebidasData.liptonLata === "boolean"
+            ? bebidasData.liptonLata
+            : DEFAULT_AGREGADOS_CONFIG.bebidasDisponibles.liptonLata,
+        liptonBotella:
+          typeof bebidasData.liptonBotella === "boolean"
+            ? bebidasData.liptonBotella
+            : DEFAULT_AGREGADOS_CONFIG.bebidasDisponibles.liptonBotella,
+        cocaLataTradicional:
+          typeof bebidasData.cocaLataTradicional === "boolean"
+            ? bebidasData.cocaLataTradicional
+            : DEFAULT_AGREGADOS_CONFIG.bebidasDisponibles.cocaLataTradicional,
+        cocaLataZero:
+          typeof bebidasData.cocaLataZero === "boolean"
+            ? bebidasData.cocaLataZero
+            : DEFAULT_AGREGADOS_CONFIG.bebidasDisponibles.cocaLataZero,
+        cocaBotellaTradicional:
+          typeof bebidasData.cocaBotellaTradicional === "boolean"
+            ? bebidasData.cocaBotellaTradicional
+            : DEFAULT_AGREGADOS_CONFIG.bebidasDisponibles.cocaBotellaTradicional,
+        cocaBotellaZero:
+          typeof bebidasData.cocaBotellaZero === "boolean"
+            ? bebidasData.cocaBotellaZero
+            : DEFAULT_AGREGADOS_CONFIG.bebidasDisponibles.cocaBotellaZero,
       },
     };
   } catch (error) {
@@ -362,6 +459,24 @@ export async function validateInventoryForOrder(
         continue;
       }
 
+      const standaloneBebidaKey = detectStandaloneBebidaKey(itemNombreOriginal);
+      if (standaloneBebidaKey) {
+        const unavailableBebida = getUnavailableBebidaLabel(standaloneBebidaKey, agregadosConfig);
+        if (unavailableBebida) {
+          return {
+            success: false,
+            insufficientItems: [{
+              ingrediente: unavailableBebida,
+              requerido: cantidad,
+              disponible: 0,
+            }],
+          };
+        }
+
+        logger.info(`Skipping recipe validation for standalone beverage item ${itemNombreOriginal} by config`);
+        continue;
+      }
+
       for (const sauce of item.sauces || []) {
         const sauceKey = detectSalsaKey(sauce);
         if (!sauceKey) {
@@ -374,6 +489,25 @@ export async function validateInventoryForOrder(
             success: false,
             insufficientItems: [{
               ingrediente: unavailableSauce,
+              requerido: cantidad,
+              disponible: 0,
+            }],
+          };
+        }
+      }
+
+      for (const drink of item.drinks || []) {
+        const bebidaKey = detectBebidaKey(drink);
+        if (!bebidaKey) {
+          continue;
+        }
+
+        const unavailableBebida = getUnavailableBebidaLabel(bebidaKey, agregadosConfig);
+        if (unavailableBebida) {
+          return {
+            success: false,
+            insufficientItems: [{
+              ingrediente: unavailableBebida,
               requerido: cantidad,
               disponible: 0,
             }],
@@ -702,6 +836,7 @@ export async function consumeInventoryForOrder(
       let rollitosPacksToConsume = 0;
       let gauchitosUnitsProcessed = 0;
       let standaloneSaucesProcessed = 0;
+      let standaloneBeveragesProcessed = 0;
 
       for (const item of items) {
         const itemNombreOriginal = item.nombre || "";
@@ -719,6 +854,18 @@ export async function consumeInventoryForOrder(
           continue;
         }
 
+        const standaloneBebidaKey = detectStandaloneBebidaKey(itemNombreOriginal);
+        if (standaloneBebidaKey) {
+          const unavailableBebida = getUnavailableBebidaLabel(standaloneBebidaKey, agregadosConfig);
+          if (unavailableBebida) {
+            throw new Error(`${unavailableBebida} no disponible`);
+          }
+
+          standaloneBeveragesProcessed += cantidad;
+          logger.info(`Skipping ingredient consumption for standalone beverage item ${itemNombreOriginal} by config`);
+          continue;
+        }
+
         for (const sauce of item.sauces || []) {
           const sauceKey = detectSalsaKey(sauce);
           if (!sauceKey) {
@@ -728,6 +875,18 @@ export async function consumeInventoryForOrder(
           const unavailableSauce = getUnavailableSauceLabel(sauceKey, agregadosConfig);
           if (unavailableSauce) {
             throw new Error(`${unavailableSauce} no disponible`);
+          }
+        }
+
+        for (const drink of item.drinks || []) {
+          const bebidaKey = detectBebidaKey(drink);
+          if (!bebidaKey) {
+            continue;
+          }
+
+          const unavailableBebida = getUnavailableBebidaLabel(bebidaKey, agregadosConfig);
+          if (unavailableBebida) {
+            throw new Error(`${unavailableBebida} no disponible`);
           }
         }
 
@@ -1035,11 +1194,13 @@ export async function consumeInventoryForOrder(
       const hasRollitosConsumption = rollitosPacksToConsume > 0;
       const hasGauchitosProcessed = gauchitosUnitsProcessed > 0;
       const hasStandaloneSaucesProcessed = standaloneSaucesProcessed > 0;
+      const hasStandaloneBeveragesProcessed = standaloneBeveragesProcessed > 0;
       if (
         totalItemsConsumed === 0 &&
         !hasRollitosConsumption &&
         !hasGauchitosProcessed &&
-        !hasStandaloneSaucesProcessed
+        !hasStandaloneSaucesProcessed &&
+        !hasStandaloneBeveragesProcessed
       ) {
         logger.error("❌ CRITICAL: No se calculó consumo para ningún ingrediente");
         logger.error("Items recibidos:", JSON.stringify(items, null, 2));
@@ -1052,6 +1213,8 @@ export async function consumeInventoryForOrder(
         logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de Rollitos packs: ${rollitosPacksToConsume}`);
       } else if (hasStandaloneSaucesProcessed) {
         logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de salsas procesadas: ${standaloneSaucesProcessed}`);
+      } else if (hasStandaloneBeveragesProcessed) {
+        logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de bebidas procesadas: ${standaloneBeveragesProcessed}`);
       } else {
         logger.info(`✅ Pedido sin ingredientes tradicionales; consumo válido de Gauchitos procesados: ${gauchitosUnitsProcessed}`);
       }

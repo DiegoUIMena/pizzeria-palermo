@@ -58,6 +58,20 @@ interface Pedido {
     extras?: string[];
     comments?: string;
     pizzaType?: string;
+    pizza1?: string;
+    pizza2?: string;
+    half1?: {
+      baseType: 'menu' | 'custom';
+      variety: string | null;
+      simpleIngredients: string[];
+      premiumIngredients: string[];
+    };
+    half2?: {
+      baseType: 'menu' | 'custom';
+      variety: string | null;
+      simpleIngredients: string[];
+      premiumIngredients: string[];
+    };
     sinOregano?: boolean;
     sinQueso?: boolean;
     sinSalsaTomate?: boolean;
@@ -324,31 +338,40 @@ export default function AdminPedidos() {
       const printStyles = `
         <style>
           @media print {
-            body { margin: 0; padding: 10mm; font-size: 12pt; }
-            .comanda-container { width: 100%; max-width: 100%; }
-            ul { margin: 2px 0; padding-left: 15px; }
-            li { margin-bottom: 1px; }
+            @page { size: 58mm auto; margin: 0; }
+            body { margin: 0; padding: 4mm 3mm; font-size: 12pt; }
+            .comanda-container { width: 58mm; max-width: 58mm; margin: 0 auto; }
+            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           }
-          body { font-family: Arial, sans-serif; }
-          .comanda-title {
-            font-size: 20px; text-align: center;
-            border-bottom: 1px solid #000; padding-bottom: 10px;
-            margin-bottom: 15px;
+          body { font-family: Arial, sans-serif; color: #000; }
+          .comanda-container { font-size: 12px; line-height: 1.2; }
+          .comanda-header { text-align: center; }
+          .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
+          .comanda-order-label { font-size: 9px; margin-top: 1px; }
+          .comanda-order-number { font-size: 20px; font-weight: 700; letter-spacing: 0.7px; }
+          .comanda-pill {
+            display: inline-block; background: #000; color: #fff; 
+            border-radius: 999px; padding: 4px 11px; font-weight: 700; 
+            font-size: 9px; letter-spacing: 0.7px; margin: 6px 0 4px;
           }
-          .comanda-info { margin-bottom: 5px; }
-          .comanda-divider { border-top: 1px dashed #000; margin: 10px 0; }
-          .comanda-item {
-            margin-bottom: 8px; border-bottom: 1px dotted #ccc;
-            padding-bottom: 8px;
+          .comanda-meta { font-size: 9px; margin: 3px 0; }
+          .comanda-estimada {
+            display: flex; align-items: center; justify-content: center; gap: 6px;
+            font-size: 13px; font-weight: 700; margin: 4px 0 6px;
           }
-          .comanda-total {
-            font-size: 16px; font-weight: bold; text-align: right;
-            margin-top: 10px; border-top: 1px solid #000; padding-top: 5px;
+          .comanda-check {
+            width: 13px; height: 13px; display: inline-block;
           }
-          .comanda-estado {
-            text-align: center; font-size: 16px; margin: 15px 0;
-            padding: 5px; border: 1px solid #000;
-          }
+          .comanda-client { font-size: 9px; font-weight: 700; text-transform: uppercase; }
+          .comanda-payment { font-size: 9px; margin-top: 3px; }
+          .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
+          .comanda-items { margin-top: 6px; text-align: center; }
+          .comanda-item { margin-bottom: 6px; }
+          .comanda-item-name { font-size: 13px; font-weight: 700; text-align: center; }
+          .comanda-item-detail { font-size: 12px; text-align: center; }
+          .comanda-totals { text-align: center; margin-top: 6px; }
+          .comanda-total-row { font-size: 12px; margin: 2px 0; }
+          .comanda-total-strong { font-size: 14px; font-weight: 700; }
         </style>
       `;
 
@@ -954,221 +977,187 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                   display: none !important; 
                 }
                 body { 
-                  margin: 0; 
-                  padding: 5mm; 
+                  margin: 0;
+                  padding: 4mm 3mm;
                   font-size: 10pt;
                 }
-                ul {
-                  margin-top: 2px !important;
-                  margin-bottom: 2px !important;
-                  padding-left: 15px !important;
-                }
-                li {
-                  margin-bottom: 1px !important;
-                }
+                @page { size: 58mm auto; margin: 0; }
+                * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
               }
               .comanda-container {
                 font-family: Arial, sans-serif;
                 font-size: 12px;
-                padding: 10px;
-                max-width: 100%;
+                line-height: 1.2;
+                width: 58mm;
+                max-width: 58mm;
+                margin: 0 auto;
               }
-              .comanda-title {
-                font-size: 20px;
-                text-align: center;
-                border-bottom: 1px solid #000;
-                padding-bottom: 10px;
-                margin-bottom: 15px;
+              .comanda-header { text-align: center; }
+              .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
+              .comanda-order-label { font-size: 9px; margin-top: 1px; }
+              .comanda-order-number { font-size: 20px; font-weight: 700; letter-spacing: 0.7px; }
+              .comanda-pill {
+                display: inline-block; background: #000; color: #fff; 
+                border-radius: 999px; padding: 4px 11px; font-weight: 700; 
+                font-size: 9px; letter-spacing: 0.7px; margin: 6px 0 4px;
               }
-              .comanda-info {
-                margin-bottom: 5px;
+              .comanda-meta { font-size: 9px; margin: 3px 0; }
+              .comanda-estimada {
+                display: flex; align-items: center; justify-content: center; gap: 6px;
+                font-size: 13px; font-weight: 700; margin: 4px 0 6px;
               }
-              .comanda-divider {
-                border-top: 1px dashed #000;
-                margin: 10px 0;
-              }
-              .comanda-item {
-                margin-bottom: 8px;
-                border-bottom: 1px dotted #ccc;
-                padding-bottom: 8px;
-              }
-              .comanda-total {
-                font-size: 16px;
-                font-weight: bold;
-                text-align: right;
-                margin-top: 10px;
-                border-top: 1px solid #000;
-                padding-top: 5px;
-              }
-              .comanda-estado {
-                text-align: center;
-                font-size: 16px;
-                margin: 15px 0;
-                padding: 5px;
-                border: 1px solid #000;
-              }
-              .comanda-detail {
-                font-size: 11px;
-                margin-left: 15px;
-                margin-top: 2px;
-              }
+              .comanda-check { width: 13px; height: 13px; display: inline-block; }
+              .comanda-client { font-size: 9px; font-weight: 700; text-transform: uppercase; }
+              .comanda-payment { font-size: 9px; margin-top: 3px; }
+              .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
+              .comanda-items { margin-top: 6px; text-align: center; }
+              .comanda-item { margin-bottom: 6px; }
+              .comanda-item-name { font-size: 13px; font-weight: 700; text-align: center; }
+              .comanda-item-detail { font-size: 12px; text-align: center; }
+              .comanda-totals { text-align: center; margin-top: 6px; }
+              .comanda-total-row { font-size: 12px; margin: 2px 0; }
+              .comanda-total-strong { font-size: 14px; font-weight: 700; }
             `}</style>
             
             <div className="comanda-container">
-              <h1 className="comanda-title">PIZZERÍA PALERMO - COMANDA</h1>
-              <div className="comanda-info"><strong>PEDIDO:</strong> {pedidoAImprimir?.id}</div>
-              <div className="comanda-info"><strong>FECHA:</strong> {pedidoAImprimir?.fechaCreacion}</div>
-              <div className="comanda-info">
-                <strong>CLIENTE:</strong> {
-                  pedidoAImprimir?.cliente.nombre !== 'Usuario anónimo' 
-                    ? pedidoAImprimir?.cliente.nombre 
-                    : 'No especificado'
-                }
-              </div>
-              <div className="comanda-info">
-                <strong>TELÉFONO:</strong> {
-                  pedidoAImprimir?.cliente.telefono !== 'No disponible' 
-                    ? pedidoAImprimir?.cliente.telefono 
-                    : 'No especificado'
-                }
-              </div>
-              
-              {pedidoAImprimir?.tipoEntrega === "Delivery" && pedidoAImprimir?.direccion ? (
-                <>
-                  <div className="comanda-info">
-                    <strong>DIRECCIÓN:</strong> {pedidoAImprimir.direccion.calle} {pedidoAImprimir.direccion.numero}, {pedidoAImprimir.direccion.comuna}
-                  </div>
-                  {pedidoAImprimir.direccion.referencia && (
-                    <div className="comanda-info">
-                      <strong>REFERENCIA:</strong> {pedidoAImprimir.direccion.referencia}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="comanda-info"><strong>RETIRO EN LOCAL</strong></div>
-              )}
-              
-              <div className="comanda-info"><strong>MÉTODO DE PAGO:</strong> {pedidoAImprimir?.metodoPago}</div>
-              {pedidoAImprimir?.notas && (
-                <div className="comanda-info"><strong>NOTAS:</strong> {pedidoAImprimir.notas}</div>
-              )}
-              
-              <div className="comanda-divider"></div>
-              
-              <h2 className="text-lg font-semibold mb-2">PRODUCTOS:</h2>
-              
-              {pedidoAImprimir?.items.map((item, idx) => (
-                <div key={idx} className="comanda-item mb-4 pb-2">
-                  <div className="flex justify-between mb-1 border-b border-gray-300 pb-1">
-                    <span className="font-bold text-base">
-                      {item.cantidad}x {item.nombre}
-                      {item.size && <span className="ml-1">({item.size})</span>}
-                    </span>
-                    <span className="font-bold">${item.precio.toLocaleString('es-CL')}</span>
-                  </div>
-                  
-                  {/* Detalles de la pizza */}
-                  <div className="ml-4 text-sm">
-                    {/* Tipo de pizza */}
-                    {item.pizzaType && (
-                      <div className="mb-1">
-                        <span className="font-semibold">Tipo:</span> {item.pizzaType}
-                      </div>
-                    )}
-                    
-                    {/* Pizza base seleccionada (para Premium/Promo) */}
-                    {item.selectedMenuPizza && item.selectedMenuPizza !== 'base' && (
-                      <div className="mb-1">
-                        <span className="font-semibold">🍕 Pizza Base:</span> <span className="font-bold text-blue-600">{item.selectedMenuPizza}</span>
-                      </div>
-                    )}
-                    
-                    {/* Ingredientes - con mejor formato */}
-                    {item.ingredients && item.ingredients.length > 0 && (
-                      <div className="mb-1">
-                        <span className="font-semibold">Ingredientes:</span>
-                        <ul className="list-disc ml-5 mt-1">
-                          {item.ingredients.map((ing, i) => (
-                            <li key={i}>{ing}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Ingredientes premium */}
-                    {item.premiumIngredients && item.premiumIngredients.length > 0 && (
-                      <div className="mb-1">
-                        <span className="font-semibold">Ingredientes Premium:</span>
-                        <ul className="list-disc ml-5 mt-1">
-                          {item.premiumIngredients.map((ing, i) => (
-                            <li key={i}>{ing}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Salsas */}
-                    {item.sauces && item.sauces.length > 0 && (
-                      <div className="mb-1">
-                        <span className="font-semibold">Salsas:</span>
-                        <ul className="list-disc ml-5 mt-1">
-                          {item.sauces.map((sauce, i) => (
-                            <li key={i}>{sauce}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Bebidas */}
-                    {item.drinks && item.drinks.length > 0 && (
-                      <div className="mb-1">
-                        <span className="font-semibold">Bebidas:</span>
-                        <ul className="list-disc ml-5 mt-1">
-                          {item.drinks.map((drink, i) => (
-                            <li key={i}>{drink}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Extras */}
-                    {item.extras && item.extras.length > 0 && (
-                      <div className="mb-1">
-                        <span className="font-semibold">Extras:</span>
-                        <ul className="list-disc ml-5 mt-1">
-                          {item.extras.map((extra, i) => (
-                            <li key={i}>{extra}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Personalizaciones - SIN orégano, queso o salsa */}
-                    {(item.sinOregano || item.sinQueso || item.sinSalsaTomate) && (
-                      <div className="mb-1 mt-2 p-2 bg-yellow-50 border border-yellow-300 rounded">
-                        <span className="font-semibold text-yellow-800">⚠️ PERSONALIZACIÓN:</span>
-                        <ul className="list-disc ml-5 mt-1 text-yellow-900 font-medium">
-                          {item.sinOregano && <li>🚫 SIN ORÉGANO</li>}
-                          {item.sinQueso && <li>🚫 SIN QUESO</li>}
-                          {item.sinSalsaTomate && <li>🚫 SIN SALSA TOMATE</li>}
-                        </ul>
-                      </div>
-                    )}
-                    
-                    {/* Comentarios específicos del ítem */}
-                    {item.comments && (
-                      <div className="mb-1 border-t border-dotted border-gray-300 pt-1 mt-1">
-                        <span className="font-semibold">Comentarios:</span> {item.comments}
-                      </div>
-                    )}
-                  </div>
+              <div className="comanda-header">
+                <img src="/iconos/logo_negro.png" alt="Palermo Pizzas" className="comanda-logo" />
+                <div className="comanda-order-label">N° Pedido:</div>
+                <div className="comanda-order-number">
+                  {(pedidoAImprimir?.id || '').replace('#', '')}
                 </div>
-              ))}
+                <div className="comanda-pill">
+                  {pedidoAImprimir?.tipoEntrega === 'Delivery' ? 'DELIVERY' : 'RETIRO'}
+                </div>
+                <div className="comanda-meta">
+                  {pedidoAImprimir?.fechaCreacion}
+                </div>
+                {pedidoAImprimir?.tiempoEstimadoFin && (
+                  <div className="comanda-estimada">
+                    <svg className="comanda-check" viewBox="0 0 20 20" aria-hidden="true">
+                      <circle cx="10" cy="10" r="9" stroke="#000" strokeWidth="2" fill="none" />
+                      <path d="M6 10.5l2.5 2.5L14 7.5" stroke="#000" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {new Date(pedidoAImprimir.tiempoEstimadoFin).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                )}
+                <div className="comanda-client">
+                  {pedidoAImprimir?.cliente.nombre !== 'Usuario anónimo'
+                    ? pedidoAImprimir?.cliente.nombre
+                    : 'No especificado'}
+                </div>
+                <div className="comanda-payment">
+                  Medio de pago: {pedidoAImprimir?.metodoPago}
+                </div>
+              </div>
               
               <div className="comanda-divider"></div>
               
-              <div className="comanda-total">TOTAL: ${pedidoAImprimir?.total.toLocaleString('es-CL')}</div>
-              <div className="comanda-estado">ESTADO: {pedidoAImprimir?.estado}</div>
+              <div className="comanda-items">
+                {pedidoAImprimir?.items.map((item, idx) => {
+                  const detalles: string[] = []
+                  const sizeLetter = item.size ? String(item.size).trim().charAt(0).toUpperCase() : ''
+                  const nombreSinTamano = item.nombre
+                    .replace(/^\s*pizza\s+personalizada\s*$/i, 'Personalizada')
+                    .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
+                    .trim()
+                  const isDuo = item.pizzaType === 'duo'
+                  const duoHasHalves = Boolean(item.half1 || item.half2)
+                  const half1Variety = item.half1?.variety || item.pizza1 || 'Personalizada'
+                  const half2Variety = item.half2?.variety || item.pizza2 || 'Personalizada'
+                  const half1Extras = [
+                    ...(item.half1?.simpleIngredients || []),
+                    ...(item.half1?.premiumIngredients || []),
+                  ]
+                  const half2Extras = [
+                    ...(item.half2?.simpleIngredients || []),
+                    ...(item.half2?.premiumIngredients || []),
+                  ]
+                  const displayName = isDuo ? 'Pizza DUO' : nombreSinTamano
+
+                  if (isDuo) {
+                    detalles.push(`Mitad 1: ${half1Variety}`)
+                    // Añadir cada extra de mitad 1 en su propia línea prefijada con +
+                    if (half1Extras.length) {
+                      half1Extras.forEach((ex: string) => detalles.push(`+ ${ex}`))
+                    }
+
+                    // Separador visual entre Mitad 1 y Mitad 2 para mayor claridad
+                    detalles.push('\u00A0')
+                    detalles.push(`Mitad 2: ${half2Variety}`)
+                    // Añadir cada extra de mitad 2 en su propia línea prefijada con +
+                    if (half2Extras.length) {
+                      half2Extras.forEach((ex: string) => detalles.push(`+ ${ex}`))
+                    }
+
+                    // Si no vienen mitades estructuradas, conservar compatibilidad con campos antiguos
+                    if (!duoHasHalves) {
+                      if (item.ingredients && item.ingredients.length) {
+                        item.ingredients.forEach((ex: string) => detalles.push(`+ ${ex}`))
+                      }
+                      if (item.premiumIngredients && item.premiumIngredients.length) {
+                        item.premiumIngredients.forEach((ex: string) => detalles.push(`+ ${ex}`))
+                      }
+                    }
+                  } else {
+                    if (item.pizzaType) {
+                      detalles.push(`Tipo: ${item.pizzaType}`)
+                    }
+                    if (item.selectedMenuPizza && item.selectedMenuPizza !== 'base') {
+                      detalles.push(`Base: ${item.selectedMenuPizza}`)
+                    }
+                    if (item.ingredients && item.ingredients.length) {
+                      detalles.push(...item.ingredients)
+                    }
+                    if (item.premiumIngredients && item.premiumIngredients.length) {
+                      detalles.push(...item.premiumIngredients)
+                    }
+                  }
+
+                  if (item.sauces && item.sauces.length) {
+                    detalles.push(...item.sauces)
+                  }
+                  if (item.drinks && item.drinks.length) {
+                    detalles.push(...item.drinks)
+                  }
+                  if (item.extras && item.extras.length) {
+                    detalles.push(...item.extras)
+                  }
+                  if (item.sinOregano) detalles.push('(sin oregano)')
+                  if (item.sinQueso) detalles.push('(sin queso)')
+                  if (item.sinSalsaTomate) detalles.push('(sin salsa tomate)')
+                  if (item.comments) detalles.push(`(${item.comments})`)
+
+                  return (
+                    <div key={idx} className="comanda-item">
+                      <div className="comanda-item-name">
+                        • {item.cantidad}x {displayName}{sizeLetter ? ` (${sizeLetter})` : ''}
+                      </div>
+                      {detalles.map((detalle, detailIdx) => (
+                        <div key={detailIdx} className="comanda-item-detail">
+                          {detalle}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+              
+              <div className="comanda-divider"></div>
+              
+              <div className="comanda-totals">
+                <div className="comanda-total-row">
+                  SUBTOTAL: ${pedidoAImprimir?.total.toLocaleString('es-CL')}
+                </div>
+                {pedidoAImprimir?.tipoEntrega === 'Delivery' && (
+                  <div className="comanda-total-row">
+                    Delivery: ${ (pedidoAImprimir?.valorDelivery || 0).toLocaleString('es-CL') }
+                  </div>
+                )}
+                <div className="comanda-total-row comanda-total-strong">
+                  TOTAL: ${((pedidoAImprimir?.total || 0) + (pedidoAImprimir?.valorDelivery || 0)).toLocaleString('es-CL')}
+                </div>
+              </div>
             </div>
           </div>
           
@@ -1179,18 +1168,6 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Confirmar Impresión
-            </Button>
-            
-            <Button 
-              onClick={() => {
-                if (pedidoAImprimir) {
-                  console.log('Estructura completa del pedido:', pedidoAImprimir);
-                  alert('Revisa la consola para ver los detalles del pedido');
-                }
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              Depurar Datos
             </Button>
           </div>
         </DialogContent>

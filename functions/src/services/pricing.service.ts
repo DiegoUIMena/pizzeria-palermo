@@ -35,6 +35,13 @@ interface DeliveryZoneDoc {
   polygon: Array<[number, number]>;
 }
 
+interface DuoHalfPriceInput {
+  baseType: "menu" | "custom";
+  variety?: string | null;
+  simpleIngredients?: string[];
+  premiumIngredients?: string[];
+}
+
 // Cache de configuración de precios (se actualiza desde Firebase)
 let CACHED_PRICE_CONFIG: PriceConfig | null = null;
 let lastFetchTime = 0;
@@ -179,9 +186,51 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
       totalPrice += simpleCount * sizeConfig.simpleExtraPrice;
       totalPrice += premiumCount * sizeConfig.premiumExtraPrice;
     } else if (item.pizzaType === "duo") {
-      // Pizza Duo: precio del más caro de las dos pizzas
-      // Por simplicidad, usar el precio base premium
-      totalPrice = sizeConfig.premiumBasePrice;
+      const calculateDuoHalfPrice = async (half?: DuoHalfPriceInput | null): Promise<number> => {
+        if (!half) {
+          return 0;
+        }
+
+        let halfTotal = 0;
+
+        if (half.baseType === "custom") {
+          halfTotal = sizeConfig.simpleBasePrice;
+        } else if (half.variety) {
+          try {
+            const menuPizzaPrice = await getMenuPizzaPriceByName(half.variety);
+            if (menuPizzaPrice) {
+              halfTotal = size === "mediana"
+                ? menuPizzaPrice.mediana
+                : menuPizzaPrice.familiar;
+            } else {
+              console.warn(`⚠️ No se encontró la pizza de menú "${half.variety}" para DUO, usando base premium`);
+              halfTotal = sizeConfig.premiumBasePrice;
+            }
+          } catch (error) {
+            console.error(`❌ Error calculando mitad DUO "${half.variety}":`, error);
+            halfTotal = sizeConfig.premiumBasePrice;
+          }
+        } else {
+          halfTotal = sizeConfig.premiumBasePrice;
+        }
+
+        halfTotal += (half.simpleIngredients?.length || 0) * sizeConfig.simpleExtraPrice;
+        halfTotal += (half.premiumIngredients?.length || 0) * sizeConfig.premiumExtraPrice;
+
+        return halfTotal;
+      };
+
+      const half1Price = await calculateDuoHalfPrice(item.half1 as DuoHalfPriceInput | undefined);
+      const half2Price = await calculateDuoHalfPrice(item.half2 as DuoHalfPriceInput | undefined);
+      totalPrice = Math.max(half1Price, half2Price);
+
+      if (!item.half1 || !item.half2) {
+        console.warn("⚠️ DUO recibido sin detalle de mitades completo, usando el precio calculado con lo disponible");
+      }
+
+      if (totalPrice <= 0) {
+        totalPrice = sizeConfig.premiumBasePrice;
+      }
     }
 
     // Agregar costo de extras (salsas, bebidas, etc)
@@ -257,11 +306,20 @@ async function calculateDeliveryFee(
   }
 }
 
-async function getMenuPizzaPriceByName(name: string): Promise<{ familiar: number; mediana: number } | null> {
-  const normalizedName = String(name || "").trim();
-  if (!normalizedName) return null;
+function normalizeMenuName(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ");
+}
 
-  const cacheKey = normalizedName.toLowerCase();
+async function getMenuPizzaPriceByName(name: string): Promise<{ familiar: number; mediana: number } | null> {
+  const rawName = String(name || "").trim();
+  if (!rawName) return null;
+
+  const cacheKey = normalizeMenuName(rawName);
   const cached = MENU_PRICE_CACHE.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < MENU_PRICE_CACHE_TTL) {
     return { familiar: cached.familiar, mediana: cached.mediana };
@@ -271,15 +329,26 @@ async function getMenuPizzaPriceByName(name: string): Promise<{ familiar: number
     const db = admin.firestore();
     const snapshot = await db
       .collection("items_menu")
-      .where("nombre", "==", normalizedName)
+      .where("nombre", "==", rawName)
       .limit(1)
       .get();
 
-    if (snapshot.empty) {
-      return null;
+    let data: any = null;
+
+    if (!snapshot.empty) {
+      data = snapshot.docs[0].data();
+    } else {
+      const allSnapshot = await db.collection("items_menu").get();
+      const match = allSnapshot.docs.find((doc) => {
+        const docName = normalizeMenuName(String(doc.data()?.nombre || ""));
+        return docName === cacheKey;
+      });
+      data = match ? match.data() : null;
     }
 
-    const data = snapshot.docs[0].data() as any;
+    if (!data) {
+      return null;
+    }
     const familiar = Number(data?.precio ?? 0);
     const mediana = Number(data?.precioMediana ?? data?.precio ?? 0);
 

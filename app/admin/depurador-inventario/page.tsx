@@ -415,7 +415,7 @@ export default function DepuradorInventario() {
       const pedidosConDelPibe: any[] = [];
       
       pedidosSnapshot.forEach(doc => {
-        const pedido = { id: doc.id, ...doc.data() };
+        const pedido: any = { id: doc.id, ...doc.data() };
         const items = pedido.items || [];
         
         const tieneDuoDelPibe = items.some((item: any) => 

@@ -23,6 +23,7 @@ import { functions, db } from "@/lib/firebase"
 import { httpsCallable } from "firebase/functions"
 import { collection, getDocs, query, where } from "firebase/firestore"
 import { useFirestorePizzaConfig } from "@/hooks/useFirestorePizzaConfig"
+import { subscribeAgregadosConfig, type BebidasDisponiblesConfig } from "@/lib/agregados-config"
 
 interface CartProps {
   onClose?: () => void
@@ -58,6 +59,17 @@ const Cart = ({ onClose }: CartProps) => {
   const [orderNumber, setOrderNumber] = useState(Math.floor(Math.random() * 100000))
   const [confirmedTotal, setConfirmedTotal] = useState(0)
   const [guestTrackingUrl, setGuestTrackingUrl] = useState("")
+  const [serverCalculation, setServerCalculation] = useState<{ subtotal: number; deliveryFee: number; total: number } | null>(null)
+  const [isServerCalcLoading, setIsServerCalcLoading] = useState(false)
+  const [serverCalcError, setServerCalcError] = useState<string | null>(null)
+  const [bebidasDisponibles, setBebidasDisponibles] = useState<BebidasDisponiblesConfig>({
+    liptonLata: true,
+    liptonBotella: true,
+    cocaLataTradicional: true,
+    cocaLataZero: true,
+    cocaBotellaTradicional: true,
+    cocaBotellaZero: true,
+  })
   
   // Crear overlay directamente en el DOM cuando se activa WebPay
   useEffect(() => {
@@ -177,6 +189,14 @@ const Cart = ({ onClose }: CartProps) => {
       }
     }
   }, [isRedirectingToWebpay])
+
+  useEffect(() => {
+    const unsubscribe = subscribeAgregadosConfig((config) => {
+      setBebidasDisponibles(config.bebidasDisponibles)
+    })
+
+    return () => unsubscribe()
+  }, [])
   
   const [estimatedTime, setEstimatedTime] = useState("20-25 minutos")
   
@@ -242,10 +262,13 @@ const Cart = ({ onClose }: CartProps) => {
     PROMO15: { percentage: 15, description: "15% de descuento especial" },
   }
 
-  // Cálculos de totales
-  const subtotal = getTotal()
+  // Cálculos de totales (client-side como fallback)
+  const localSubtotal = getTotal()
   // Solo se cobra delivery si la ubicación pertenece a una zona definida y disponible
-  const deliveryCost = isDelivery && deliveryInfo.zone && deliveryInfo.disponible ? deliveryInfo.tarifa : 0
+  const localDeliveryCost = isDelivery && deliveryInfo.zone && deliveryInfo.disponible ? deliveryInfo.tarifa : 0
+
+  const subtotal = serverCalculation?.subtotal ?? 0
+  const deliveryCost = isDelivery ? (serverCalculation?.deliveryFee ?? 0) : 0
 
   const orderHasPromoOrCombo = items.some((item) => {
     const name = item.name.toLowerCase()
@@ -264,14 +287,72 @@ const Cart = ({ onClose }: CartProps) => {
 
   const voucherDiscount = appliedVoucher?.discount || 0
   const discountAmount = discountFromCode + voucherDiscount
-
-  const totalFinal = subtotal + deliveryCost - discountAmount
+  const totalFinal = Math.max(0, (serverCalculation?.total ?? 0) - discountAmount)
+  const isServerTotalReady = Boolean(serverCalculation)
+  const showCalculatingTotal = isServerCalcLoading && !isServerTotalReady
 
   const toggleItemExpansion = (itemId: string) => {
     setExpandedItems((prev) => ({
       ...prev,
       [itemId]: !prev[itemId],
     }))
+  }
+
+  const normalizeText = (text: string): string => {
+    return (text || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+  }
+
+  const getBeverageAvailabilityKey = (itemName: string): keyof BebidasDisponiblesConfig | null => {
+    const normalized = normalizeText(itemName)
+
+    if (normalized.includes('lipton') && normalized.includes('botella')) {
+      return 'liptonBotella'
+    }
+    if (normalized.includes('lipton') && normalized.includes('lata')) {
+      return 'liptonLata'
+    }
+    if (normalized.includes('coca') && normalized.includes('1.5') && normalized.includes('zero')) {
+      return 'cocaBotellaZero'
+    }
+    if (normalized.includes('coca') && normalized.includes('1.5')) {
+      return 'cocaBotellaTradicional'
+    }
+    if (normalized.includes('coca') && normalized.includes('lata') && normalized.includes('zero')) {
+      return 'cocaLataZero'
+    }
+    if (normalized.includes('coca') && normalized.includes('lata')) {
+      return 'cocaLataTradicional'
+    }
+
+    return null
+  }
+
+  const getUnavailableBeveragesInCart = () => {
+    return items
+      .filter((item) => {
+        const key = getBeverageAvailabilityKey(item.name || '')
+        return key ? !bebidasDisponibles[key] : false
+      })
+      .map((item) => item.name)
+  }
+
+  const validateBeverageStock = () => {
+    const unavailable = getUnavailableBeveragesInCart()
+
+    if (unavailable.length > 0) {
+      toast({
+        title: "Producto sin stock",
+        description: `${unavailable.join(', ')} no tiene stock disponible. Elimina ese producto o intenta más tarde.`,
+        variant: "destructive",
+      })
+      return false
+    }
+
+    return true
   }
 
 
@@ -321,6 +402,7 @@ const Cart = ({ onClose }: CartProps) => {
   // Función para determinar si el botón de pago debe estar deshabilitado
   const isPaymentButtonDisabled = () => {
     if (isProcessing) return true
+    if (showCalculatingTotal) return true
 
     if (!isAuthenticated) {
       const hasGuestName = guestName.trim().length >= 2
@@ -342,6 +424,96 @@ const Cart = ({ onClose }: CartProps) => {
     
     return false
   }
+
+  // Calcular total en servidor para evitar manipulación del cliente
+  useEffect(() => {
+    let isActive = true
+
+    const shouldCalculate = items.length > 0
+    if (!shouldCalculate) {
+      setServerCalculation(null)
+      setServerCalcError(null)
+      setIsServerCalcLoading(false)
+      return () => {
+        isActive = false
+      }
+    }
+
+    const calculateServerTotal = async () => {
+      setIsServerCalcLoading(true)
+      setServerCalcError(null)
+
+      try {
+        const orderItems = items.map(item => {
+          const inferredMenuName = !item.selectedMenuPizza && /^pizza\s+/i.test(item.name)
+            ? item.name
+                .replace(/^pizza\s+/i, '')
+                .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
+                .trim()
+            : item.selectedMenuPizza
+          const normalizedPizzaType = inferredMenuName && item.pizzaType === 'promo' ? 'premium' : item.pizzaType
+
+          return {
+          nombre: item.name,
+          cantidad: item.quantity,
+          precio: item.price,
+          size: item.size,
+          ingredients: item.ingredients,
+          premiumIngredients: item.premiumIngredients,
+          sauces: item.sauces,
+          drinks: item.drinks,
+          extras: item.extras,
+          comments: item.comments,
+            pizzaType: normalizedPizzaType,
+          pizza1: item.pizza1,
+          pizza2: item.pizza2,
+          half1: item.half1,
+          half2: item.half2,
+            selectedMenuPizza: inferredMenuName,
+          }
+        })
+
+        console.log("[CART] orderItems enviados a calculatePrice:", orderItems)
+        console.log("[CART] orderItems JSON:", JSON.stringify(orderItems, null, 2))
+
+        const calculatePriceFn = httpsCallable(functions, "calculatePrice")
+        const response = await calculatePriceFn({
+          items: orderItems,
+          tipoEntrega: isDelivery ? "Delivery" : "Retiro",
+          direccion: isDelivery
+            ? { lat: selectedLocation?.lat, lng: selectedLocation?.lng }
+            : undefined,
+        })
+
+        const data = response.data as any
+        if (!isActive) return
+
+        if (data?.success) {
+          console.log("[CART] calculatePrice respuesta:", data)
+          setServerCalculation({
+            subtotal: Number(data.subtotal || 0),
+            deliveryFee: Number(data.deliveryFee || 0),
+            total: Number(data.total || 0),
+          })
+        } else {
+          setServerCalculation(null)
+          setServerCalcError("No se pudo calcular el total en el servidor")
+        }
+      } catch (error) {
+        if (!isActive) return
+        setServerCalculation(null)
+        setServerCalcError("No se pudo calcular el total en el servidor")
+      } finally {
+        if (isActive) setIsServerCalcLoading(false)
+      }
+    }
+
+    calculateServerTotal()
+
+    return () => {
+      isActive = false
+    }
+  }, [items, isDelivery, selectedLocation?.lat, selectedLocation?.lng])
 
   const validateGuestCheckoutData = () => {
     if (user?.id) {
@@ -397,6 +569,10 @@ const Cart = ({ onClose }: CartProps) => {
     }
     
     if (items.length > 0) {
+      if (!validateBeverageStock()) {
+        return
+      }
+
       if (!isDelivery) {
         setCurrentView("payment")
       } else {
@@ -452,6 +628,10 @@ const Cart = ({ onClose }: CartProps) => {
         variant: "destructive",
         duration: 8000,
       })
+      return
+    }
+
+    if (!validateBeverageStock()) {
       return
     }
 
@@ -585,11 +765,82 @@ const Cart = ({ onClose }: CartProps) => {
         }
       }
 
+      const verifyServerTotal = async () => {
+        const orderItems = items.map(item => {
+          const inferredMenuName = !item.selectedMenuPizza && /^pizza\s+/i.test(item.name)
+            ? item.name
+                .replace(/^pizza\s+/i, '')
+                .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
+                .trim()
+            : item.selectedMenuPizza
+          const normalizedPizzaType = inferredMenuName && item.pizzaType === 'promo' ? 'premium' : item.pizzaType
+
+          return {
+          nombre: item.name,
+          cantidad: item.quantity,
+          precio: item.price,
+          size: item.size,
+          ingredients: item.ingredients,
+          premiumIngredients: item.premiumIngredients,
+          sauces: item.sauces,
+          drinks: item.drinks,
+          extras: item.extras,
+          comments: item.comments,
+            pizzaType: normalizedPizzaType,
+          pizza1: item.pizza1,
+          pizza2: item.pizza2,
+          half1: item.half1,
+          half2: item.half2,
+            selectedMenuPizza: inferredMenuName,
+          }
+        })
+
+        const calculatePriceFn = httpsCallable(functions, "calculatePrice")
+        const response = await calculatePriceFn({
+          items: orderItems,
+          tipoEntrega: isDelivery ? "Delivery" : "Retiro",
+          direccion: isDelivery
+            ? { lat: selectedLocation?.lat, lng: selectedLocation?.lng }
+            : undefined,
+        })
+
+        const data = response.data as any
+        if (!data?.success) {
+          throw new Error("No se pudo calcular el total en el servidor")
+        }
+
+        return {
+          subtotal: Number(data.subtotal || 0),
+          deliveryFee: Number(data.deliveryFee || 0),
+          total: Number(data.total || 0),
+        }
+      }
+
+      let verifiedCalculation: { subtotal: number; deliveryFee: number; total: number } | null = null
+      try {
+        if (isServerCalcLoading || serverCalcError) {
+          verifiedCalculation = await verifyServerTotal()
+          setServerCalculation(verifiedCalculation)
+        } else {
+          verifiedCalculation = serverCalculation
+        }
+      } catch (error) {
+        toast({
+          title: "No se pudo validar el total",
+          description: "Intenta nuevamente para confirmar el pedido.",
+          variant: "destructive",
+        })
+        setIsProcessing(false)
+        return
+      }
+
+      const verifiedTotal = Math.max(0, (verifiedCalculation?.total ?? totalFinal) - discountAmount)
+
       // Solo agregar detalles de pago si es efectivo
       if (paymentMethod === "efectivo") {
         orderData.paymentDetails = {
           cashAmount: parseFloat(cashAmount),
-          change: parseFloat(cashAmount) - totalFinal
+          change: parseFloat(cashAmount) - verifiedTotal
         }
       }
 
@@ -603,6 +854,10 @@ const Cart = ({ onClose }: CartProps) => {
         orderData.voucherId = appliedVoucher.id
         orderData.voucherCode = appliedVoucher.code
         orderData.voucherDiscount = appliedVoucher.discount
+      }
+
+      if (appliedDiscount) {
+        orderData.discountCode = appliedDiscount.code
       }
 
       // Crear el pedido (ya incluye validación de inventario)
@@ -737,7 +992,7 @@ const Cart = ({ onClose }: CartProps) => {
       }
       
       // Guardar el total confirmado antes de cambiar de vista
-      setConfirmedTotal(totalFinal)
+      setConfirmedTotal(verifiedTotal)
       
       // Cambiamos a la vista de confirmación
       setCurrentView("confirmation")
@@ -1369,12 +1624,12 @@ const Cart = ({ onClose }: CartProps) => {
               <div className="text-sm text-gray-600 space-y-1">
                 <div className="flex justify-between">
                   <span>Subtotal:</span>
-                  <span>${subtotal.toLocaleString()}</span>
+                  <span>{showCalculatingTotal ? 'Calculando...' : `$${subtotal.toLocaleString()}`}</span>
                 </div>
                 {isDelivery && deliveryCost > 0 && (
                   <div className="flex justify-between">
                     <span>Delivery ({deliveryInfo.zone?.nombre}):</span>
-                    <span>+${deliveryCost.toLocaleString()}</span>
+                    <span>{showCalculatingTotal ? 'Calculando...' : `+$${deliveryCost.toLocaleString()}`}</span>
                   </div>
                 )}
                 {appliedDiscount && discountFromCode > 0 && (
@@ -1391,8 +1646,11 @@ const Cart = ({ onClose }: CartProps) => {
                 )}
                 <div className="flex justify-between font-bold text-lg border-t pt-2">
                   <span>Total:</span>
-                  <span className="text-pink-600">${totalFinal.toLocaleString()}</span>
+                  <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>
                 </div>
+                {serverCalcError && (
+                  <div className="text-xs text-red-600 text-center mt-2">{serverCalcError}</div>
+                )}
               </div>
             </div>
 
@@ -1713,7 +1971,7 @@ const Cart = ({ onClose }: CartProps) => {
                 : 'bg-pink-600 text-white hover:bg-pink-700'
             }`}
           >
-            {isProcessing ? "Procesando..." : `Confirmar Pago - $${totalFinal.toLocaleString()}`}
+            {isProcessing ? "Procesando..." : showCalculatingTotal ? "Calculando total..." : `Confirmar Pago - $${totalFinal.toLocaleString()}`}
           </Button>
         </div>
       </div>
@@ -2280,65 +2538,79 @@ const Cart = ({ onClose }: CartProps) => {
           
           {expandedUpsell.bebidas && (
             <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-              {[
-                { id: 401, name: "Coca Cola Lata 350cc", price: 1500, variants: ["Tradicional", "Zero"], image: "/pizzas/coca cola lata.jpg" },
-                { id: 402, name: "Coca Cola 1.5 Litro", price: 2900, variants: ["Tradicional", "Zero"], image: "/pizzas/coca cola 1.5 litro.jpg" },
-              ].map(bebida => {
-                return bebida.variants.map((variant, idx) => {
-                  const itemId = idx === 0 ? `${bebida.id}-familiar` : `${bebida.id}-mediana`
-                  const cartItem = items.find(item => item.id === itemId)
-                  const isInCart = !!cartItem
-                  const quantity = cartItem?.quantity || 1
+              {([
+                { id: 'lipton-lata', name: 'Lipton Lata', price: 1500, image: '/pizzas/lipton lata.jpg', availabilityKey: 'liptonLata' as const },
+                { id: 'lipton-botella', name: 'Lipton Botella', price: 2900, image: '/pizzas/lipton botella.jpg', availabilityKey: 'liptonBotella' as const },
+                { id: 'coca-lata-tradicional', name: 'Coca Cola Lata Tradicional', price: 1500, image: '/pizzas/coca cola lata.jpg', availabilityKey: 'cocaLataTradicional' as const },
+                { id: 'coca-lata-zero', name: 'Coca Cola Lata Zero', price: 1500, image: '/pizzas/coca cola lata.jpg', availabilityKey: 'cocaLataZero' as const },
+                { id: 'coca-botella-tradicional', name: 'Coca Cola 1.5 Litro Tradicional', price: 2900, image: '/pizzas/coca cola 1.5 litro.jpg', availabilityKey: 'cocaBotellaTradicional' as const },
+                { id: 'coca-botella-zero', name: 'Coca Cola 1.5 Litro Zero', price: 2900, image: '/pizzas/coca cola 1.5 litro.jpg', availabilityKey: 'cocaBotellaZero' as const },
+              ] as const).map((bebida) => {
+                const cartItem = items.find(item => item.id === bebida.id)
+                const isInCart = !!cartItem
+                const quantity = cartItem?.quantity || 1
+                const isAvailable = bebidasDisponibles[bebida.availabilityKey]
 
-                  return (
-                    <div key={itemId} className="flex items-center justify-between py-1.5 sm:py-2">
-                      <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
-                        <input
-                          type="checkbox"
-                          checked={isInCart}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              addItem({
-                                id: itemId,
-                                name: `${bebida.name} ${variant}`,
-                                price: bebida.price,
-                                quantity: 1,
-                                image: bebida.image
-                              })
-                            } else {
-                              removeItem(itemId)
-                            }
-                          }}
-                          className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                        />
-                        <span className="text-xs sm:text-sm text-gray-700">{bebida.name} - {variant}</span>
-                        <span className="text-xs sm:text-sm text-gray-500">${bebida.price.toLocaleString()}</span>
-                      </label>
-                      
-                      {isInCart && (
-                        <div className="flex items-center gap-1 sm:gap-2">
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                            onClick={() => updateQuantity(itemId, Math.max(0, quantity - 1))}
-                          >
-                            <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                          </Button>
-                          <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                          <Button
-                            size="icon"
-                            variant="outline"
-                            className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                            onClick={() => updateQuantity(itemId, quantity + 1)}
-                          >
-                            <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
+                return (
+                  <div key={bebida.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                    <label className={`flex items-center gap-1.5 sm:gap-2 flex-1 ${isAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                      <input
+                        type="checkbox"
+                        checked={isInCart}
+                        disabled={!isAvailable}
+                        onChange={(e) => {
+                          if (!isAvailable) {
+                            toast({
+                              title: 'Producto sin stock',
+                              description: `${bebida.name} no tiene stock disponible.`,
+                              variant: 'destructive',
+                            })
+                            return
+                          }
+
+                          if (e.target.checked) {
+                            addItem({
+                              id: bebida.id,
+                              name: bebida.name,
+                              price: bebida.price,
+                              quantity: 1,
+                              image: bebida.image,
+                            })
+                          } else {
+                            removeItem(bebida.id)
+                          }
+                        }}
+                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                      />
+                      <span className="text-xs sm:text-sm text-gray-700">{bebida.name}</span>
+                      <span className={`text-xs sm:text-sm ${isAvailable ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
+                        {isAvailable ? `$${bebida.price.toLocaleString()}` : 'Sin Stock'}
+                      </span>
+                    </label>
+                    
+                    {isInCart && (
+                      <div className="flex items-center gap-1 sm:gap-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                          onClick={() => updateQuantity(bebida.id, Math.max(0, quantity - 1))}
+                        >
+                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                        <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                          onClick={() => updateQuantity(bebida.id, quantity + 1)}
+                        >
+                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )
               })}
             </div>
           )}
@@ -2436,12 +2708,12 @@ const Cart = ({ onClose }: CartProps) => {
         <div className="space-y-1 sm:space-y-2">
           <div className="flex justify-between text-xs sm:text-sm text-gray-700">
             <span>Subtotal</span>
-            <span className="font-medium">${subtotal.toLocaleString()}</span>
+            <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `$${subtotal.toLocaleString()}`}</span>
           </div>
           {isDelivery && deliveryCost > 0 && (
             <div className="flex justify-between text-xs sm:text-sm text-blue-600">
               <span>Delivery</span>
-              <span className="font-medium">+${deliveryCost.toLocaleString()}</span>
+              <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `+$${deliveryCost.toLocaleString()}`}</span>
             </div>
           )}
           {appliedDiscount && discountFromCode > 0 && (
@@ -2458,8 +2730,11 @@ const Cart = ({ onClose }: CartProps) => {
           )}
           <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
             <span>Total</span>
-            <span className="text-pink-600">${totalFinal.toLocaleString()}</span>
+            <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>
           </div>
+          {serverCalcError && (
+            <div className="text-xs text-red-600 text-center mt-2">{serverCalcError}</div>
+          )}
         </div>
 
         {/* Botones para elegir entre Retirar y Delivery */}

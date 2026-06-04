@@ -25,6 +25,18 @@ interface CartItem {
   pizzaType?: "promo" | "premium" | "duo"
   pizza1?: string  // Para pizzas DUO
   pizza2?: string  // Para pizzas DUO
+  half1?: {
+    baseType: "menu" | "custom"
+    variety: string | null
+    simpleIngredients: string[]
+    premiumIngredients: string[]
+  }
+  half2?: {
+    baseType: "menu" | "custom"
+    variety: string | null
+    simpleIngredients: string[]
+    premiumIngredients: string[]
+  }
   selectedMenuPizza?: string | null  // Pizza base seleccionada para Premium/Promo
   comments?: string
   // Opciones de personalización
@@ -65,6 +77,7 @@ interface CreateOrderData {
   voucherId?: string
   voucherCode?: string
   voucherDiscount?: number
+  discountCode?: string
   cliente: {
     nombre: string
     telefono: string
@@ -286,6 +299,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         pizzaType: item.pizzaType,
         pizza1: item.pizza1,
         pizza2: item.pizza2,
+        half1: item.half1,
+        half2: item.half2,
         selectedMenuPizza: item.selectedMenuPizza, // [ADDED] Pizza base seleccionada
         // Opciones de personalización
         sinOregano: item.sinOregano,
@@ -308,6 +323,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         voucherId: orderData.voucherId,
         voucherCode: orderData.voucherCode,
         voucherDiscount: orderData.voucherDiscount,
+        discountCode: orderData.discountCode,
         paymentDetails: orderData.paymentDetails,
         tiempoEstimado: orderData.tiempoEstimado,
         notas: orderData.notas

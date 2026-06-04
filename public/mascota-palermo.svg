@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="480" viewBox="0 0 480 480" role="img" aria-label="Mascota Palermo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FDE2C7" />
+      <stop offset="1" stop-color="#F9D1D1" />
+    </linearGradient>
+  </defs>
+  <rect width="480" height="480" rx="240" fill="url(#bg)" />
+  <circle cx="240" cy="250" r="120" fill="#FFF3DD" />
+  <circle cx="200" cy="230" r="14" fill="#C7352E" />
+  <circle cx="280" cy="230" r="14" fill="#C7352E" />
+  <path d="M200 285c20 18 60 18 80 0" fill="none" stroke="#C7352E" stroke-width="10" stroke-linecap="round" />
+  <path d="M175 170l40-25 10 55" fill="#C7352E" opacity="0.9" />
+  <path d="M305 170l-40-25-10 55" fill="#C7352E" opacity="0.9" />
+  <circle cx="360" cy="320" r="54" fill="#D9A441" />
+  <circle cx="360" cy="320" r="42" fill="#F5C76A" />
+  <text x="360" y="332" text-anchor="middle" font-family="Verdana, sans-serif" font-size="34" font-weight="700" fill="#C7352E">P</text>
+  <rect x="110" y="340" width="260" height="60" rx="30" fill="#C7352E" />
+  <text x="240" y="378" text-anchor="middle" font-family="Verdana, sans-serif" font-size="22" font-weight="700" fill="#FFF3DD">Mascota Palermo</text>
+</svg>

@@ -10,10 +10,20 @@ export interface SalsasDisponiblesConfig {
   pesto: boolean
 }
 
+export interface BebidasDisponiblesConfig {
+  liptonLata: boolean
+  liptonBotella: boolean
+  cocaLataTradicional: boolean
+  cocaLataZero: boolean
+  cocaBotellaTradicional: boolean
+  cocaBotellaZero: boolean
+}
+
 export interface AgregadosConfig {
   rollitosPackStock: number
   gauchitosDisponible: boolean
   salsasDisponibles: SalsasDisponiblesConfig
+  bebidasDisponibles: BebidasDisponiblesConfig
   updatedAt?: string
 }
 
@@ -28,6 +38,14 @@ const DEFAULT_CONFIG: AgregadosConfig = {
     chimichurri: true,
     bbq: true,
     pesto: true,
+  },
+  bebidasDisponibles: {
+    liptonLata: true,
+    liptonBotella: true,
+    cocaLataTradicional: true,
+    cocaLataZero: true,
+    cocaBotellaTradicional: true,
+    cocaBotellaZero: true,
   },
 }
 
@@ -45,6 +63,14 @@ function normalizeConfig(data: Partial<AgregadosConfig> | undefined | null): Agr
       chimichurri: data?.salsasDisponibles?.chimichurri ?? DEFAULT_CONFIG.salsasDisponibles.chimichurri,
       bbq: data?.salsasDisponibles?.bbq ?? DEFAULT_CONFIG.salsasDisponibles.bbq,
       pesto: data?.salsasDisponibles?.pesto ?? DEFAULT_CONFIG.salsasDisponibles.pesto,
+    },
+    bebidasDisponibles: {
+      liptonLata: data?.bebidasDisponibles?.liptonLata ?? DEFAULT_CONFIG.bebidasDisponibles.liptonLata,
+      liptonBotella: data?.bebidasDisponibles?.liptonBotella ?? DEFAULT_CONFIG.bebidasDisponibles.liptonBotella,
+      cocaLataTradicional: data?.bebidasDisponibles?.cocaLataTradicional ?? DEFAULT_CONFIG.bebidasDisponibles.cocaLataTradicional,
+      cocaLataZero: data?.bebidasDisponibles?.cocaLataZero ?? DEFAULT_CONFIG.bebidasDisponibles.cocaLataZero,
+      cocaBotellaTradicional: data?.bebidasDisponibles?.cocaBotellaTradicional ?? DEFAULT_CONFIG.bebidasDisponibles.cocaBotellaTradicional,
+      cocaBotellaZero: data?.bebidasDisponibles?.cocaBotellaZero ?? DEFAULT_CONFIG.bebidasDisponibles.cocaBotellaZero,
     },
     updatedAt: data?.updatedAt,
   }

@@ -471,6 +471,43 @@ export const createOrder = onCall(async (request) => {
         return itemName.includes("promo") || itemName.includes("combo") || pizzaType === "promo";
       });
 
+      const validDiscountCodes: Record<string, {percentage?: number; amount?: number}> = {
+        BIENVENIDO10: {percentage: 10},
+        PIZZA20: {amount: 2000},
+        DELIVERY5: {percentage: 5},
+        PROMO15: {percentage: 15},
+      };
+
+      let discountCode: string | undefined;
+      let discountFromCode = 0;
+
+      if (orderData.discountCode) {
+        const normalizedDiscountCode = String(orderData.discountCode).trim().toUpperCase();
+        const discountConfig = validDiscountCodes[normalizedDiscountCode];
+
+        if (!discountConfig) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Código de descuento inválido"
+          );
+        }
+
+        if (orderData.voucherId || orderData.voucherCode) {
+          throw new HttpsError(
+            "failed-precondition",
+            "No puedes combinar códigos de descuento con vouchers"
+          );
+        }
+
+        discountCode = normalizedDiscountCode;
+        orderData.discountCode = normalizedDiscountCode;
+        if (discountConfig.percentage) {
+          discountFromCode = Math.round((priceCalculation.subtotal * discountConfig.percentage) / 100);
+        } else if (discountConfig.amount) {
+          discountFromCode = discountConfig.amount;
+        }
+      }
+
       // 5.7 Validar voucher si está presente (solo para usuarios autenticados)
       // ⚠️ IMPORTANTE: Solo VALIDAMOS aquí, NO marcamos como usado
       // El voucher se marcará como usado DESPUÉS de confirmar el pago exitosamente
@@ -550,7 +587,7 @@ export const createOrder = onCall(async (request) => {
         }
       }
 
-      const finalTotal = Math.max(0, priceCalculation.total - voucherDiscount);
+      const finalTotal = Math.max(0, priceCalculation.total - voucherDiscount - discountFromCode);
 
       // 6. Generar número de pedido único
       const orderNumber = Math.floor(10000 + Math.random() * 90000);
@@ -631,6 +668,8 @@ export const createOrder = onCall(async (request) => {
           subtotal: priceCalculation.subtotal,
           deliveryFee: priceCalculation.deliveryFee,
           voucherDiscount,
+          ...(discountCode ? {discountCode} : {}),
+          ...(discountFromCode ? {discountAmount: discountFromCode} : {}),
           ...(voucherRewardLabel ? {voucherRewardLabel} : {}),
           total: finalTotal,
         },

@@ -33,6 +33,18 @@ export interface OrderItem {
   pizzaType?: string
   pizza1?: string  // Para pizzas DUO
   pizza2?: string  // Para pizzas DUO
+  half1?: {
+    baseType: 'menu' | 'custom'
+    variety: string | null
+    simpleIngredients: string[]
+    premiumIngredients: string[]
+  }
+  half2?: {
+    baseType: 'menu' | 'custom'
+    variety: string | null
+    simpleIngredients: string[]
+    premiumIngredients: string[]
+  }
   selectedMenuPizza?: string | null  // Pizza base seleccionada para Premium/Promo
   // Opciones de personalización
   sinOregano?: boolean
@@ -530,17 +542,19 @@ export const listenToRecentOrders = (
           let fechaPedido: Date | null = null
           
           if (orderData.timestamps?.created) {
+            const createdTimestamp = orderData.timestamps.created as any
+
             // Si es un string ISO (formato '2026-01-22T03:44:25.954Z')
-            if (typeof orderData.timestamps.created === 'string') {
-              fechaPedido = new Date(orderData.timestamps.created)
+            if (typeof createdTimestamp === 'string') {
+              fechaPedido = new Date(createdTimestamp)
             }
             // Si es un Timestamp de Firestore con método toDate()
-            else if (typeof orderData.timestamps.created.toDate === 'function') {
-              fechaPedido = orderData.timestamps.created.toDate()
+            else if (typeof createdTimestamp.toDate === 'function') {
+              fechaPedido = createdTimestamp.toDate()
             } 
             // Si ya es un objeto Date
-            else if (orderData.timestamps.created instanceof Date) {
-              fechaPedido = orderData.timestamps.created
+            else if (createdTimestamp instanceof Date) {
+              fechaPedido = createdTimestamp
             }
           }
           

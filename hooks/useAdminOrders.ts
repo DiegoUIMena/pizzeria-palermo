@@ -194,12 +194,16 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
         size: item.size,
         ingredients: item.ingredients,
         premiumIngredients: item.premiumIngredients,
+        half1: item.half1,
+        half2: item.half2,
         selectedMenuPizza: item.selectedMenuPizza, // ⭐ AGREGADO: Pizza base para Premium/Promo
         sauces: item.sauces,
         drinks: item.drinks,
         extras: item.extras,
         comments: item.comments,
         pizzaType: item.pizzaType,
+        pizza1: item.pizza1,
+        pizza2: item.pizza2,
         sinOregano: item.sinOregano,
         sinQueso: item.sinQueso,
         sinSalsaTomate: item.sinSalsaTomate

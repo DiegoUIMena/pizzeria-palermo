@@ -203,7 +203,7 @@ export function usePizzaBuilderData() {
         precio: item.precio || 0,
         imagen: item.imagen || '/placeholder.svg',
         descripcion: item.descripcion || '',
-        variantes: item.variantes || null,
+        variantes: item.variantes || item.variants || null,
       }));
   }, [itemsMenu]);
 

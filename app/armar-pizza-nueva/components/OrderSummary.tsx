@@ -1,8 +1,19 @@
 "use client";
 
 import { PizzaConfig } from './PizzaBuilderWizard';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePizzaBuilderData } from '../hooks/usePizzaBuilderData';
+import { functions } from '@/lib/firebase';
+import { httpsCallable } from 'firebase/functions';
+
+function normalizeMenuName(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
 
 interface OrderSummaryProps {
   config: PizzaConfig;
@@ -11,9 +22,12 @@ interface OrderSummaryProps {
 
 export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
   const { getPreciosSegunTamano, pizzasParaNormal, pizzasParaDuo, salsas, bebidas, otrosExtras } = usePizzaBuilderData();
+  const [serverPrice, setServerPrice] = useState<number | null>(null);
+  const [isServerPriceLoading, setIsServerPriceLoading] = useState(false);
+  const [serverPriceError, setServerPriceError] = useState<string | null>(null);
 
   // Función para calcular el precio
-  const calculatePrice = useMemo(() => {
+  const localPrice = useMemo(() => {
     let total = 0;
 
     if (!config.size) return 0;
@@ -27,7 +41,8 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
         total = precios.baseCustom;
       } else if (config.variety) {
         // Buscar el precio real de la variedad
-        const pizzaEncontrada = pizzasParaNormal.find(p => p.nombre === config.variety);
+        const targetName = normalizeMenuName(config.variety);
+        const pizzaEncontrada = pizzasParaNormal.find((p) => normalizeMenuName(p.nombre) === targetName);
         
         if (pizzaEncontrada) {
           total = tamano === 'mediana' 
@@ -52,7 +67,8 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
           halfTotal = precios.baseCustom;
         } else if (half.variety) {
           // Buscar el precio real de la variedad
-          const pizzaEncontrada = pizzasParaDuo.find(p => p.nombre === half.variety);
+          const targetName = normalizeMenuName(half.variety);
+          const pizzaEncontrada = pizzasParaDuo.find((p) => normalizeMenuName(p.nombre) === targetName);
           if (pizzaEncontrada) {
             halfTotal = tamano === 'mediana' 
               ? pizzaEncontrada.precioMediana 
@@ -81,9 +97,18 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
         if (salsa) total += salsa.precio;
       });
 
-      // Sumar bebidas
+      // Sumar bebidas (soportando variantes con sufijo -familiar / -mediana)
       config.extrasSeleccionados.bebidas?.forEach(bebidaId => {
-        const bebida = bebidas.find(b => b.id === bebidaId);
+        // Buscar por id exacto
+        let bebida = bebidas.find(b => b.id === bebidaId);
+        // Si no existe, puede ser una variante con sufijo
+        if (!bebida) {
+          const m = String(bebidaId).match(/^(.*)-(familiar|mediana)$/);
+          if (m) {
+            const baseId = m[1];
+            bebida = bebidas.find(b => b.id === baseId);
+          }
+        }
         if (bebida) total += bebida.precio;
       });
 
@@ -97,7 +122,138 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
     return total;
   }, [config, getPreciosSegunTamano, pizzasParaNormal, pizzasParaDuo, salsas, bebidas, otrosExtras]);
 
-  const price = calculatePrice;
+  const orderItems = useMemo(() => {
+    if (!config.size) return [];
+
+    const items: Array<{ nombre: string; cantidad: number; precio: number; size?: string; ingredients?: string[]; premiumIngredients?: string[]; pizzaType?: string; selectedMenuPizza?: string | null }> = [];
+
+    let pizzaType: string | undefined;
+    let nombre = '';
+
+    if (config.type === 'normal') {
+      pizzaType = 'premium';
+      nombre = config.baseType === 'menu' && config.variety ? config.variety : 'Pizza Personalizada';
+    } else if (config.type === 'duo') {
+      pizzaType = 'duo';
+      nombre = 'Pizza DUO';
+    }
+
+    const baseItem: {
+      nombre: string;
+      cantidad: number;
+      precio: number;
+      size?: string;
+      ingredients?: string[];
+      premiumIngredients?: string[];
+      pizzaType?: string;
+      selectedMenuPizza?: string | null;
+      half1?: PizzaConfig['half1'];
+      half2?: PizzaConfig['half2'];
+    } = {
+      nombre,
+      cantidad: 1,
+      precio: 0,
+      size: config.size,
+      ingredients: config.simpleIngredients,
+      premiumIngredients: config.premiumIngredients,
+      pizzaType,
+      selectedMenuPizza: config.baseType === 'menu' ? (config.variety || null) : null,
+    };
+
+    if (config.type === 'duo') {
+      baseItem.half1 = config.half1;
+      baseItem.half2 = config.half2;
+    }
+
+    items.push(baseItem);
+
+    config.extrasSeleccionados?.salsas?.forEach((salsaId) => {
+      const salsa = salsas.find((s) => s.id === salsaId);
+      if (salsa) {
+        items.push({ nombre: salsa.nombre, cantidad: 1, precio: salsa.precio });
+      }
+    });
+
+    config.extrasSeleccionados?.bebidas?.forEach((bebidaId) => {
+      // Soportar variantes con sufijo -familiar / -mediana
+      let bebida = bebidas.find((b) => b.id === bebidaId) as any;
+      let displayName: string | null = null;
+      if (!bebida) {
+        const m = String(bebidaId).match(/^(.*)-(familiar|mediana)$/);
+        if (m) {
+          const baseId = m[1];
+          const variant = m[2];
+            bebida = bebidas.find((b) => b.id === baseId) as any;
+          if (bebida) {
+            displayName = variant === 'familiar' ? `${bebida.nombre} Tradicional` : `${bebida.nombre} Zero`;
+          }
+        }
+      }
+
+      if (bebida) {
+        items.push({ nombre: displayName || bebida.nombre, cantidad: 1, precio: bebida.precio });
+      }
+    });
+
+    config.extrasSeleccionados?.otros?.forEach((extraId) => {
+      const extra = otrosExtras.find((e) => e.id === extraId);
+      if (extra) {
+        items.push({ nombre: extra.nombre, cantidad: 1, precio: extra.precio });
+      }
+    });
+
+    return items;
+  }, [config, salsas, bebidas, otrosExtras]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!orderItems.length) {
+      setServerPrice(null);
+      setServerPriceError(null);
+      setIsServerPriceLoading(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    const calculateServerPrice = async () => {
+      setIsServerPriceLoading(true);
+      setServerPriceError(null);
+
+      try {
+        const calculatePriceFn = httpsCallable(functions, 'calculatePrice');
+        const response = await calculatePriceFn({
+          items: orderItems,
+          tipoEntrega: 'Retiro',
+        });
+
+        const data = response.data as any;
+        if (!isActive) return;
+
+        if (data?.success) {
+          setServerPrice(Number(data.total || 0));
+        } else {
+          setServerPrice(null);
+          setServerPriceError('No se pudo calcular el total en el servidor');
+        }
+      } catch (error) {
+        if (!isActive) return;
+        setServerPrice(null);
+        setServerPriceError('No se pudo calcular el total en el servidor');
+      } finally {
+        if (isActive) setIsServerPriceLoading(false);
+      }
+    };
+
+    calculateServerPrice();
+
+    return () => {
+      isActive = false;
+    };
+  }, [orderItems]);
+
+  const price = serverPrice ?? localPrice;
 
   return (
     <div className="bg-white rounded-2xl shadow-xl p-6 border-2 border-orange-100">
@@ -118,6 +274,9 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
               </p>
               {config.size && (
                 <p className="text-sm text-gray-600 capitalize">{config.size}</p>
+              )}
+              {config.type === 'normal' && config.baseType === 'menu' && config.variety && (
+                <p className="text-sm text-gray-600">{config.variety}</p>
               )}
             </div>
           </div>
@@ -277,10 +436,22 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
               <p className="font-medium text-gray-800">Bebidas</p>
               <div className="mt-1 space-y-1">
                 {config.extrasSeleccionados.bebidas.map((bebidaId) => {
-                  const bebida = bebidas.find(b => b.id === bebidaId);
+                  let bebida = bebidas.find(b => b.id === bebidaId);
+                  let displayName: string | null = null;
+                  if (!bebida) {
+                    const m = String(bebidaId).match(/^(.*)-(familiar|mediana)$/);
+                    if (m) {
+                      const baseId = m[1];
+                      const variant = m[2];
+                      bebida = bebidas.find(b => b.id === baseId);
+                      if (bebida) {
+                        displayName = variant === 'familiar' ? `${bebida.nombre} Tradicional` : `${bebida.nombre} Zero`;
+                      }
+                    }
+                  }
                   return bebida ? (
                     <div key={bebidaId} className="flex justify-between items-center text-sm">
-                      <span className="text-gray-600">{bebida.nombre}</span>
+                      <span className="text-gray-600">{displayName || bebida.nombre}</span>
                       <span className="text-orange-600 font-semibold">
                         ${bebida.precio.toLocaleString('es-CL')}
                       </span>
@@ -321,9 +492,12 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
         <div className="flex justify-between items-center mb-4">
           <span className="text-lg font-semibold text-gray-700">Total</span>
           <span className="text-3xl font-bold text-orange-600">
-            ${price.toLocaleString('es-CL')}
+            {isServerPriceLoading ? 'Calculando...' : `$${price.toLocaleString('es-CL')}`}
           </span>
         </div>
+        {serverPriceError && (
+          <div className="text-xs text-red-600 text-center mb-3">{serverPriceError}</div>
+        )}
 
         {/* Botón de agregar al carrito (solo visible en step 6) */}
         {onAddToCart && (
@@ -337,9 +511,9 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
                   : 'bg-gray-200 text-gray-400 cursor-not-allowed'
               }
             `}
-            disabled={price === 0}
+            disabled={price === 0 || isServerPriceLoading}
           >
-            {price > 0 ? 'Agregar al Carrito 🛒' : 'Configura tu pizza'}
+            {price > 0 && !isServerPriceLoading ? 'Agregar al Carrito 🛒' : 'Configura tu pizza'}
           </button>
         )}
       </div>

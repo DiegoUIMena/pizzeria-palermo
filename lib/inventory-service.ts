@@ -4,6 +4,7 @@ import { consumeRecipeForOrder, isItemAvailable, RecipeLine } from './recipes'
 import { computeEstado } from './inventory'
 import { toGrams } from './units'
 import { getAgregadosConfig } from './agregados-config'
+import type { AgregadosConfig } from './agregados-config'
 
 // Interfaz para los resultados de validación
 interface ValidationResult {
@@ -123,12 +124,45 @@ const isGauchitosItem = (item: any): boolean => {
 }
 
 async function shouldSkipInventoryForItem(item: any): Promise<boolean> {
-  if (!isGauchitosItem(item)) {
-    return false
+  const config = await getAgregadosConfig()
+
+  if (isGauchitosItem(item)) {
+    return Boolean(config.gauchitosDisponible)
   }
 
-  const config = await getAgregadosConfig()
-  return Boolean(config.gauchitosDisponible)
+  const bebidaKey = getBeverageConfigKey(item)
+  if (bebidaKey) {
+    return Boolean(config.bebidasDisponibles[bebidaKey])
+  }
+
+  return false
+}
+
+const getBeverageConfigKey = (item: any): keyof AgregadosConfig['bebidasDisponibles'] | null => {
+  const itemName = normalizeText(item?.nombre || item?.name || '')
+
+  if (!itemName) return null
+
+  if (itemName.includes('lipton') && itemName.includes('botella')) {
+    return 'liptonBotella'
+  }
+  if (itemName.includes('lipton') && itemName.includes('lata')) {
+    return 'liptonLata'
+  }
+  if (itemName.includes('coca') && itemName.includes('1.5') && itemName.includes('zero')) {
+    return 'cocaBotellaZero'
+  }
+  if (itemName.includes('coca') && itemName.includes('1.5')) {
+    return 'cocaBotellaTradicional'
+  }
+  if (itemName.includes('coca') && itemName.includes('lata') && itemName.includes('zero')) {
+    return 'cocaLataZero'
+  }
+  if (itemName.includes('coca') && itemName.includes('lata')) {
+    return 'cocaLataTradicional'
+  }
+
+  return null
 }
 
 // Helper para procesar recetas de pizzas Duo según la lógica especificada:
@@ -380,11 +414,32 @@ const buildRecipeLinesFromIngredients = (
 export async function validateInventoryForOrder(orderItems: any[]): Promise<ValidationResult> {
   try {
     const { itemsMenu, ingredientsById, ingredientesByName } = await getCachedData()
+    const agregadosConfig = await getAgregadosConfig()
     const insufficientItems: any[] = []
 
     for (const item of orderItems) {
       const qty = item.cantidad || item.quantity || 1
       const itemName = (item.nombre || item.name || '').toLowerCase().trim()
+
+      const bebidaKey = getBeverageConfigKey(item)
+      if (bebidaKey) {
+        if (!agregadosConfig.bebidasDisponibles[bebidaKey]) {
+          insufficientItems.push({
+            item: item.nombre || item.name,
+            missing: [{
+              ingrediente: 'Bebida sin stock',
+              ingredienteId: bebidaKey,
+              needed: qty,
+              available: 0,
+              unidad: 'u'
+            }]
+          })
+          continue
+        }
+
+        console.log(`Validación - Omitiendo control de receta para bebida disponible "${item.nombre || item.name}"`)
+        continue
+      }
 
       if (await shouldSkipInventoryForItem(item)) {
         console.log(`Validación - Omitiendo control de inventario por configuración para "${item.nombre || item.name}"`)
@@ -802,6 +857,7 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
 
     // 2. Obtener datos de ingredientes y recetas
     const { itemsMenu, ingredientsById, ingredientesByName } = await getCachedData()
+    const agregadosConfig = await getAgregadosConfig()
     
     // 3. Registrar la transacción para auditoría (como "en proceso")
     const transactionDoc = await addDoc(collection(db, 'inventory_transactions'), {
@@ -841,6 +897,11 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
         for (const item of orderItems) {
           const qty = item.cantidad || item.quantity || 1
           const itemName = (item.nombre || item.name || '').toLowerCase().trim()
+
+          if (getBeverageConfigKey(item)) {
+            console.log(`Consumo - Omitiendo descuento de inventario para bebida "${item.nombre || item.name}"`)
+            continue
+          }
           
           // Buscar receta en items_menu
           if (await shouldSkipInventoryForItem(item)) {

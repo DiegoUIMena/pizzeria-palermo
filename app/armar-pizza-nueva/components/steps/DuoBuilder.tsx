@@ -63,6 +63,15 @@ function getPizzaImagePath(imagePath?: string, pizzaName?: string): string {
   return "/pizza-promo-bg.png";
 }
 
+function normalizeMenuName(value: string): string {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
 interface DuoBuilderProps {
   config: PizzaConfig;
   onUpdate: (updates: Partial<PizzaConfig>) => void;
@@ -146,7 +155,8 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
     if (half.baseType === 'custom') {
       halfTotal = precios.baseCustom;
     } else if (half.variety) {
-      const pizzaEncontrada = pizzasParaDuo.find(p => p.nombre === half.variety);
+      const targetName = normalizeMenuName(half.variety);
+      const pizzaEncontrada = pizzasParaDuo.find(p => normalizeMenuName(p.nombre) === targetName);
       if (pizzaEncontrada) {
         halfTotal = tamano === 'mediana' ? pizzaEncontrada.precioMediana : pizzaEncontrada.precio;
       } else {
@@ -249,6 +259,8 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
         pizzaType: duoPizzaType,
         pizza1: mitad1Name,
         pizza2: mitad2Name,
+        half1: config.half1,
+        half2: config.half2,
         ingredients: allSimpleIngredients,
         premiumIngredients: allPremiumIngredients,
       };

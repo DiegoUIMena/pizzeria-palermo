@@ -206,7 +206,7 @@ export function PizzaBuilderWizard() {
       })();
 
       // 1. Agregar la pizza al carrito
-      const pizzaTypeValue: 'premium' | 'promo' = config.baseType === 'custom' ? 'premium' : 'promo';
+      const pizzaTypeValue: 'premium' = 'premium';
       const cartItem = {
         id: `pizza-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         name: pizzaName,
@@ -214,7 +214,7 @@ export function PizzaBuilderWizard() {
         image: pizzaImage,
         quantity: 1,
         size: (config.size || 'mediana') as string,
-        selectedMenuPizza: config.variety,
+        selectedMenuPizza: config.baseType === 'menu' ? config.variety : null,
         ingredients: config.simpleIngredients,
         premiumIngredients: config.premiumIngredients,
         pizzaType: pizzaTypeValue,
@@ -250,11 +250,23 @@ export function PizzaBuilderWizard() {
 
       // 3. Agregar bebidas seleccionadas al carrito
       config.extrasSeleccionados?.bebidas?.forEach(bebidaId => {
-        const bebida = bebidas.find(b => b.id === bebidaId);
+        let bebida = bebidas.find(b => b.id === bebidaId);
+        let displayName: string | null = null;
+        if (!bebida) {
+          const m = String(bebidaId).match(/^(.*)-(familiar|mediana)$/);
+          if (m) {
+            const baseId = m[1];
+            const variant = m[2];
+            bebida = bebidas.find(b => b.id === baseId);
+            if (bebida) {
+              displayName = variant === 'familiar' ? `${bebida.nombre} Tradicional` : `${bebida.nombre} Zero`;
+            }
+          }
+        }
         if (bebida) {
           addItem({
             id: `bebida-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            name: bebida.nombre,
+            name: displayName || bebida.nombre,
             price: bebida.precio,
             image: bebida.imagen,
             quantity: 1,

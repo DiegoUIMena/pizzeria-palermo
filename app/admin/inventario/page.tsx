@@ -49,6 +49,14 @@ export default function AdminInventario() {
     bbq: true,
     pesto: true,
   })
+  const [bebidasDisponibles, setBebidasDisponibles] = useState({
+    liptonLata: true,
+    liptonBotella: true,
+    cocaLataTradicional: true,
+    cocaLataZero: true,
+    cocaBotellaTradicional: true,
+    cocaBotellaZero: true,
+  })
   const { itemsMenu: pizzasFromHook = [], refreshData } = useFirestorePizzaConfig()
 
   // Formulario para nuevo/editar ingrediente
@@ -86,6 +94,7 @@ export default function AdminInventario() {
         setRollitosPackStock(config.rollitosPackStock)
         setGauchitosDisponible(config.gauchitosDisponible)
         setSalsasDisponibles(config.salsasDisponibles)
+        setBebidasDisponibles(config.bebidasDisponibles)
       } catch (error) {
         console.error("Error cargando configuración de agregados:", error)
         toast({
@@ -114,6 +123,7 @@ export default function AdminInventario() {
         rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
         gauchitosDisponible,
         salsasDisponibles,
+        bebidasDisponibles,
       })
 
       toast({
@@ -140,6 +150,7 @@ export default function AdminInventario() {
         rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
         gauchitosDisponible: checked,
         salsasDisponibles,
+        bebidasDisponibles,
       })
     } catch (error) {
       console.error("Error guardando disponibilidad de Gauchitos:", error)
@@ -167,6 +178,7 @@ export default function AdminInventario() {
         rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
         gauchitosDisponible,
         salsasDisponibles: nextSalsas,
+        bebidasDisponibles,
       })
     } catch (error) {
       console.error("Error guardando disponibilidad de salsas:", error)
@@ -190,12 +202,41 @@ export default function AdminInventario() {
         rollitosPackStock: safeStock,
         gauchitosDisponible,
         salsasDisponibles,
+        bebidasDisponibles,
       })
     } catch (error) {
       console.error("Error guardando stock de Rollitos:", error)
       toast({
         title: "Error",
         description: "No se pudo guardar el stock de Rollitos.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleBebidaToggle = async (
+    key: keyof typeof bebidasDisponibles,
+    checked: boolean
+  ) => {
+    const nextBebidas = {
+      ...bebidasDisponibles,
+      [key]: checked,
+    }
+
+    setBebidasDisponibles(nextBebidas)
+
+    try {
+      await saveAgregadosConfig({
+        rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
+        gauchitosDisponible,
+        salsasDisponibles,
+        bebidasDisponibles: nextBebidas,
+      })
+    } catch (error) {
+      console.error("Error guardando disponibilidad de bebidas:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar la disponibilidad de la bebida.",
         variant: "destructive",
       })
     }
@@ -946,6 +987,74 @@ export default function AdminInventario() {
                     disabled={savingAgregados}
                   >
                     {savingAgregados ? "Guardando..." : "Guardar Agregados"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-8 border border-gray-200 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle>Configuración de Bebidas</CardTitle>
+            <CardDescription>
+              Define qué bebidas están disponibles para compra. Si una opción está en sin stock, el carrito no permitirá agregarla ni finalizar la compra.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {loadingAgregados ? (
+              <p className="text-sm text-gray-500">Cargando configuración...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[
+                    { key: 'liptonLata', label: 'Lipton Lata', image: '/pizzas/lipton lata.jpg' },
+                    { key: 'liptonBotella', label: 'Lipton Botella', image: '/pizzas/lipton botella.jpg' },
+                    { key: 'cocaLataTradicional', label: 'Coca Cola Lata Tradicional', image: '/pizzas/coca cola lata.jpg' },
+                    { key: 'cocaLataZero', label: 'Coca Cola Lata Zero', image: '/pizzas/coca cola lata.jpg' },
+                    { key: 'cocaBotellaTradicional', label: 'Coca Cola 1.5 Litro Tradicional', image: '/pizzas/coca cola 1.5 litro.jpg' },
+                    { key: 'cocaBotellaZero', label: 'Coca Cola 1.5 Litro Zero', image: '/pizzas/coca cola 1.5 litro.jpg' },
+                  ].map((bebida) => {
+                    const bebidaKey = bebida.key as keyof typeof bebidasDisponibles
+
+                    return (
+                      <div key={bebida.key} className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
+                        <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
+                          <img
+                            src={bebida.image}
+                            alt={bebida.label}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.currentTarget.src = "/placeholder.svg"
+                            }}
+                          />
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          <Label htmlFor={`${bebida.key}Disponible`}>{bebida.label}</Label>
+                          <div className="h-10 px-3 border rounded-md flex items-center justify-between">
+                            <span className={`text-sm font-medium ${bebidasDisponibles[bebidaKey] ? 'text-green-600' : 'text-red-600'}`}>
+                              {bebidasDisponibles[bebidaKey] ? 'Disponible' : 'Sin Stock'}
+                            </span>
+                            <Switch
+                              id={`${bebida.key}Disponible`}
+                              checked={bebidasDisponibles[bebidaKey]}
+                              onCheckedChange={(checked) => handleBebidaToggle(bebidaKey, checked)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    onClick={handleSaveAgregadosConfig}
+                    className="bg-pink-600 text-white hover:bg-pink-700"
+                    disabled={savingAgregados}
+                  >
+                    {savingAgregados ? "Guardando..." : "Guardar Bebidas"}
                   </Button>
                 </div>
               </>
