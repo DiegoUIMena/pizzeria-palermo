@@ -94,6 +94,11 @@ export const useFormattedOrders = (userId: string | undefined) => {
         extras: item.extras,
         comments: item.comments,
         pizzaType: item.pizzaType,
+        pizza1: item.pizza1,
+        pizza2: item.pizza2,
+        half1: item.half1,
+        half2: item.half2,
+        selectedMenuPizza: item.selectedMenuPizza,
         sinOregano: item.sinOregano,
         sinQueso: item.sinQueso,
         sinSalsaTomate: item.sinSalsaTomate

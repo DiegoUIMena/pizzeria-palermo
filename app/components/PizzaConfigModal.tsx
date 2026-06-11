@@ -87,6 +87,44 @@ const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
   return "/pizza-promo-bg.png"
 }
 
+function getExtraImagePath(itemName: string, imagePath?: string): string {
+  const lowerName = (itemName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  let bebidaFileName = ''
+  
+  if (lowerName.includes('lipton') && lowerName.includes('botella')) bebidaFileName = 'lipton_botella.jpg'
+  else if (lowerName.includes('lipton') && lowerName.includes('lata')) bebidaFileName = 'lipton_lata.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('1.5') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_1.5_litro_zero.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('1.5')) bebidaFileName = 'coca_cola_1.5_litro.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('lata') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_lata_zero.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
+  
+  if (bebidaFileName) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
+  }
+
+  let acompFileName = ''
+  if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
+  else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('ajo')) acompFileName = 'salsa_de_ajo.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
+
+  if (acompFileName) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
+  }
+
+  if (!imagePath) return "/placeholder.svg?height=200&width=200"
+  if (imagePath.startsWith('http')) return imagePath
+  if (!imagePath.startsWith('/')) return `/pizzas/${encodeURIComponent(imagePath)}`
+  
+  const parts = imagePath.split('/')
+  const fileName = parts.pop() || ''
+  return [...parts, encodeURIComponent(fileName)].join('/')
+}
+
 // Tipos
 interface Ingredient {
   id: number
@@ -1350,7 +1388,7 @@ export default function PizzaConfigModal({
                           {/* Imagen del extra */}
                           <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 border border-gray-200">
                             <img 
-                              src={extra.imagen} 
+                              src={getExtraImagePath(extra.name, extra.imagen)} 
                               alt={extra.name}
                               className="w-full h-full object-cover"
                               onError={(e) => {

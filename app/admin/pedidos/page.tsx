@@ -77,6 +77,7 @@ interface Pedido {
     sinSalsaTomate?: boolean;
   }>
   total: number
+  subtotal?: number
   estado: "Pago Pendiente" | "Pago Rechazado" | "Pendiente" | "En preparación" | "En camino" | "Pedido Listo" | "Entregado" | "Cancelado"
   tipoEntrega: "Delivery" | "Retiro"
   metodoPago: string
@@ -89,8 +90,31 @@ interface Pedido {
   valorDelivery?: number
   requiereVuelto?: boolean
   montoVuelto?: number
+  paymentDetails?: {
+    cashAmount?: number
+    change?: number
+  }
   paymentStatus?: "paid" | "pending" | "refunded" | "failed" | null
   webpay?: any
+}
+
+const formatCurrency = (value: number) => `$${Math.round(value).toLocaleString('es-CL')}`
+
+function getPedidoMontos(pedido: Pedido | null | undefined) {
+  const totalGuardado = Number(pedido?.total || 0)
+  const valorDelivery = pedido?.tipoEntrega === 'Delivery'
+    ? Math.max(0, Number(pedido?.valorDelivery || 0))
+    : 0
+  const subtotalGuardado = Number(pedido?.subtotal)
+  const subtotal = Number.isFinite(subtotalGuardado)
+    ? Math.max(0, subtotalGuardado)
+    : Math.max(0, totalGuardado - valorDelivery)
+
+  return {
+    subtotal,
+    valorDelivery,
+    totalConDelivery: subtotal + valorDelivery,
+  }
 }
 
 // Claves para almacenamiento en localStorage (mismas que usa GlobalOrderMonitor)
@@ -169,14 +193,14 @@ export default function AdminPedidos() {
         return nuevos;
       });
     }
-    
+
     // Actualizar el estado en Firebase (el hook ya hace optimistic update)
     // No esperamos el resultado para no bloquear la UI
     actualizarEstadoOriginal(pedidoId, nuevoEstado).catch(error => {
       console.error('Error al actualizar estado:', error);
       // El listener en tiempo real revertirá si hay error
     });
-  }, [actualizarEstadoOriginal, marcarPedidoAtendido]);
+  }, [actualizarEstadoOriginal, marcarPedidoAtendido, pedidos]);
 
   // Función para reembolsar pedido Webpay
   const reembolsarPedidoWebpay = async (pedidoId: string) => {
@@ -418,31 +442,17 @@ export default function AdminPedidos() {
   const enviarPedidoAWhatsApp = (pedido: Pedido) => {
     if (pedido.tipoEntrega !== "Delivery" || !pedido.direccion) return;
     
-    // Calcular valor total a cobrar
-    const valorDelivery = pedido.valorDelivery || 0;
-    const totalACobrar = pedido.total + valorDelivery;
-    
-    // Construir el detalle de los productos
-    const detalleProductos = pedido.items.map(item => 
-      `${item.cantidad}x ${item.nombre}${item.size ? ` (${item.size})` : ''}${
-        item.selectedMenuPizza && item.selectedMenuPizza !== 'base' ? `\n   - Base: ${item.selectedMenuPizza}` : ''
-      }${
-        item.ingredients?.length ? `\n   - Ingredientes: ${item.ingredients.join(', ')}` : ''
-      }${
-        item.premiumIngredients?.length ? `\n   - Premium: ${item.premiumIngredients.join(', ')}` : ''
-      }${
-        item.sauces?.length ? `\n   - Salsas: ${item.sauces.join(', ')}` : ''
-      }${
-        (item.sinOregano || item.sinQueso || item.sinSalsaTomate) ? 
-          `\n   ⚠️ PERSONALIZACIÓN: ${[
-            item.sinOregano && 'SIN ORÉGANO',
-            item.sinQueso && 'SIN QUESO',
-            item.sinSalsaTomate && 'SIN SALSA TOMATE'
-          ].filter(Boolean).join(', ')}` : ''
-      }${
-        item.comments ? `\n   - Notas: ${item.comments}` : ''
-      }`
-    ).join('\n\n');
+    const { valorDelivery, totalConDelivery } = getPedidoMontos(pedido);
+    const pagaCon = Number(pedido.paymentDetails?.cashAmount || pedido.montoVuelto || 0)
+    const vuelto = Number(
+      pedido.paymentDetails?.change ??
+      (pedido.requiereVuelto && pedido.montoVuelto ? pedido.montoVuelto - totalConDelivery : 0)
+    )
+    const detalleEfectivo = pedido.metodoPago === "Efectivo"
+      ? `
+*PAGA CON:* ${pagaCon > 0 ? formatCurrency(pagaCon) : 'No informado'}
+*VUELTO A ENTREGAR:* ${formatCurrency(Math.max(0, vuelto))}`
+      : ''
     
     // Crear el mensaje con todos los datos relevantes
     const mensaje = `
@@ -457,16 +467,10 @@ ${pedido.direccion.referencia ? `*REFERENCIAS:* ${pedido.direccion.referencia}` 
   : 'No disponible'}
 
 *MÉTODO DE PAGO:* ${pedido.metodoPago}
-${pedido.requiereVuelto ? `*VUELTO PARA:* $${pedido.montoVuelto?.toLocaleString()}` : ''}
+${detalleEfectivo}
 
-*PRODUCTOS:*
-${detalleProductos}
+*VALOR DELIVERY:* ${formatCurrency(valorDelivery)}
 
-*VALOR PEDIDO:* $${pedido.total.toLocaleString()}
-*VALOR DELIVERY:* $${valorDelivery.toLocaleString()}
-*TOTAL A COBRAR:* $${totalACobrar.toLocaleString()}
-
-${pedido.tiempoEstimadoFin ? `*HORA ESTIMADA DE ENTREGA:* ${new Date(pedido.tiempoEstimadoFin).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}` : ''}
 ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
 `.trim();
     
@@ -828,7 +832,27 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       {pedido.items.map((i, idx) => (
                         <div key={idx} className="flex justify-between"><span>{i.cantidad}x {i.nombre}</span><span>${i.precio.toLocaleString()}</span></div>
                       ))}
-                      <div className="border-t pt-2 font-bold flex justify-between dark:text-white"><span>Total</span><span>${pedido.total.toLocaleString()}</span></div>
+                      {(() => {
+                        const { subtotal, valorDelivery, totalConDelivery } = getPedidoMontos(pedido)
+                        return (
+                          <>
+                            <div className="border-t pt-2 flex justify-between dark:text-white">
+                              <span>Subtotal</span>
+                              <span>{formatCurrency(subtotal)}</span>
+                            </div>
+                            {pedido.tipoEntrega === 'Delivery' && (
+                              <div className="flex justify-between dark:text-white">
+                                <span>Delivery</span>
+                                <span>{formatCurrency(valorDelivery)}</span>
+                              </div>
+                            )}
+                            <div className="font-bold flex justify-between dark:text-white">
+                              <span>Total</span>
+                              <span>{formatCurrency(totalConDelivery)}</span>
+                            </div>
+                          </>
+                        )
+                      })()}
                       {pedido.notas && <div className="mt-2 text-xs bg-yellow-50 dark:bg-yellow-900 dark:text-yellow-100 p-1 rounded">Notas: {pedido.notas}</div>}
                     </div>
                   </div>                    {/* Acciones y timers */}
@@ -1100,12 +1124,6 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                       }
                     }
                   } else {
-                    if (item.pizzaType) {
-                      detalles.push(`Tipo: ${item.pizzaType}`)
-                    }
-                    if (item.selectedMenuPizza && item.selectedMenuPizza !== 'base') {
-                      detalles.push(`Base: ${item.selectedMenuPizza}`)
-                    }
                     if (item.ingredients && item.ingredients.length) {
                       detalles.push(...item.ingredients)
                     }
@@ -1146,17 +1164,24 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
               <div className="comanda-divider"></div>
               
               <div className="comanda-totals">
-                <div className="comanda-total-row">
-                  SUBTOTAL: ${pedidoAImprimir?.total.toLocaleString('es-CL')}
-                </div>
-                {pedidoAImprimir?.tipoEntrega === 'Delivery' && (
-                  <div className="comanda-total-row">
-                    Delivery: ${ (pedidoAImprimir?.valorDelivery || 0).toLocaleString('es-CL') }
-                  </div>
-                )}
-                <div className="comanda-total-row comanda-total-strong">
-                  TOTAL: ${((pedidoAImprimir?.total || 0) + (pedidoAImprimir?.valorDelivery || 0)).toLocaleString('es-CL')}
-                </div>
+                {(() => {
+                  const { subtotal, valorDelivery, totalConDelivery } = getPedidoMontos(pedidoAImprimir)
+                  return (
+                    <>
+                      <div className="comanda-total-row">
+                        SUBTOTAL: {formatCurrency(subtotal)}
+                      </div>
+                      {pedidoAImprimir?.tipoEntrega === 'Delivery' && (
+                        <div className="comanda-total-row">
+                          DELIVERY: {formatCurrency(valorDelivery)}
+                        </div>
+                      )}
+                      <div className="comanda-total-row comanda-total-strong">
+                        TOTAL: {formatCurrency(totalConDelivery)}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>

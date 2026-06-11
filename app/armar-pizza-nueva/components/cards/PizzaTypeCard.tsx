@@ -1,10 +1,12 @@
 "use client";
 
+import { ReactNode } from 'react';
+
 interface PizzaTypeCardProps {
   type: 'normal' | 'duo';
   title: string;
   description: string;
-  icon: string;
+  icon: ReactNode;
   selected: boolean;
   onClick: () => void;
 }

@@ -1,10 +1,12 @@
 "use client";
 
+import { ReactNode } from 'react';
+
 interface SizeCardProps {
   size: 'mediana' | 'familiar';
   title: string;
   slices: string;
-  icon: string;
+  icon: ReactNode;
   subtitle: string;
   popular?: boolean;
   selected: boolean;

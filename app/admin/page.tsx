@@ -18,6 +18,7 @@ import {
   DollarSign,
 } from "lucide-react"
 import BusinessHoursManager from "./components/BusinessHoursManager"
+import ReposicionConfigManager from "./components/ReposicionConfigManager"
 
 // Tipos para el dashboard
 // Tipos ahora provienen del hook
@@ -281,6 +282,11 @@ export default function AdminDashboard() {
       {/* Gestión de Horarios */}
       <div className="mt-8">
         <BusinessHoursManager />
+      </div>
+
+      {/* Configuración de Reposición */}
+      <div className="mt-8">
+        <ReposicionConfigManager />
       </div>
     </div>
   )

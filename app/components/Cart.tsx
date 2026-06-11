@@ -237,6 +237,20 @@ const Cart = ({ onClose }: CartProps) => {
   const [cashAmount, setCashAmount] = useState("")
   const [cashAmountError, setCashAmountError] = useState("")
 
+  // Utilidad para interceptar y usar la URL de Storage
+  const getStorageUrl = (path: string) => {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com';
+    if (path && path.startsWith('/bebidas/')) {
+      const fileName = path.split('/').pop() || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(fileName)}?alt=media`;
+    }
+    if (path && path.startsWith('/acompañamientos/')) {
+      const fileName = path.split('/').pop() || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(fileName)}?alt=media`;
+    }
+    return path || "/placeholder.svg?height=200&width=200";
+  };
+
   // Estados para la ubicación y delivery
   const [selectedLocation, setSelectedLocation] = useState<{
     lat: number
@@ -989,6 +1003,8 @@ const Cart = ({ onClose }: CartProps) => {
             phone: customerData.telefono,
           })
         )
+        // Disparar evento para que el tracker flotante se entere inmediatamente
+        window.dispatchEvent(new Event('guestOrderCreated'))
       }
       
       // Guardar el total confirmado antes de cambiar de vista
@@ -2418,12 +2434,13 @@ const Cart = ({ onClose }: CartProps) => {
       {/* Funciones auxiliares para detectar categorías en el carrito */}
       {(() => {
         const hasSalsas = items.some(item => 
-          ['17', '18', '19', '20'].includes(item.id) || 
+          ['17', '18', '19', '20'].includes(String(item.id)) || 
           item.name?.toLowerCase().includes('salsa')
         )
         const hasBebidas = items.some(item => {
           const itemName = item.name?.toLowerCase() || ''
-          return item.id.includes('401') || item.id.includes('402') ||
+          const itemIdStr = String(item.id)
+          return itemIdStr.includes('401') || itemIdStr.includes('402') ||
             itemName.includes('coca') ||
             itemName.includes('bebida') ||
             itemName.includes('lipton') ||
@@ -2433,7 +2450,7 @@ const Cart = ({ onClose }: CartProps) => {
             itemName.includes('jugo')
         })
         const hasSnacks = items.some(item => 
-          ['15', '16'].includes(item.id) ||
+          ['15', '16'].includes(String(item.id)) ||
           item.name?.toLowerCase().includes('gauchito') ||
           item.name?.toLowerCase().includes('rollito')
         )
@@ -2458,10 +2475,10 @@ const Cart = ({ onClose }: CartProps) => {
           {expandedUpsell.salsas && (
             <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
               {[
-                { id: 17, name: "Salsa de Ajo", price: 700, image: "/pizzas/salsa de ajo.jpg" },
-                { id: 18, name: "Salsa Chimichurri", price: 700, image: "/pizzas/salsa chimichurri.jpg" },
-                { id: 19, name: "Salsa BBQ", price: 700, image: "/pizzas/salsa bbq.jpg" },
-                { id: 20, name: "Salsa Pesto", price: 1000, image: "/pizzas/salsa pesto.jpg" },
+                { id: 17, name: "Salsa de Ajo", price: 700, image: "/acompañamientos/salsa_de_ajo.jpg" },
+                { id: 18, name: "Salsa Chimichurri", price: 700, image: "/acompañamientos/salsa_chimichurri.jpg" },
+                { id: 19, name: "Salsa BBQ", price: 700, image: "/acompañamientos/salsa_bbq.jpg" },
+                { id: 20, name: "Salsa Pesto", price: 1000, image: "/acompañamientos/salsa_pesto.jpg" },
               ].map(salsa => {
                 const cartItem = items.find(item => item.id === String(salsa.id))
                 const isInCart = !!cartItem
@@ -2480,7 +2497,7 @@ const Cart = ({ onClose }: CartProps) => {
                               name: salsa.name,
                               price: salsa.price,
                               quantity: 1,
-                              image: salsa.image
+                              image: getStorageUrl(salsa.image)
                             })
                           } else {
                             removeItem(String(salsa.id))
@@ -2539,12 +2556,12 @@ const Cart = ({ onClose }: CartProps) => {
           {expandedUpsell.bebidas && (
             <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
               {([
-                { id: 'lipton-lata', name: 'Lipton Lata', price: 1500, image: '/pizzas/lipton lata.jpg', availabilityKey: 'liptonLata' as const },
-                { id: 'lipton-botella', name: 'Lipton Botella', price: 2900, image: '/pizzas/lipton botella.jpg', availabilityKey: 'liptonBotella' as const },
-                { id: 'coca-lata-tradicional', name: 'Coca Cola Lata Tradicional', price: 1500, image: '/pizzas/coca cola lata.jpg', availabilityKey: 'cocaLataTradicional' as const },
-                { id: 'coca-lata-zero', name: 'Coca Cola Lata Zero', price: 1500, image: '/pizzas/coca cola lata.jpg', availabilityKey: 'cocaLataZero' as const },
-                { id: 'coca-botella-tradicional', name: 'Coca Cola 1.5 Litro Tradicional', price: 2900, image: '/pizzas/coca cola 1.5 litro.jpg', availabilityKey: 'cocaBotellaTradicional' as const },
-                { id: 'coca-botella-zero', name: 'Coca Cola 1.5 Litro Zero', price: 2900, image: '/pizzas/coca cola 1.5 litro.jpg', availabilityKey: 'cocaBotellaZero' as const },
+                { id: 'lipton-lata', name: 'Lipton Lata', price: 1500, image: '/bebidas/lipton_lata.jpg', availabilityKey: 'liptonLata' as const },
+                { id: 'lipton-botella', name: 'Lipton Botella', price: 2900, image: '/bebidas/lipton_botella.jpg', availabilityKey: 'liptonBotella' as const },
+                { id: 'coca-lata-tradicional', name: 'Coca Cola Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata.jpg', availabilityKey: 'cocaLataTradicional' as const },
+                { id: 'coca-lata-zero', name: 'Coca Cola Zero Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata_zero.jpg', availabilityKey: 'cocaLataZero' as const },
+                { id: 'coca-botella-tradicional', name: 'Coca Cola 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro.jpg', availabilityKey: 'cocaBotellaTradicional' as const },
+                { id: 'coca-botella-zero', name: 'Coca Cola Zero 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro_zero.jpg', availabilityKey: 'cocaBotellaZero' as const },
               ] as const).map((bebida) => {
                 const cartItem = items.find(item => item.id === bebida.id)
                 const isInCart = !!cartItem
@@ -2574,7 +2591,7 @@ const Cart = ({ onClose }: CartProps) => {
                               name: bebida.name,
                               price: bebida.price,
                               quantity: 1,
-                              image: bebida.image,
+                              image: getStorageUrl(bebida.image),
                             })
                           } else {
                             removeItem(bebida.id)
@@ -2635,8 +2652,8 @@ const Cart = ({ onClose }: CartProps) => {
           {expandedUpsell.snacks && (
             <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
               {[
-                { id: 15, name: "Rollitos de Canela", price: 4900 },
-                { id: 16, name: "Gauchitos", price: 4000 },
+                { id: 15, name: "Rollitos de Canela", price: 4900, image: "/acompañamientos/canela.jpg" },
+                { id: 16, name: "Gauchitos", price: 4000, image: "/acompañamientos/gauchitos.jpg" },
               ].map(snack => {
                 const cartItem = items.find(item => item.id === String(snack.id))
                 const isInCart = !!cartItem
@@ -2651,15 +2668,15 @@ const Cart = ({ onClose }: CartProps) => {
                         onChange={(e) => {
                           if (e.target.checked) {
                             const imageMap: Record<string, string> = {
-                              "Rollitos de Canela": "/pizzas/canela.jpg",
-                              "Gauchitos": "/pizzas/gauchitos.jpg"
+                              "Rollitos de Canela": "/acompañamientos/canela.jpg",
+                              "Gauchitos": "/acompañamientos/gauchitos.jpg"
                             };
                             addItem({
                               id: String(snack.id),
                               name: snack.name,
                               price: snack.price,
                               quantity: 1,
-                              image: imageMap[snack.name] || "/placeholder.svg?height=200&width=200"
+                              image: getStorageUrl(imageMap[snack.name] || "/placeholder.svg?height=200&width=200")
                             })
                           } else {
                             removeItem(String(snack.id))

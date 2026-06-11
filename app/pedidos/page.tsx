@@ -19,6 +19,7 @@ export default function PedidosPage() {
   const [isRedirecting, setIsRedirecting] = useState(false)
   // Estado para controlar qué pedidos están expandidos
   const [expandedOrders, setExpandedOrders] = useState<{ [key: string]: boolean }>({})
+  const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
 
   // Función para expandir/contraer un pedido
   const toggleOrderExpansion = (orderId: string) => {
@@ -45,6 +46,21 @@ export default function PedidosPage() {
       console.error('Error loading orders:', error)
     }
   }, [error])
+
+  // Reproducir sonido cuando el pedido alcanza su estado final de entrega
+  useEffect(() => {
+    orders.forEach(order => {
+      const isReadyForPickup = order.deliveryType === 'Retiro' && order.status === 'Pedido Listo'
+      const isReadyForDelivery = order.deliveryType === 'Delivery' && order.status === 'En camino'
+
+      if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(order.id)) {
+        const audio = new Audio('/notification.mp3') // Asumimos que existirá este archivo
+        audio.play().catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
+        
+        setPlayedSound(prev => new Set(prev).add(order.id))
+      }
+    })
+  }, [orders, playedSound])
 
   const getStatusIcon = (status: Order["status"]) => {
     switch (status) {
@@ -339,9 +355,22 @@ export default function PedidosPage() {
                         </div>
 
                         {/* Tiempo estimado según el estado del pedido */}
-                        {(order.status === "Pendiente" || order.status === "En preparación" || order.status === "En camino" || order.status === "Pedido Listo") && (
-                          <div className={`p-3 rounded-lg border ${order.status === "Pedido Listo" ? 'bg-green-50 border-green-200' : 'bg-pink-50 border-pink-200'}`}>
-                            <div className={`flex items-center justify-between ${order.status === "Pedido Listo" ? 'text-green-700' : 'text-pink-700'}`}>
+                        {(() => {
+                          const showSuccessAnimation = (order.deliveryType === 'Retiro' && order.status === "Pedido Listo") || (order.deliveryType === 'Delivery' && order.status === "En camino");
+                          return (order.status === "Pendiente" || order.status === "En preparación" || order.status === "En camino" || order.status === "Pedido Listo") && (
+                          <div className={`p-4 rounded-lg border transition-all ${showSuccessAnimation ? 'bg-green-50 border-green-300' : order.status === 'Pedido Listo' ? 'bg-green-50 border-green-200' : 'bg-pink-50 border-pink-200'}`}>
+                            {showSuccessAnimation && (
+                              <div className="flex flex-col items-center justify-center text-center mb-4 pt-2 animate-in fade-in zoom-in duration-500">
+                                <div className="text-5xl mb-2 animate-bounce">👍🏻</div>
+                                <h3 className="text-lg font-bold text-green-800 mb-1">¡Excelente!</h3>
+                                <p className="text-md text-green-700 font-medium">
+                                  {order.deliveryType === 'Retiro' 
+                                    ? "Ya puedes pasar a retirar tu pedido."
+                                    : "Tu pedido está en camino, llegará en minutos."}
+                                </p>
+                              </div>
+                            )}
+                            <div className={`flex items-center justify-between ${showSuccessAnimation || order.status === 'Pedido Listo' ? 'text-green-700' : 'text-pink-700'}`}>
                               <div className="flex items-center">
                                 <Clock className="h-4 w-4 mr-2" />
                                 {order.status === "Pendiente" && (
@@ -378,7 +407,8 @@ export default function PedidosPage() {
                               )}
                             </div>
                           </div>
-                        )}
+                        )
+                        })()}
                       </div>
                     </CardContent>
                   </Card>

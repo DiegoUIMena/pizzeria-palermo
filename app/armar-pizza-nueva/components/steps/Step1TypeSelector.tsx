@@ -1,5 +1,6 @@
 "use client";
 
+import Image from 'next/image';
 import { PizzaTypeCard } from '../cards/PizzaTypeCard';
 
 interface Step1TypeSelectorProps {
@@ -26,7 +27,7 @@ export function Step1TypeSelector({ selected, onSelect }: Step1TypeSelectorProps
           type="normal"
           title="Pizza Normal"
           description="Una pizza completa con tus ingredientes favoritos"
-          icon="🍕"
+          icon={<Image src="/iconos/pizza-entera.svg" alt="Pizza Normal" width={128} height={128} className="mx-auto lg:mx-0" />}
           selected={selected === 'normal'}
           onClick={() => onSelect('normal')}
         />
@@ -35,7 +36,7 @@ export function Step1TypeSelector({ selected, onSelect }: Step1TypeSelectorProps
           type="duo"
           title="Pizza DUO"
           description="Mitad y mitad con dos combinaciones diferentes"
-          icon="🍕🍕"
+          icon={<Image src="/iconos/pizza-duo.svg" alt="Pizza DUO" width={128} height={128} className="mx-auto lg:mx-0" />}
           selected={selected === 'duo'}
           onClick={() => onSelect('duo')}
         />

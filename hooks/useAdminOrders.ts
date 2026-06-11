@@ -209,6 +209,9 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
         sinSalsaTomate: item.sinSalsaTomate
       })),
       total: order.total,
+      subtotal: (order as any).subtotal ?? (order as any).priceCalculation?.subtotal,
+      valorDelivery: (order as any).valorDelivery ?? (order as any).deliveryFee ?? (order as any).priceCalculation?.deliveryFee,
+      paymentDetails: order.paymentDetails,
       estado: order.estado,
       tipoEntrega: order.tipoEntrega,
       metodoPago: order.metodoPago,

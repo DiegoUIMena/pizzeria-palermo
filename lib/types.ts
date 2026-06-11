@@ -12,6 +12,21 @@ export interface OrderItem {
   extras?: string[]
   comments?: string
   pizzaType?: string
+  pizza1?: string
+  pizza2?: string
+  half1?: {
+    baseType: "menu" | "custom"
+    variety: string | null
+    simpleIngredients: string[]
+    premiumIngredients: string[]
+  }
+  half2?: {
+    baseType: "menu" | "custom"
+    variety: string | null
+    simpleIngredients: string[]
+    premiumIngredients: string[]
+  }
+  selectedMenuPizza?: string | null
   sinOregano?: boolean
   sinQueso?: boolean
   sinSalsaTomate?: boolean

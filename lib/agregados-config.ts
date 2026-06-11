@@ -19,11 +19,18 @@ export interface BebidasDisponiblesConfig {
   cocaBotellaZero: boolean
 }
 
+export interface CajasStockConfig {
+  familiar: number
+  mediana: number
+  individual: number
+}
+
 export interface AgregadosConfig {
   rollitosPackStock: number
   gauchitosDisponible: boolean
   salsasDisponibles: SalsasDisponiblesConfig
   bebidasDisponibles: BebidasDisponiblesConfig
+  cajasStock: CajasStockConfig
   updatedAt?: string
 }
 
@@ -46,6 +53,11 @@ const DEFAULT_CONFIG: AgregadosConfig = {
     cocaLataZero: true,
     cocaBotellaTradicional: true,
     cocaBotellaZero: true,
+  },
+  cajasStock: {
+    familiar: 0,
+    mediana: 0,
+    individual: 0,
   },
 }
 
@@ -71,6 +83,11 @@ function normalizeConfig(data: Partial<AgregadosConfig> | undefined | null): Agr
       cocaLataZero: data?.bebidasDisponibles?.cocaLataZero ?? DEFAULT_CONFIG.bebidasDisponibles.cocaLataZero,
       cocaBotellaTradicional: data?.bebidasDisponibles?.cocaBotellaTradicional ?? DEFAULT_CONFIG.bebidasDisponibles.cocaBotellaTradicional,
       cocaBotellaZero: data?.bebidasDisponibles?.cocaBotellaZero ?? DEFAULT_CONFIG.bebidasDisponibles.cocaBotellaZero,
+    },
+    cajasStock: {
+      familiar: Number(data?.cajasStock?.familiar) >= 0 ? Math.floor(Number(data?.cajasStock?.familiar)) : DEFAULT_CONFIG.cajasStock.familiar,
+      mediana: Number(data?.cajasStock?.mediana) >= 0 ? Math.floor(Number(data?.cajasStock?.mediana)) : DEFAULT_CONFIG.cajasStock.mediana,
+      individual: Number(data?.cajasStock?.individual) >= 0 ? Math.floor(Number(data?.cajasStock?.individual)) : DEFAULT_CONFIG.cajasStock.individual,
     },
     updatedAt: data?.updatedAt,
   }

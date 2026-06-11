@@ -19,7 +19,10 @@ import AddPizzaModal from "./AddPizzaModal"
 import { useFirestorePizzaConfig } from '@/hooks/useFirestorePizzaConfig'
 import { getAgregadosConfig, saveAgregadosConfig } from "@/lib/agregados-config"
 import { db } from "@/lib/firebase"
-import { doc, updateDoc } from "firebase/firestore"
+import { doc, updateDoc, getDoc, setDoc } from "firebase/firestore"
+import { getFunctions, httpsCallable } from "firebase/functions"
+import { getReposicionPhone } from "@/lib/reposicion-config"
+import { ShoppingCart } from "lucide-react"
 
 // Se utilizará la interfaz IngredienteFS desde Firestore.
 
@@ -56,6 +59,11 @@ export default function AdminInventario() {
     cocaLataZero: true,
     cocaBotellaTradicional: true,
     cocaBotellaZero: true,
+  })
+  const [cajasStock, setCajasStock] = useState({
+    familiar: 0,
+    mediana: 0,
+    individual: 0,
   })
   const { itemsMenu: pizzasFromHook = [], refreshData } = useFirestorePizzaConfig()
 
@@ -95,6 +103,22 @@ export default function AdminInventario() {
         setGauchitosDisponible(config.gauchitosDisponible)
         setSalsasDisponibles(config.salsasDisponibles)
         setBebidasDisponibles(config.bebidasDisponibles)
+        
+        let familiar = config.cajasStock?.familiar || 0;
+        let mediana = config.cajasStock?.mediana || 0;
+        let individual = config.cajasStock?.individual || 0;
+        
+        try {
+          const cajasDoc = await getDoc(doc(db, "settings", "cajas_config"));
+          if (cajasDoc.exists()) {
+            const data = cajasDoc.data();
+            familiar = data.stockFamiliar !== undefined ? data.stockFamiliar : familiar;
+            mediana = data.stockMediana !== undefined ? data.stockMediana : mediana;
+            individual = data.stockIndividual !== undefined ? data.stockIndividual : individual;
+          }
+        } catch(e) { console.error("Error leyendo cajas_config:", e) }
+
+        setCajasStock({ familiar, mediana, individual })
       } catch (error) {
         console.error("Error cargando configuración de agregados:", error)
         toast({
@@ -124,7 +148,15 @@ export default function AdminInventario() {
         gauchitosDisponible,
         salsasDisponibles,
         bebidasDisponibles,
+        cajasStock,
       })
+
+      await setDoc(doc(db, "settings", "cajas_config"), {
+        stockFamiliar: cajasStock.familiar,
+        stockMediana: cajasStock.mediana,
+        stockIndividual: cajasStock.individual,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
 
       toast({
         title: "Configuración guardada",
@@ -142,6 +174,32 @@ export default function AdminInventario() {
     }
   }
 
+  const handleCajasStockBlur = async () => {
+    try {
+      await saveAgregadosConfig({
+        rollitosPackStock: Math.max(0, Math.floor(rollitosPackStock || 0)),
+        gauchitosDisponible,
+        salsasDisponibles,
+        bebidasDisponibles,
+        cajasStock,
+      })
+      
+      await setDoc(doc(db, "settings", "cajas_config"), {
+        stockFamiliar: cajasStock.familiar,
+        stockMediana: cajasStock.mediana,
+        stockIndividual: cajasStock.individual,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (error) {
+      console.error("Error guardando stock de cajas:", error)
+      toast({
+        title: "Error",
+        description: "No se pudo guardar el stock de cajas.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const handleGauchitosToggle = async (checked: boolean) => {
     setGauchitosDisponible(checked)
 
@@ -151,6 +209,7 @@ export default function AdminInventario() {
         gauchitosDisponible: checked,
         salsasDisponibles,
         bebidasDisponibles,
+        cajasStock,
       })
     } catch (error) {
       console.error("Error guardando disponibilidad de Gauchitos:", error)
@@ -179,6 +238,7 @@ export default function AdminInventario() {
         gauchitosDisponible,
         salsasDisponibles: nextSalsas,
         bebidasDisponibles,
+        cajasStock,
       })
     } catch (error) {
       console.error("Error guardando disponibilidad de salsas:", error)
@@ -187,6 +247,81 @@ export default function AdminInventario() {
         description: "No se pudo guardar la disponibilidad de la salsa.",
         variant: "destructive",
       })
+    }
+  }
+
+  const [isSendingReposicion, setIsSendingReposicion] = useState(false)
+
+  const handleReposicion = async () => {
+    try {
+      setIsSendingReposicion(true)
+      
+      const phone = await getReposicionPhone()
+      if (!phone) {
+        toast({
+          title: "Número no configurado",
+          description: "Por favor, configura el número de WhatsApp de reposición en el Dashboard principal.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      // Filtrar ingredientes con stock bajo o agotado
+      const ingredientesFaltantes = ingredientes.filter(ing => ing.estado === "Stock Bajo" || ing.estado === "Agotado")
+      
+      if (ingredientesFaltantes.length === 0) {
+        toast({
+          title: "Todo en orden",
+          description: "No hay ingredientes con stock bajo o agotados para reportar.",
+        })
+        return
+      }
+
+      // Agrupar por proveedor
+      const agrupados: Record<string, typeof ingredientesFaltantes> = {}
+      ingredientesFaltantes.forEach(ing => {
+        const prov = ing.proveedor?.trim() || "Sin proveedor asignado"
+        if (!agrupados[prov]) agrupados[prov] = []
+        agrupados[prov].push(ing)
+      })
+
+      // Generar mensaje Markdown
+      let mensaje = `🛒 *LISTA DE REPOSICIÓN DE INVENTARIO* 🛒\n\n`
+      
+      Object.entries(agrupados).forEach(([proveedor, items]) => {
+        mensaje += `🏢 *PROVEEDOR: ${proveedor}*\n`
+        items.forEach(item => {
+          const faltan = Math.max(0, item.stockMaximo - item.stockActual)
+          mensaje += `- ${item.nombre} (Faltan: ${faltan} ${item.unidad})\n`
+        })
+        mensaje += `\n`
+      })
+
+      const functions = getFunctions()
+      const sendDeliveryDataWhatsApp = httpsCallable(functions, "sendDeliveryDataWhatsApp")
+
+      const result = await sendDeliveryDataWhatsApp({
+        phone: phone,
+        message: mensaje.trim()
+      }) as { data?: { success?: boolean } }
+
+      if (!result.data?.success) {
+        throw new Error("No se pudo enviar el mensaje por WhatsApp")
+      }
+
+      toast({
+        title: "Lista enviada",
+        description: "El reporte de reposición fue enviado correctamente por WhatsApp.",
+      })
+    } catch (error) {
+      console.error("Error al enviar lista de reposición:", error)
+      toast({
+        title: "Error de envío",
+        description: "Hubo un problema al intentar enviar el reporte de reposición.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSendingReposicion(false)
     }
   }
 
@@ -203,6 +338,7 @@ export default function AdminInventario() {
         gauchitosDisponible,
         salsasDisponibles,
         bebidasDisponibles,
+        cajasStock,
       })
     } catch (error) {
       console.error("Error guardando stock de Rollitos:", error)
@@ -231,6 +367,7 @@ export default function AdminInventario() {
         gauchitosDisponible,
         salsasDisponibles,
         bebidasDisponibles: nextBebidas,
+        cajasStock,
       })
     } catch (error) {
       console.error("Error guardando disponibilidad de bebidas:", error)
@@ -298,6 +435,19 @@ export default function AdminInventario() {
       console.error('Error eliminando pizza', e)
     }
   }
+
+  const getStorageUrl = (path: string) => {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com';
+    if (path && path.startsWith('/bebidas/')) {
+      const fileName = path.split('/').pop() || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(fileName)}?alt=media`;
+    }
+    if (path && path.startsWith('/acompañamientos/')) {
+      const fileName = path.split('/').pop() || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(fileName)}?alt=media`;
+    }
+    return path;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -386,36 +536,50 @@ export default function AdminInventario() {
               <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Gestión de Inventario</h1>
               <p className="text-gray-600 dark:text-gray-400">Administra el stock de ingredientes y materias primas</p>
             </div>
-            <Button
-              onClick={() => {
-                setEditingItem(null)
-                setFormData({
-                  nombre: "",
-                  categoria: "",
-                  stockActual: 0,
-                  stockMinimo: 0,
-                  stockMaximo: 0,
-                  unidad: "",
-                  precioUnitario: 0,
-                  proveedor: "",
-                  fechaVencimiento: "",
-                })
-                setShowModal(true)
-              }}
-              className="bg-pink-600 text-white hover:bg-pink-700"
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Agregar Ingrediente
-            </Button>
-              <div className="ml-4">
-                <Button 
-                  onClick={() => setShowAddPizzaModal(true)} 
-                  className="bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Agregar Pizza
-                </Button>
-              </div>
+            <div className="flex gap-4">
+              <Button
+                onClick={handleReposicion}
+                disabled={isSendingReposicion}
+                className="bg-green-600 text-white hover:bg-green-700"
+              >
+                {isSendingReposicion ? (
+                  "Enviando..."
+                ) : (
+                  <>
+                    <ShoppingCart className="w-4 h-4 mr-2" />
+                    Reposición
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={() => {
+                  setEditingItem(null)
+                  setFormData({
+                    nombre: "",
+                    categoria: "",
+                    stockActual: 0,
+                    stockMinimo: 0,
+                    stockMaximo: 0,
+                    unidad: "",
+                    precioUnitario: 0,
+                    proveedor: "",
+                    fechaVencimiento: "",
+                  })
+                  setShowModal(true)
+                }}
+                className="bg-pink-600 text-white hover:bg-pink-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Agregar Ingrediente
+              </Button>
+              <Button 
+                onClick={() => setShowAddPizzaModal(true)} 
+                className="bg-blue-600 text-white hover:bg-blue-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Agregar Pizza
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -827,7 +991,7 @@ export default function AdminInventario() {
                   <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                       <img
-                        src="/pizzas/canela.jpg"
+                        src={getStorageUrl("/acompañamientos/canela.jpg")}
                         alt="Rollitos de Canela"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -851,7 +1015,7 @@ export default function AdminInventario() {
                   <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                       <img
-                        src="/pizzas/gauchitos.jpg"
+                        src={getStorageUrl("/acompañamientos/gauchitos.jpg")}
                         alt="Gauchitos"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -877,7 +1041,7 @@ export default function AdminInventario() {
                   <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                       <img
-                        src="/pizzas/salsa de ajo.jpg"
+                        src={getStorageUrl("/acompañamientos/salsa_de_ajo.jpg")}
                         alt="Salsa de Ajo"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -903,7 +1067,7 @@ export default function AdminInventario() {
                   <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                       <img
-                        src="/pizzas/salsa chimichurri.jpg"
+                        src={getStorageUrl("/acompañamientos/salsa_chimichurri.jpg")}
                         alt="Salsa Chimichurri"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -929,7 +1093,7 @@ export default function AdminInventario() {
                   <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                       <img
-                        src="/pizzas/salsa bbq.jpg"
+                        src={getStorageUrl("/acompañamientos/salsa_bbq.jpg")}
                         alt="Salsa BBQ"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -955,7 +1119,7 @@ export default function AdminInventario() {
                   <div className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                     <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                       <img
-                        src="/pizzas/salsa pesto.jpg"
+                        src={getStorageUrl("/acompañamientos/salsa_pesto.jpg")}
                         alt="Salsa Pesto"
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -982,7 +1146,15 @@ export default function AdminInventario() {
                 <div className="pt-2">
                   <Button
                     type="button"
-                    onClick={handleSaveAgregadosConfig}
+                    onClick={async () => {
+                      setSavingAgregados(true);
+                      await handleCajasStockBlur();
+                      setSavingAgregados(false);
+                      toast({
+                        title: "Cajas actualizadas",
+                        description: "El stock de cajas se guardó correctamente.",
+                      });
+                    }}
                     className="bg-pink-600 text-white hover:bg-pink-700"
                     disabled={savingAgregados}
                   >
@@ -1008,12 +1180,12 @@ export default function AdminInventario() {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[
-                    { key: 'liptonLata', label: 'Lipton Lata', image: '/pizzas/lipton lata.jpg' },
-                    { key: 'liptonBotella', label: 'Lipton Botella', image: '/pizzas/lipton botella.jpg' },
-                    { key: 'cocaLataTradicional', label: 'Coca Cola Lata Tradicional', image: '/pizzas/coca cola lata.jpg' },
-                    { key: 'cocaLataZero', label: 'Coca Cola Lata Zero', image: '/pizzas/coca cola lata.jpg' },
-                    { key: 'cocaBotellaTradicional', label: 'Coca Cola 1.5 Litro Tradicional', image: '/pizzas/coca cola 1.5 litro.jpg' },
-                    { key: 'cocaBotellaZero', label: 'Coca Cola 1.5 Litro Zero', image: '/pizzas/coca cola 1.5 litro.jpg' },
+                    { key: 'liptonLata', label: 'Lipton Lata', image: '/bebidas/lipton_lata.jpg' },
+                    { key: 'liptonBotella', label: 'Lipton Botella', image: '/bebidas/lipton_botella.jpg' },
+                    { key: 'cocaLataTradicional', label: 'Coca Cola Lata 350cc', image: '/bebidas/coca_cola_lata.jpg' },
+                    { key: 'cocaLataZero', label: 'Coca Cola Zero Lata 350cc', image: '/bebidas/coca_cola_lata_zero.jpg' },
+                    { key: 'cocaBotellaTradicional', label: 'Coca Cola 1.5 Litro', image: '/bebidas/coca_cola_1.5_litro.jpg' },
+                    { key: 'cocaBotellaZero', label: 'Coca Cola Zero 1.5 Litro', image: '/bebidas/coca_cola_1.5_litro_zero.jpg' },
                   ].map((bebida) => {
                     const bebidaKey = bebida.key as keyof typeof bebidasDisponibles
 
@@ -1021,7 +1193,7 @@ export default function AdminInventario() {
                       <div key={bebida.key} className="border rounded p-4 flex items-center gap-3 bg-white dark:bg-gray-900">
                         <div className="w-16 h-16 rounded-lg overflow-hidden flex-shrink-0 border border-gray-200 dark:border-gray-700">
                           <img
-                            src={bebida.image}
+                            src={getStorageUrl(bebida.image)}
                             alt={bebida.label}
                             className="w-full h-full object-cover"
                             onError={(e) => {
@@ -1055,6 +1227,95 @@ export default function AdminInventario() {
                     disabled={savingAgregados}
                   >
                     {savingAgregados ? "Guardando..." : "Guardar Bebidas"}
+                  </Button>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-8 border border-gray-200 dark:border-gray-700">
+          <CardHeader>
+            <CardTitle>Configuración de Cajas (Packaging)</CardTitle>
+            <CardDescription>
+              Define la cantidad de cajas disponibles en inventario por tamaño.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {loadingAgregados ? (
+              <p className="text-sm text-gray-500">Cargando configuración...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Cajas Familiares */}
+                  <div className="space-y-2">
+                    <Label htmlFor="cajasFamiliar">Cajas Familiar</Label>
+                    <div className="relative">
+                      <Package className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Input
+                        id="cajasFamiliar"
+                        type="number"
+                        min="0"
+                        className="pl-10"
+                        value={cajasStock.familiar.toString()}
+                        onChange={(e) => {
+                          const val = e.target.value ? parseInt(e.target.value, 10) : 0;
+                          setCajasStock(prev => ({ ...prev, familiar: isNaN(val) ? 0 : val }));
+                        }}
+                        onBlur={handleCajasStockBlur}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cajas Medianas */}
+                  <div className="space-y-2">
+                    <Label htmlFor="cajasMediana">Cajas Mediana</Label>
+                    <div className="relative">
+                      <Package className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Input
+                        id="cajasMediana"
+                        type="number"
+                        min="0"
+                        className="pl-10"
+                        value={cajasStock.mediana.toString()}
+                        onChange={(e) => {
+                          const val = e.target.value ? parseInt(e.target.value, 10) : 0;
+                          setCajasStock(prev => ({ ...prev, mediana: isNaN(val) ? 0 : val }));
+                        }}
+                        onBlur={handleCajasStockBlur}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Cajas Individuales */}
+                  <div className="space-y-2">
+                    <Label htmlFor="cajasIndividual">Cajas Individuales</Label>
+                    <div className="relative">
+                      <Package className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                      <Input
+                        id="cajasIndividual"
+                        type="number"
+                        min="0"
+                        className="pl-10"
+                        value={cajasStock.individual.toString()}
+                        onChange={(e) => {
+                          const val = e.target.value ? parseInt(e.target.value, 10) : 0;
+                          setCajasStock(prev => ({ ...prev, individual: isNaN(val) ? 0 : val }));
+                        }}
+                        onBlur={handleCajasStockBlur}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    type="button"
+                    onClick={handleSaveAgregadosConfig}
+                    className="bg-pink-600 text-white hover:bg-pink-700"
+                    disabled={savingAgregados}
+                  >
+                    {savingAgregados ? "Guardando..." : "Guardar Cajas"}
                   </Button>
                 </div>
               </>

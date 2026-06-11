@@ -1,7 +1,9 @@
 "use client";
 
+import Image from 'next/image';
 import { SizeCard } from '../cards/SizeCard';
 import { usePizzaBuilderData } from '../../hooks/usePizzaBuilderData';
+import { useBoxInventory } from '@/hooks/useBoxInventory';
 import { useMemo } from 'react';
 
 interface Step4SizeSelectorProps {
@@ -22,6 +24,7 @@ export function Step4SizeSelector({
   isDuo = false
 }: Step4SizeSelectorProps) {
   const { pizzasParaNormal, pizzasParaDuo } = usePizzaBuilderData();
+  const { stockFamiliar, stockMediana, loading } = useBoxInventory();
 
   // Normalizar texto para comparaciones
   const normalizeText = (text: string): string => {
@@ -76,6 +79,11 @@ export function Step4SizeSelector({
     // Retornar el valor de disponibleFamiliar (por defecto true)
     return pizzaEncontrada.disponibleFamiliar !== false;
   }, [variety, baseType, isDuo, pizzasParaNormal, pizzasParaDuo]);
+
+  // Verificación real de stock de cajas
+  const canSelectMediana = medianaDisponible && stockMediana > 0;
+  const canSelectFamiliar = familiarDisponible && stockFamiliar > 0;
+
   return (
     <div className="space-y-6">
       {/* Título */}
@@ -88,37 +96,44 @@ export function Step4SizeSelector({
         </p>
       </div>
 
+      {/* Mensaje de carga de stock */}
+      {loading && (
+        <div className="text-center text-sm text-gray-500">
+          Verificando disponibilidad de empaques...
+        </div>
+      )}
+
       {/* Opciones de tamaño */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
         <SizeCard
           size="mediana"
           title="Mediana"
           slices="8 Porciones"
-          icon="🍕"
+          icon={<Image src="/iconos/pizza-entera.svg" alt="Mediana" width={80} height={80} className="mx-auto" />}
           subtitle="Ideal para 2-3 personas"
           selected={selected === 'mediana'}
           onClick={() => {
-            if (medianaDisponible) {
+            if (canSelectMediana) {
               onSelect('mediana');
             }
           }}
-          disabled={!medianaDisponible}
+          disabled={!canSelectMediana}
         />
 
         <SizeCard
           size="familiar"
           title="Familiar"
           slices="8 Porciones"
-          icon="🍕🍕"
+          icon={<Image src="/iconos/pizza-entera.svg" alt="Familiar" width={112} height={112} className="mx-auto" />}
           subtitle="Ideal para 4-6 personas"
           popular
           selected={selected === 'familiar'}
           onClick={() => {
-            if (familiarDisponible) {
+            if (canSelectFamiliar) {
               onSelect('familiar');
             }
           }}
-          disabled={!familiarDisponible}
+          disabled={!canSelectFamiliar}
         />
       </div>
 
@@ -127,6 +142,15 @@ export function Step4SizeSelector({
         <div className="mt-6 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
           <p className="text-sm text-yellow-800 text-center">
             ⚠️ La pizza <strong>{variety}</strong> solo está disponible en tamaño Familiar
+          </p>
+        </div>
+      )}
+
+      {/* Mensaje si mediana no tiene stock de caja */}
+      {medianaDisponible && stockMediana <= 0 && !loading && (
+        <div className="mt-2 p-4 bg-red-50 rounded-xl border border-red-200">
+          <p className="text-sm text-red-800 text-center font-medium">
+            ❌ Agotado temporalmente: No hay empaques disponibles para pizzas Medianas.
           </p>
         </div>
       )}
@@ -140,28 +164,14 @@ export function Step4SizeSelector({
         </div>
       )}
 
-      {/* Comparación visual */}
-      <div className="mt-8 p-6 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl">
-        <h3 className="font-semibold text-gray-800 mb-4 text-center">
-          Comparación de tamaños
-        </h3>
-        <div className="flex justify-center items-end gap-8">
-          <div className="text-center">
-            <div className="w-24 h-24 bg-orange-300 rounded-full mb-2 flex items-center justify-center">
-              <span className="text-3xl">🍕</span>
-            </div>
-            <p className="text-sm font-medium text-gray-700">Mediana</p>
-            <p className="text-xs text-gray-500">32 cm</p>
-          </div>
-          <div className="text-center">
-            <div className="w-32 h-32 bg-orange-400 rounded-full mb-2 flex items-center justify-center">
-              <span className="text-4xl">🍕</span>
-            </div>
-            <p className="text-sm font-medium text-gray-700">Familiar</p>
-            <p className="text-xs text-gray-500">38 cm</p>
-          </div>
+      {/* Mensaje si familiar no tiene stock de caja */}
+      {familiarDisponible && stockFamiliar <= 0 && !loading && (
+        <div className="mt-2 p-4 bg-red-50 rounded-xl border border-red-200">
+          <p className="text-sm text-red-800 text-center font-medium">
+            ❌ Agotado temporalmente: No hay empaques disponibles para pizzas Familiares.
+          </p>
         </div>
-      </div>
+      )}
 
       {/* Botón volver */}
       <div className="flex justify-center mt-6">

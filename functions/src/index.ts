@@ -197,6 +197,61 @@ function normalizePhoneForLookup(value: string): string {
 }
 
 // ==================================================
+// FUNCION AUXILIAR: Procesar cajas de empaque
+// ==================================================
+function processBoxesInventory(
+  db: admin.firestore.Firestore,
+  items: any[],
+  transactionOrBatch: admin.firestore.Transaction | admin.firestore.WriteBatch,
+  isRestore: boolean = false
+) {
+  let familiar = 0, mediana = 0, individual = 0;
+  items.forEach((item: any) => {
+    const nombre = String(item.nombre || "").toLowerCase();
+    const size = String(item.size || "").toLowerCase();
+    const cantidad = Number(item.cantidad || 1);
+    
+    if (nombre.includes("gauchito")) {
+      individual += cantidad;
+    } else if (size === "mediana" || nombre.includes("mediana")) {
+      mediana += cantidad;
+    } else if (size === "familiar" || nombre.includes("familiar")) {
+      familiar += cantidad;
+    } else {
+      // Si el producto viene del menú principal y no trae la propiedad "size",
+      // verificamos que no sea un acompañamiento o bebida. Si no lo es, asumimos Pizza Familiar.
+      const isAgregadoOBebida = 
+        nombre.includes("lata") || nombre.includes("botella") || 
+        nombre.includes("lipton") || nombre.includes("coca cola") || 
+        nombre.includes("salsa") || nombre.includes("bbq") || 
+        nombre.includes("ajo") || nombre.includes("pesto") || 
+        nombre.includes("chimichurri") || nombre.includes("rollito") || 
+        nombre.includes("canela");
+
+      if (!isAgregadoOBebida) {
+        familiar += cantidad;
+      }
+    }
+  });
+
+  if (familiar === 0 && mediana === 0 && individual === 0) return;
+
+  const cajasRef = db.collection("settings").doc("cajas_config");
+  const multiplier = isRestore ? 1 : -1;
+  const tOrB = transactionOrBatch as any; // Typecast para evitar TS2349 por incompatibilidad de firmas en union type
+
+  const updates: any = {
+    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+  };
+
+  if (familiar > 0) updates.stockFamiliar = admin.firestore.FieldValue.increment(familiar * multiplier);
+  if (mediana > 0) updates.stockMediana = admin.firestore.FieldValue.increment(mediana * multiplier);
+  if (individual > 0) updates.stockIndividual = admin.firestore.FieldValue.increment(individual * multiplier);
+
+  tOrB.set(cajasRef, updates, { merge: true });
+}
+
+// ==================================================
 // FUNCTION 1: Calcular Precio de Pedido
 // ==================================================
 export const calculatePrice = onCall(async (request) => {
@@ -626,6 +681,9 @@ export const createOrder = onCall(async (request) => {
             consumeResult.error || "Error al consumir inventario"
           );
         }
+        
+        // 📦 Novedad: Descontar cajas de forma segura en la misma transacción
+        processBoxesInventory(db, orderData.items, transaction, false);
       }
       
       const newOrder = {
@@ -837,6 +895,11 @@ export const updateOrderStatus = onCall(async (request) => {
           "Error al consumir inventario: " + (consumeResult.error || "Error desconocido")
         );
       }
+
+      // 📦 Descontar cajas en el mismo flujo de aceptación manual
+      const boxesBatch = db.batch();
+      processBoxesInventory(db, orderData?.items || [], boxesBatch, false);
+      await boxesBatch.commit();
       
       // Marcar inventario como procesado
       updates["inventoryProcessed"] = true;
@@ -950,6 +1013,11 @@ export const updateOrderStatus = onCall(async (request) => {
           "No se pudo restaurar inventario al cancelar"
         );
       }
+      
+      // 📦 Restaurar cajas al cancelar un pedido procesado
+      const boxesBatchRestore = db.batch();
+      processBoxesInventory(db, orderData?.items || [], boxesBatchRestore, true);
+      await boxesBatchRestore.commit();
 
       updates["inventoryProcessed"] = false;
       updates["inventoryStatus"] = "restored_on_cancel";
@@ -1561,6 +1629,9 @@ export const confirmWebpayTransaction = onCall(async (request) => {
 
             logger.info(`✅ Rollitos packs updated in Webpay flow: ${currentRollitosPackStock} -> ${newRollitosStock} (-${rollitosPacksToConsume})`);
           }
+
+          // 📦 Descontar cajas al procesar pago webpay exitoso en transacción atómica
+          processBoxesInventory(db, freshOrderData.items, transaction, false);
 
           logger.info("✅ Inventory consumption processed successfully");
         }
@@ -2488,12 +2559,20 @@ export const refundOrder = onCall(async (request) => {
       },
       paymentStatus: "refunded",
       estado: "Cancelado",
+      // Añadimos estas dos líneas para evitar una doble-restauración accidental
+      inventoryProcessed: false,
+      inventoryStatus: "restored_on_cancel",
     });
     // 5. Restaurar inventario si corresponde
     // (Solo si inventoryProcessed)
     if (orderData.inventoryProcessed) {
       try {
         await restoreInventoryForOrder(orderData.items);
+        
+        // 📦 Restaurar cajas al hacer un reembolso
+        const refundBoxesBatch = db.batch();
+        processBoxesInventory(db, orderData.items, refundBoxesBatch, true);
+        await refundBoxesBatch.commit();
       } catch (err) {
         logger.error("Error restaurando inventario:", err);
       }

@@ -40,14 +40,19 @@ const imageMap: Record<string, string> = {
   'doble muzza': 'doble muzza',
   'chicken bbq': 'chicken bbq',
   '4 quesos': '4 quesos',
-  'coca cola lata': 'coca cola lata',
-  'coca cola 1.5 litro': 'coca cola 1.5 litro',
-  'lipton lata': 'lipton lata',
-  'lipton botella': 'lipton botella',
-  'salsa de ajo': 'salsa de ajo',
-  'salsa chimichurri': 'salsa chimichurri',
-  'salsa bbq': 'salsa bbq',
-  'salsa pesto': 'salsa pesto'
+  'coca cola lata': 'coca_cola_lata',
+  'coca cola zero lata 350cc': 'coca_cola_lata_zero',
+  'coca cola 1.5 litro': 'coca_cola_1.5_litro',
+  'coca cola zero 1.5 litro': 'coca_cola_1.5_litro_zero',
+  'lipton lata': 'lipton_lata',
+  'lipton botella': 'lipton_botella',
+  'salsa de ajo': 'salsa_de_ajo',
+  'salsa chimichurri': 'salsa_chimichurri',
+  'salsa bbq': 'salsa_bbq',
+  'salsa pesto': 'salsa_pesto',
+  'gauchitos': 'gauchitos',
+  'rollitos de canela': 'canela',
+  'canela': 'canela'
 }
 
 const normalizeText = (value: string): string =>
@@ -70,13 +75,53 @@ const formatItemName = (name: string): string => {
 
 // Función helper para obtener la ruta correcta de la imagen
 const getImagePath = (itemName: string, defaultImage?: string): string => {
+  // 1. Intercepción fuerte: Detectar bebidas por nombre y forzar URL de Storage (Ignora rutas viejas en la BD)
+  const lowerName = normalizeText(itemName)
+  let bebidaFileName = ''
+  
+  if (lowerName.includes('lipton') && lowerName.includes('botella')) bebidaFileName = 'lipton_botella.jpg'
+  else if (lowerName.includes('lipton') && lowerName.includes('lata')) bebidaFileName = 'lipton_lata.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('1.5') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_1.5_litro_zero.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('1.5')) bebidaFileName = 'coca_cola_1.5_litro.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('lata') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_lata_zero.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
+  
+  if (bebidaFileName) {
+    // Fallback al bucket conocido por si la variable de entorno no está cargada en el cliente
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
+  }
+
+  // 2. Intercepción para acompañamientos y salsas
+  let acompFileName = ''
+  if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
+  else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('ajo')) acompFileName = 'salsa_de_ajo.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
+
+  if (acompFileName) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
+  }
+
   // Si ya tiene una URL completa de Firebase Storage, usarla directamente
   if (defaultImage && (defaultImage.startsWith('https://') || defaultImage.startsWith('http://'))) {
     return defaultImage
   }
+
+  // Si es una ruta de bebida local hardcodeada, convertimos dinámicamente a Firebase Storage
+  if (defaultImage && defaultImage.startsWith('/bebidas/') && !defaultImage.includes('placeholder')) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    if (bucket) {
+      const fileName = defaultImage.split('/').pop() || ''
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(fileName)}?alt=media`
+    }
+  }
   
-  // Si ya tiene una ruta de imagen válida (empieza con /pizzas/ o /iconos/) y NO es placeholder
-  if (defaultImage && (defaultImage.startsWith('/pizzas/') || defaultImage.startsWith('/iconos/')) && !defaultImage.includes('placeholder')) {
+  // Si ya tiene una ruta de imagen válida (empieza con /pizzas/, /bebidas/ o /iconos/) y NO es placeholder
+  if (defaultImage && (defaultImage.startsWith('/pizzas/') || defaultImage.startsWith('/bebidas/') || defaultImage.startsWith('/iconos/')) && !defaultImage.includes('placeholder')) {
     // Codificar espacios en el nombre del archivo
     const parts = defaultImage.split('/')
     const fileName = parts[parts.length - 1]
@@ -97,8 +142,19 @@ const getImagePath = (itemName: string, defaultImage?: string): string => {
   const normalizedName = normalizeText(cleanName)
   const mappedName = imageMap[normalizedName] || normalizedName
   
+  const isBebida = ['coca_cola_lata', 'coca_cola_lata_zero', 'coca_cola_1.5_litro', 'coca_cola_1.5_litro_zero', 'lipton_lata', 'lipton_botella'].includes(mappedName)
+  const folder = isBebida ? 'bebidas' : 'pizzas'
+
+  // Si detectamos que es una bebida, forzamos usar el bucket de Storage
+  if (isBebida) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    if (bucket) {
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`
+    }
+  }
+
   // Construir la ruta de la imagen y codificar el nombre del archivo
-  const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`
+  const imagePath = `/${folder}/${encodeURIComponent(mappedName + '.jpg')}`
   
   return imagePath
 }
@@ -446,7 +502,7 @@ const acompanamientos = [
     description: "Pack de 4 rollitos de canela, dos cobertura glasé canela y dos de chocolate",
     price: 4900,
     originalPrice: null,
-    image: "/pizzas/canela.jpg",
+    image: "/acompañamientos/canela.jpg",
     category: "Acompañamientos",
   },
   {
@@ -455,7 +511,7 @@ const acompanamientos = [
     description: "Nuestra versión de palitos de ajo al estilo Tortafrita Argentina",
     price: 4000,
     originalPrice: null,
-    image: "/pizzas/gauchitos.jpg",
+    image: "/acompañamientos/gauchitos.jpg",
     category: "Acompañamientos",
   },
   {
@@ -464,7 +520,7 @@ const acompanamientos = [
     description: "Deliciosa salsa de ajo para acompañar tus pizzas",
     price: 700,
     originalPrice: null,
-    image: "/pizzas/salsa de ajo.jpg",
+    image: "/acompañamientos/salsa_de_ajo.jpg",
     category: "Acompañamientos",
   },
   {
@@ -473,7 +529,7 @@ const acompanamientos = [
     description: "Tradicional salsa chimichurri argentina",
     price: 700,
     originalPrice: null,
-    image: "/pizzas/salsa chimichurri.jpg",
+    image: "/acompañamientos/salsa_chimichurri.jpg",
     category: "Acompañamientos",
   },
   {
@@ -482,7 +538,7 @@ const acompanamientos = [
     description: "Salsa barbacoa dulce y ahumada",
     price: 700,
     originalPrice: null,
-    image: "/pizzas/salsa bbq.jpg",
+    image: "/acompañamientos/salsa_bbq.jpg",
     category: "Acompañamientos",
   },
   {
@@ -491,7 +547,7 @@ const acompanamientos = [
     description: "Salsa pesto de albahaca fresca",
     price: 1000,
     originalPrice: null,
-    image: "/pizzas/salsa pesto.jpg",
+    image: "/acompañamientos/salsa_pesto.jpg",
     category: "Acompañamientos",
   },
   // bebidas moved to the `bebidas` array below
@@ -504,9 +560,17 @@ const bebidas = [
     description: "Disfruta el sabor de tu bebida Coca Cola en lata de 350cc",
     price: 1500,
     originalPrice: null,
-    image: "/pizzas/coca cola lata.jpg",
-    category: "Acompañamientos",
-    variants: ["Tradicional", "Zero"],
+    image: "/bebidas/coca_cola_lata.jpg",
+    category: "Bebidas",
+  },
+  {
+    id: 403,
+    name: "Coca Cola Zero Lata 350cc",
+    description: "Disfruta el sabor de tu bebida Coca Cola Zero en lata de 350cc",
+    price: 1500,
+    originalPrice: null,
+    image: "/bebidas/coca_cola_lata_zero.jpg",
+    category: "Bebidas",
   },
   {
     id: 402,
@@ -514,9 +578,17 @@ const bebidas = [
     description: "Disfruta el sabor de tu bebida Coca Cola en botella de 1.5 litros",
     price: 2900,
     originalPrice: null,
-    image: "/pizzas/coca cola 1.5 litro.jpg",
-    category: "Acompañamientos",
-    variants: ["Tradicional", "Zero"],
+    image: "/bebidas/coca_cola_1.5_litro.jpg",
+    category: "Bebidas",
+  },
+  {
+    id: 404,
+    name: "Coca Cola Zero 1.5 Litro",
+    description: "Disfruta el sabor de tu bebida Coca Cola Zero en botella de 1.5 litros",
+    price: 2900,
+    originalPrice: null,
+    image: "/bebidas/coca_cola_1.5_litro_zero.jpg",
+    category: "Bebidas",
   },
 ]
 
@@ -578,17 +650,26 @@ export default function PromoSection() {
     "Pizzas del Mar",
   ]
 
-  const mapFirestoreItemToUI = (it: any) => ({
-    id: it.id || it.nombre || Math.random(),
-    name: it.nombre || it.name || "Item",
-    description: it.descripcion || it.description || "",
-    price: typeof it.precio === 'number' ? it.precio : it.price || 0,
-    mediumPrice: it.precioMediana || it.mediumPrice || null,
-    image: it.image || it.imagen || "/placeholder.svg?height=200&width=200",
-    variants: it.variants || it.variantes,
-    category: it.categoria || it.category,
-    clasificacion: it.clasificacion,
-  })
+  const mapFirestoreItemToUI = (it: any) => {
+    // Omitir variantes para bebidas Coca Cola, para que solo exista la opción tradicional
+    let itemVariants = it.variants || it.variantes
+    const itemName = (it.nombre || it.name || "").toLowerCase()
+    if (itemName.includes("coca cola") || itemName.includes("coca-cola")) {
+      itemVariants = undefined
+    }
+
+    return {
+      id: it.id || it.nombre || Math.random(),
+      name: it.nombre || it.name || "Item",
+      description: it.descripcion || it.description || "",
+      price: typeof it.precio === 'number' ? it.precio : it.price || 0,
+      mediumPrice: it.precioMediana || it.mediumPrice || null,
+      image: it.image || it.imagen || "/placeholder.svg?height=200&width=200",
+      variants: itemVariants,
+      category: it.categoria || it.category,
+      clasificacion: it.clasificacion,
+    }
+  }
 
   const getCurrentItems = () => {
     // Si aun esta cargando, retornar array vacio
@@ -625,15 +706,32 @@ export default function PromoSection() {
         return combos
       case "Promos":
         return promos
-      case "Acompañamientos":
+      case "Acompañamientos": {
         const acompanamientosFromFirestore = activeItems
           .filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos")
           .map(mapFirestoreItemToUI)
-        return acompanamientosFromFirestore.length > 0 ? acompanamientosFromFirestore : acompanamientos
-      case "Bebidas":
-        return activeItems
+          
+        const mergedAcomps = [...acompanamientosFromFirestore]
+        acompanamientos.forEach(localAcomp => {
+          if (!mergedAcomps.some(a => a.name.toLowerCase() === localAcomp.name.toLowerCase())) {
+            mergedAcomps.push(localAcomp)
+          }
+        })
+        return mergedAcomps
+      }
+      case "Bebidas": {
+        const bebidasFromFirestore = activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
           .map(mapFirestoreItemToUI)
+          
+        const mergedBebidas = [...bebidasFromFirestore]
+        bebidas.forEach(localBebida => {
+          if (!mergedBebidas.some(b => b.name.toLowerCase() === localBebida.name.toLowerCase())) {
+            mergedBebidas.push(localBebida)
+          }
+        })
+        return mergedBebidas
+      }
       case "Pizzas Palermo":
         return activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("palermo") || (it.categoria || it.category || "").toLowerCase().includes("especial"))

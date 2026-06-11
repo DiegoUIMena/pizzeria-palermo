@@ -74,6 +74,45 @@ function getPizzaImagePath(imagePath?: string, pizzaName?: string): string {
   return "/pizza-promo-bg.png"
 }
 
+// Función auxiliar para obtener la ruta de la imagen de bebida/extra correcta
+function getExtraImagePath(itemName: string, imagePath?: string): string {
+  const lowerName = (itemName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  let bebidaFileName = ''
+  
+  if (lowerName.includes('lipton') && lowerName.includes('botella')) bebidaFileName = 'lipton_botella.jpg'
+  else if (lowerName.includes('lipton') && lowerName.includes('lata')) bebidaFileName = 'lipton_lata.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('1.5') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_1.5_litro_zero.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('1.5')) bebidaFileName = 'coca_cola_1.5_litro.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('lata') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_lata_zero.jpg'
+  else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
+  
+  if (bebidaFileName) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
+  }
+
+  let acompFileName = ''
+  if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
+  else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('ajo')) acompFileName = 'salsa_de_ajo.jpg'
+  else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
+
+  if (acompFileName) {
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
+  }
+
+  if (!imagePath) return "/placeholder.svg?height=200&width=200"
+  if (imagePath.startsWith('http')) return imagePath
+  if (!imagePath.startsWith('/')) return `/pizzas/${encodeURIComponent(imagePath)}`
+  
+  const parts = imagePath.split('/')
+  const fileName = parts.pop() || ''
+  return [...parts, encodeURIComponent(fileName)].join('/')
+}
+
 export interface PizzaConfig {
   type: 'normal' | 'duo' | null;
   baseType: 'menu' | 'custom' | null;
@@ -242,7 +281,7 @@ export function PizzaBuilderWizard() {
             id: `salsa-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             name: salsa.nombre,
             price: salsa.precio,
-            image: salsa.imagen,
+            image: getExtraImagePath(salsa.nombre, salsa.imagen),
             quantity: 1,
           });
         }
@@ -268,7 +307,7 @@ export function PizzaBuilderWizard() {
             id: `bebida-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             name: displayName || bebida.nombre,
             price: bebida.precio,
-            image: bebida.imagen,
+            image: getExtraImagePath(displayName || bebida.nombre, bebida.imagen),
             quantity: 1,
           });
         }
@@ -282,7 +321,7 @@ export function PizzaBuilderWizard() {
             id: `extra-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             name: extra.nombre,
             price: extra.precio,
-            image: extra.imagen,
+            image: getExtraImagePath(extra.nombre, extra.imagen),
             quantity: 1,
           });
         }

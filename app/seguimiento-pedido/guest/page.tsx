@@ -1,12 +1,12 @@
 'use client'
 
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useCallback, useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { ArrowLeft, Clock, Package, Truck, CheckCircle, AlertCircle, Store } from 'lucide-react'
+import { ArrowLeft, Clock, Package, Truck, CheckCircle, Store } from 'lucide-react'
 import { functions } from '@/lib/firebase'
 import { httpsCallable } from 'firebase/functions'
 import { validateGuestTrackingToken } from '@/lib/guest-tracking'
@@ -117,13 +117,6 @@ function formatDateTime(value?: string | null): string {
   return parsed.toLocaleString('es-CL')
 }
 
-function formatDate(value?: string | null): string {
-  if (!value) return 'N/A'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return 'N/A'
-  return parsed.toLocaleDateString('es-CL')
-}
-
 function SeguimientoPedidoGuestContent() {
   const searchParams = useSearchParams()
   const [orders, setOrders] = useState<GuestOrder[]>([])
@@ -134,6 +127,52 @@ function SeguimientoPedidoGuestContent() {
   const [searched, setSearched] = useState(false)
   const [authMode, setAuthMode] = useState<'token' | 'manual'>('manual')
   const [lookupData, setLookupData] = useState<{email?: string; phone?: string; token?: string} | null>(null)
+  const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
+
+  const loadOrders = useCallback(async (customerEmail: string, customerPhone: string, silent = false) => {
+    try {
+      if (!silent) setLoading(true)
+
+      const response = await getGuestOrderTracking({
+        email: customerEmail,
+        phone: customerPhone,
+      })
+
+      const data = response.data as { success: boolean; orders?: GuestOrder[] }
+      setOrders(Array.isArray(data?.orders) ? data.orders : [])
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Error desconocido'
+      setError('Error al cargar pedidos: ' + message)
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [])
+
+  const validateTokenAndLoadOrders = useCallback(async (token: string) => {
+    setLoading(true)
+    setError('')
+
+    try {
+      const validation = validateGuestTrackingToken(token)
+
+      if (!validation.valid) {
+        setError(validation.error || 'Token inválido o expirado')
+        setLoading(false)
+        return
+      }
+
+      if (validation.email && validation.phone) {
+        setEmail(validation.email)
+        setPhone(validation.phone)
+        await loadOrders(validation.email, validation.phone)
+        setSearched(true)
+      }
+    } catch {
+      setError('Error al validar token')
+    } finally {
+      setLoading(false)
+    }
+  }, [loadOrders])
 
   // Intentar validar token si viene en URL
   useEffect(() => {
@@ -169,51 +208,7 @@ function SeguimientoPedidoGuestContent() {
         // Ignorar datos corruptos de storage
       }
     }
-  }, [searchParams])
-
-  const validateTokenAndLoadOrders = async (token: string) => {
-    setLoading(true)
-    setError('')
-
-    try {
-      const validation = validateGuestTrackingToken(token)
-
-      if (!validation.valid) {
-        setError(validation.error || 'Token inválido o expirado')
-        setLoading(false)
-        return
-      }
-
-      if (validation.email && validation.phone) {
-        setEmail(validation.email)
-        setPhone(validation.phone)
-        await loadOrders(validation.email, validation.phone)
-        setSearched(true)
-      }
-    } catch (err) {
-      setError('Error al validar token')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadOrders = async (customerEmail: string, customerPhone: string, silent = false) => {
-    try {
-      if (!silent) setLoading(true)
-
-      const response = await getGuestOrderTracking({
-        email: customerEmail,
-        phone: customerPhone,
-      })
-
-      const data = response.data as { success: boolean; orders?: GuestOrder[] }
-      setOrders(Array.isArray(data?.orders) ? data.orders : [])
-    } catch (err: any) {
-      setError('Error al cargar pedidos: ' + err.message)
-    } finally {
-      if (!silent) setLoading(false)
-    }
-  }
+  }, [searchParams, validateTokenAndLoadOrders, loadOrders])
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -261,59 +256,25 @@ function SeguimientoPedidoGuestContent() {
     }, 15000)
 
     return () => window.clearInterval(intervalId)
-  }, [lookupData])
+  }, [lookupData, loadOrders])
 
-  const getStatusIcon = (status: string) => {
-    const normalized = normalizeStatus(status)
+  const activeOrder = orders[0] || null
 
-    switch (normalized) {
-      case 'pago pendiente':
-        return <Clock className='w-5 h-5 text-yellow-500' />
-      case 'pendiente':
-        return <Clock className='w-5 h-5 text-gray-500' />
-      case 'confirmado':
-      case 'aceptado':
-        return <CheckCircle className='w-5 h-5 text-blue-600' />
-      case 'en preparacion':
-        return <Package className='w-5 h-5 text-pink-400' />
-      case 'en camino':
-        return <Truck className='w-5 h-5 text-pink-500' />
-      case 'entregado':
-      case 'pedido listo':
-        return <CheckCircle className='w-5 h-5 text-green-600' />
-      case 'cancelado':
-      case 'pago rechazado':
-        return <AlertCircle className='w-5 h-5 text-red-500' />
-      default:
-        return <Clock className='w-5 h-5 text-gray-500' />
+  // Reproducir sonido cuando el pedido alcanza su estado final de entrega
+  useEffect(() => {
+    if (activeOrder) {
+      const isReadyForPickup = activeOrder.tipoEntrega === 'Retiro' && activeOrder.estado === 'Pedido Listo'
+      const isReadyForDelivery = activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino'
+
+      if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(activeOrder.id)) {
+        // Asumimos que crearás/tendrás un archivo de audio en /public/notification.mp3
+        const audio = new Audio('/notification.mp3')
+        audio.play().catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
+        
+        setPlayedSound(prev => new Set(prev).add(activeOrder.id))
+      }
     }
-  }
-
-  const getStatusColor = (status: string) => {
-    const normalized = normalizeStatus(status)
-
-    switch (normalized) {
-      case 'pago pendiente':
-        return 'bg-yellow-100 text-yellow-800'
-      case 'pendiente':
-        return 'bg-gray-100 text-gray-800'
-      case 'confirmado':
-      case 'aceptado':
-        return 'bg-blue-100 text-blue-800'
-      case 'en preparacion':
-        return 'bg-pink-100 text-pink-800'
-      case 'en camino':
-        return 'bg-pink-200 text-pink-900'
-      case 'entregado':
-      case 'pedido listo':
-        return 'bg-green-100 text-green-800'
-      case 'cancelado':
-      case 'pago rechazado':
-        return 'bg-red-100 text-red-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
+  }, [activeOrder?.estado, activeOrder?.id, activeOrder?.tipoEntrega, playedSound])
 
   return (
     <div className='min-h-screen bg-gray-50'>
@@ -326,7 +287,7 @@ function SeguimientoPedidoGuestContent() {
         </div>
 
         {/* Formulario de búsqueda */}
-        {!searched || (authMode === 'manual' && orders.length === 0) ? (
+        {!searched ? (
           <Card className='max-w-md mx-auto mb-8'>
             <CardHeader>
               <CardTitle>Ingresa tus datos</CardTitle>
@@ -386,26 +347,25 @@ function SeguimientoPedidoGuestContent() {
           </Card>
         ) : null}
 
-        {/* Lista de pedidos */}
-        {searched && orders.length > 0 && (
+        {/* Pedido en curso */}
+        {searched && activeOrder && (
           <div className='space-y-4'>
-            <h2 className='text-xl font-semibold'>Seguimiento en vivo ({orders.length})</h2>
+            <h2 className='text-xl font-semibold'>Seguimiento en vivo</h2>
             <p className='text-sm text-gray-600'>Actualización automática cada 15 segundos</p>
 
-            {orders.map((order) => (
-              <Card key={order.id} className='hover:shadow-lg transition-shadow border-pink-200'>
+            <Card key={activeOrder.id} className='hover:shadow-lg transition-shadow border-pink-200'>
                 <CardContent className='pt-6'>
                   {(() => {
-                    const { isCancelled, steps, progress } = getGuestOrderSteps(order)
+                    const { isCancelled, steps, progress } = getGuestOrderSteps(activeOrder)
 
                     return (
                       <div className='space-y-5'>
                         <div className='flex flex-wrap items-end justify-between gap-3'>
                           <div>
-                            <p className='text-xs uppercase tracking-wider text-gray-500'>Pedido #{order.orderNumber}</p>
-                            <p className='text-lg font-extrabold text-pink-700'>{order.estado}</p>
+                            <p className='text-xs uppercase tracking-wider text-gray-500'>Pedido #{activeOrder.orderNumber}</p>
+                            <p className='text-lg font-extrabold text-pink-700'>{activeOrder.estado}</p>
                           </div>
-                          <p className='text-sm text-gray-600'>Total ${order.total?.toLocaleString()}</p>
+                          <p className='text-sm text-gray-600'>Total ${activeOrder.total?.toLocaleString()}</p>
                         </div>
 
                         {!isCancelled ? (
@@ -453,6 +413,20 @@ function SeguimientoPedidoGuestContent() {
                                 )
                               })}
                             </div>
+
+                          {/* Mensaje final de éxito animado */}
+                          {((activeOrder.tipoEntrega === 'Retiro' && activeOrder.estado === 'Pedido Listo') || 
+                            (activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino')) && (
+                            <div className='mt-8 p-6 bg-green-50 rounded-2xl border-2 border-green-200 text-center animate-in fade-in slide-in-from-bottom-4 duration-700'>
+                              <div className='text-6xl mb-4 animate-bounce'>👍🏻</div>
+                              <h3 className='text-xl font-bold text-green-800 mb-2'>¡Excelente!</h3>
+                              <p className='text-lg text-green-700 font-medium'>
+                                {activeOrder.tipoEntrega === 'Retiro' 
+                                  ? "Ya puedes pasar a retirar tu pedido."
+                                  : "Tu pedido está en camino, llegará en minutos."}
+                              </p>
+                            </div>
+                          )}
                           </>
                         ) : (
                           <div className='rounded-xl border border-red-200 bg-red-50 p-4'>
@@ -467,7 +441,6 @@ function SeguimientoPedidoGuestContent() {
                   })()}
                 </CardContent>
               </Card>
-            ))}
           </div>
         )}
 

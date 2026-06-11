@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { useFirestorePizzaConfig } from "@/hooks/useFirestorePizzaConfig"
 import { db } from "@/lib/firebase"
 import { doc, updateDoc, getDoc } from "firebase/firestore"
+import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "firebase/storage"
 import { toast } from "@/hooks/use-toast"
 import { AlertCircle } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -27,6 +28,9 @@ export default function RecipeEditor({ open, onOpenChange, initialPizzaId }: { o
   const [lineas, setLineas] = useState<RecetaLinea[]>([])
   const [saving, setSaving] = useState(false)
   const [recetaType, setRecetaType] = useState<"familiar" | "mediana">("familiar")
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [pizzaImage, setPizzaImage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -34,6 +38,7 @@ export default function RecipeEditor({ open, onOpenChange, initialPizzaId }: { o
       setLineas([])
       setPizzaName("")
       setRecetaType("familiar")
+      setPizzaImage(null)
     } else {
       // si se abre y viene initialPizzaId desde el padre, cargarla
       if (initialPizzaId) setSelectedPizzaId(initialPizzaId)
@@ -45,6 +50,7 @@ export default function RecipeEditor({ open, onOpenChange, initialPizzaId }: { o
     if (selectedPizzaId) {
       const pizza = itemsMenu.find((p: any) => p.id === selectedPizzaId)
       setPizzaName(pizza?.nombre || "")
+      setPizzaImage(pizza?.imagen || null)
       
       if (recetaType === "familiar" && pizza && pizza.receta && Array.isArray(pizza.receta)) {
         setLineas(pizza.receta.map((r: any) => ({ ingredienteId: r.ingredienteId, nombre: r.nombre, cantidad: r.cantidad || 0, unidad: r.unidad || "" })))
@@ -63,6 +69,58 @@ export default function RecipeEditor({ open, onOpenChange, initialPizzaId }: { o
   }
 
   const removeLinea = (idx: number) => setLineas(prev => prev.filter((_, i) => i !== idx))
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !selectedPizzaId) return
+
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Error",
+        description: "Por favor selecciona un archivo de imagen válido.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      setIsUploading(true)
+      const storage = getStorage()
+      const pizza = itemsMenu.find((p: any) => p.id === selectedPizzaId)
+      const folderName = (pizza?.categoria === 'Bebidas' || (pizzaName || '').toLowerCase().includes('coca') || (pizzaName || '').toLowerCase().includes('lipton')) ? 'bebidas' : 'pizzas'
+      const fileRef = ref(storage, `${folderName}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`)
+      const uploadTask = uploadBytesResumable(fileRef, file)
+
+      uploadTask.on(
+        'state_changed',
+        (snapshot) => {
+          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100
+          setUploadProgress(progress)
+        },
+        (error) => {
+          console.error('Error al subir la imagen:', error)
+          toast({
+            title: "Error",
+            description: "Hubo un error subiendo la imagen.",
+            variant: "destructive"
+          })
+          setIsUploading(false)
+        },
+        async () => {
+          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref)
+          await updateDoc(doc(db, 'items_menu', selectedPizzaId), { imagen: downloadURL })
+          setPizzaImage(downloadURL)
+          setIsUploading(false)
+          setUploadProgress(0)
+          refreshData()
+          toast({ title: "Imagen actualizada", description: "La imagen de la pizza se ha actualizado correctamente." })
+        }
+      )
+    } catch (error) {
+      console.error('Error preparando la subida:', error)
+      setIsUploading(false)
+    }
+  }
 
   const handleSave = async () => {
     if (!selectedPizzaId) return
@@ -121,90 +179,118 @@ export default function RecipeEditor({ open, onOpenChange, initialPizzaId }: { o
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-5xl">
         <DialogHeader>
           <DialogTitle>Editor de Recetas (Pizzas)</DialogTitle>
           <DialogDescription>Selecciona una pizza y compone su receta con ingredientes y cantidades.</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div>
-            <Label>Pizza</Label>
-            <Select value={selectedPizzaId ?? ""} onValueChange={(v) => setSelectedPizzaId(v || null)}>
-              <SelectTrigger>
-                <SelectValue placeholder={loading ? "Cargando pizzas..." : "Seleccionar pizza"} />
-              </SelectTrigger>
-              <SelectContent>
-                {itemsMenu.map((p: any) => (
-                  <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="mb-4">
-            <div className="flex justify-between items-center">
-              <Label htmlFor="recetaType">Tipo de Receta</Label>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-2 space-y-4">
+            <div>
+              <Label>Pizza</Label>
+              <Select value={selectedPizzaId ?? ""} onValueChange={(v) => setSelectedPizzaId(v || null)}>
+                <SelectTrigger>
+                  <SelectValue placeholder={loading ? "Cargando pizzas..." : "Seleccionar pizza"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {itemsMenu.map((p: any) => (
+                    <SelectItem key={p.id} value={p.id}>{p.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            {pizzaName !== "4 Estaciones" && pizzaName !== "Sevillana" && pizzaName !== "Entre Ríos" && (
-              <div>
-                <Select value={recetaType} onValueChange={(value) => setRecetaType(value as "familiar" | "mediana")}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar tipo de receta" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="familiar">Familiar</SelectItem>
-                    <SelectItem value="mediana">Mediana</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {(pizzaName === "4 Estaciones" || pizzaName === "Sevillana" || pizzaName === "Entre Ríos") && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  Esta pizza solo viene en tamaño familiar y no tiene opción mediana.
-                </AlertDescription>
-              </Alert>
-            )}
-          </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Ingredientes {recetaType === "familiar" ? "(Familiar)" : "(Mediana)"}</Label>
-              <Button size="sm" onClick={addLinea}>Agregar Ingrediente</Button>
+            <div className="mb-4">
+              <div className="flex justify-between items-center">
+                <Label htmlFor="recetaType">Tipo de Receta</Label>
+              </div>
+              {pizzaName !== "4 Estaciones" && pizzaName !== "Sevillana" && pizzaName !== "Entre Ríos" && (
+                <div>
+                  <Select value={recetaType} onValueChange={(value) => setRecetaType(value as "familiar" | "mediana")}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar tipo de receta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="familiar">Familiar</SelectItem>
+                      <SelectItem value="mediana">Mediana</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {(pizzaName === "4 Estaciones" || pizzaName === "Sevillana" || pizzaName === "Entre Ríos") && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Esta pizza solo viene en tamaño familiar y no tiene opción mediana.
+                  </AlertDescription>
+                </Alert>
+              )}
             </div>
 
             <div className="space-y-2">
-              {lineas.map((l, idx) => (
-                <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                  <div className="col-span-5">
-                    <Select value={l.ingredienteId} onValueChange={(v) => {
-                      const ing = ingredients.find(i => i.id === v)
-                      updateLinea(idx, { ingredienteId: v, nombre: ing?.nombre || "", unidad: ing?.unidad || "" })
-                    }}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Seleccionar ingrediente" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ingredients.map((ing: any) => (
-                          <SelectItem key={ing.id} value={ing.id}>{ing.nombre}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+              <div className="flex items-center justify-between">
+                <Label>Ingredientes {recetaType === "familiar" ? "(Familiar)" : "(Mediana)"}</Label>
+                <Button size="sm" onClick={addLinea}>Agregar Ingrediente</Button>
+              </div>
+
+              <div className="space-y-2">
+                {lineas.map((l, idx) => (
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-5">
+                      <Select value={l.ingredienteId} onValueChange={(v) => {
+                        const ing = ingredients.find(i => i.id === v)
+                        updateLinea(idx, { ingredienteId: v, nombre: ing?.nombre || "", unidad: ing?.unidad || "" })
+                      }}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar ingrediente" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ingredients.map((ing: any) => (
+                            <SelectItem key={ing.id} value={ing.id}>{ing.nombre}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-3">
+                      <Input type="number" value={String(l.cantidad)} onChange={(e) => updateLinea(idx, { cantidad: Number(e.target.value) || 0 })} />
+                    </div>
+                    <div className="col-span-3">
+                      <Input value={l.unidad} onChange={(e) => updateLinea(idx, { unidad: e.target.value })} placeholder="unidad (g, kg, u)" />
+                    </div>
+                    <div className="col-span-1">
+                      <Button variant="destructive" size="icon" onClick={() => removeLinea(idx)}>X</Button>
+                    </div>
                   </div>
-                  <div className="col-span-3">
-                    <Input type="number" value={String(l.cantidad)} onChange={(e) => updateLinea(idx, { cantidad: Number(e.target.value) || 0 })} />
-                  </div>
-                  <div className="col-span-3">
-                    <Input value={l.unidad} onChange={(e) => updateLinea(idx, { unidad: e.target.value })} placeholder="unidad (g, kg, u)" />
-                  </div>
-                  <div className="col-span-1">
-                    <Button variant="destructive" size="icon" onClick={() => removeLinea(idx)}>X</Button>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
+          </div>
+          
+          <div className="md:col-span-1 border-t md:border-t-0 md:border-l border-gray-200 pt-4 md:pt-0 md:pl-6 flex flex-col items-center">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Imagen de la Pizza</h3>
+            
+            <div className="w-full aspect-square relative rounded-xl overflow-hidden bg-gray-50 border-2 border-dashed border-gray-300 flex items-center justify-center mb-4 shadow-inner">
+              {pizzaImage ? (
+                <img src={pizzaImage} alt={pizzaName} className="w-full h-full object-cover" />
+              ) : (
+                <div className="flex flex-col items-center text-gray-400">
+                  <span className="text-4xl mb-2">🍕</span>
+                  <span className="text-sm">Sin imagen</span>
+                </div>
+              )}
+            </div>
+
+            <div className="w-full">
+              <label className={`block w-full cursor-pointer text-center py-2 px-4 rounded-md transition-colors font-medium text-sm ${(isUploading || !selectedPizzaId) ? 'bg-gray-200 text-gray-600 cursor-not-allowed' : 'bg-pink-600 hover:bg-pink-700 text-white'}`}>
+                {isUploading ? `Subiendo... ${Math.round(uploadProgress)}%` : "Cambiar Imagen"}
+                <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} disabled={isUploading || !selectedPizzaId} />
+              </label>
+            </div>
+            
+            <p className="text-xs text-gray-500 mt-3 text-center">
+              {!selectedPizzaId ? "Selecciona una pizza primero para editar su imagen." : "La imagen se guardará automáticamente en Firebase Storage."}
+            </p>
           </div>
         </div>
 
