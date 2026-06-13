@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { functions, db } from "@/lib/firebase"
 import { httpsCallable } from "firebase/functions"
 import { collection, query, where, onSnapshot } from "firebase/firestore"
@@ -10,13 +11,16 @@ import { useAuth } from "../context/AuthContext"
 
 export default function FloatingOrderTracker() {
   const { user, isAuthenticated } = useAuth()
+  const pathname = usePathname()
   const [trackingData, setTrackingData] = useState<{email: string; phone: string} | null>(null)
   const [activeOrder, setActiveOrder] = useState<any>(null)
   const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
   const [isRegisteredTracking, setIsRegisteredTracking] = useState(false)
 
+  const isAdminRoute = pathname?.startsWith('/admin')
+
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated || isAdminRoute) {
       setTrackingData(null)
       return
     }
@@ -47,10 +51,10 @@ export default function FloatingOrderTracker() {
       window.removeEventListener('guestOrderCreated', checkStorage)
       clearInterval(interval)
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, isAdminRoute])
 
   useEffect(() => {
-    if (!trackingData || isAuthenticated) return
+    if (!trackingData || isAuthenticated || isAdminRoute) return
 
     const fetchStatus = async () => {
       try {
@@ -78,10 +82,10 @@ export default function FloatingOrderTracker() {
     const intervalId = setInterval(fetchStatus, 15000)
 
     return () => clearInterval(intervalId)
-  }, [trackingData, isAuthenticated])
+  }, [trackingData, isAuthenticated, isAdminRoute])
 
   useEffect(() => {
-    if (!isAuthenticated || !user?.id) return
+    if (!isAuthenticated || !user?.id || isAdminRoute) return
 
     const q = query(
       collection(db, 'orders'),
@@ -107,7 +111,7 @@ export default function FloatingOrderTracker() {
     }, (err) => console.error("Error al escuchar pedidos del usuario:", err))
 
     return () => unsubscribe()
-  }, [isAuthenticated, user?.id])
+  }, [isAuthenticated, user?.id, isAdminRoute])
 
   useEffect(() => {
     if (activeOrder) {
@@ -123,7 +127,7 @@ export default function FloatingOrderTracker() {
     }
   }, [activeOrder, playedSound])
 
-  if (!activeOrder) return null
+  if (isAdminRoute || !activeOrder) return null
 
   const isReady = (activeOrder.tipoEntrega === 'Retiro' && activeOrder.estado === 'Pedido Listo') || 
                   (activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino')
@@ -141,8 +145,8 @@ export default function FloatingOrderTracker() {
   }
 
   const getTrackingLink = () => {
-    if (isRegisteredTracking) return `/seguimiento?id=${activeOrder.id}`
-    return `/seguimiento-pedido/guest?email=${encodeURIComponent(trackingData!.email)}&phone=${encodeURIComponent(trackingData!.phone)}`
+    if (isRegisteredTracking || !trackingData) return `/seguimiento?id=${activeOrder.id}`
+    return `/seguimiento-pedido/guest?email=${encodeURIComponent(trackingData.email)}&phone=${encodeURIComponent(trackingData.phone)}`
   }
 
   return (

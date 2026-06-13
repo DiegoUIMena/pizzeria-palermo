@@ -248,6 +248,10 @@ const Cart = ({ onClose }: CartProps) => {
       const fileName = path.split('/').pop() || '';
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(fileName)}?alt=media`;
     }
+    if (path && path.startsWith('/pizzas/')) {
+      const fileName = path.split('/').pop() || '';
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(fileName)}?alt=media`;
+    }
     return path || "/placeholder.svg?height=200&width=200";
   };
 
@@ -292,11 +296,7 @@ const Cart = ({ onClose }: CartProps) => {
   // Calcular descuento total (códigos + vouchers)
   let discountFromCode = 0
   if (appliedDiscount) {
-    if (appliedDiscount.percentage) {
-      discountFromCode = Math.round((subtotal * appliedDiscount.percentage) / 100)
-    } else if (appliedDiscount.amount) {
-      discountFromCode = appliedDiscount.amount
-    }
+    discountFromCode = appliedDiscount.amount || 0;
   }
 
   const voucherDiscount = appliedVoucher?.discount || 0
@@ -497,12 +497,23 @@ const Cart = ({ onClose }: CartProps) => {
           direccion: isDelivery
             ? { lat: selectedLocation?.lat, lng: selectedLocation?.lng }
             : undefined,
+          discountCode: appliedDiscount?.code,
         })
 
         const data = response.data as any
         if (!isActive) return
 
         if (data?.success) {
+          // Si el servidor detectó que el código es inválido o expiró
+          if (data.discountError && appliedDiscount) {
+            setDiscountError(data.discountError);
+            setAppliedDiscount(null);
+          } else if (data.discountAmount !== undefined && appliedDiscount) {
+            // Actualizar el monto del descuento con lo calculado por el servidor
+            setAppliedDiscount(prev => prev ? { ...prev, amount: data.discountAmount } : null);
+            setDiscountError("");
+          }
+
           console.log("[CART] calculatePrice respuesta:", data)
           setServerCalculation({
             subtotal: Number(data.subtotal || 0),
@@ -527,7 +538,7 @@ const Cart = ({ onClose }: CartProps) => {
     return () => {
       isActive = false
     }
-  }, [items, isDelivery, selectedLocation?.lat, selectedLocation?.lng])
+  }, [items, isDelivery, selectedLocation?.lat, selectedLocation?.lng, appliedDiscount?.code])
 
   const validateGuestCheckoutData = () => {
     if (user?.id) {
@@ -816,6 +827,7 @@ const Cart = ({ onClose }: CartProps) => {
           direccion: isDelivery
             ? { lat: selectedLocation?.lat, lng: selectedLocation?.lng }
             : undefined,
+          discountCode: appliedDiscount?.code,
         })
 
         const data = response.data as any
@@ -1064,19 +1076,11 @@ const Cart = ({ onClose }: CartProps) => {
       return
     }
 
-    if (validDiscountCodes[code as keyof typeof validDiscountCodes]) {
-      const discount = validDiscountCodes[code as keyof typeof validDiscountCodes]
-      setAppliedDiscount({
-        code,
-        amount: 'amount' in discount ? discount.amount : 0,
-        percentage: 'percentage' in discount ? discount.percentage : 0,
-      })
-      setDiscountError("")
-      setDiscountCode("")
-    } else {
-      setDiscountError("Código de descuento inválido")
-      setAppliedDiscount(null)
-    }
+    // Al establecer el código aquí, el useEffect superior enviará la petición al servidor (calculatePrice)
+    // para validarlo en tiempo real en la base de datos de Firestore.
+    setAppliedDiscount({ code, amount: 0 });
+    setDiscountCode("");
+    setDiscountError("");
   }
 
   const handleRemoveDiscount = () => {
@@ -2100,21 +2104,34 @@ const Cart = ({ onClose }: CartProps) => {
           const ingredientPrices = getIngredientPrices(displayItem.size || "Familiar")
           const isExpanded = expandedItems[displayItem.id] || false
 
+          const finalImageUrl = getStorageUrl(displayItem.image);
+
           return (
             <div
               key={displayItem.id}
               className="bg-gray-50 rounded-lg sm:rounded-xl p-2 sm:p-4 border border-gray-200 hover:shadow-md transition-shadow"
             >
               <div className="flex items-start space-x-2 sm:space-x-3">
-                <Image
-                  src={displayItem.image || "/placeholder.svg"}
+                <img
+                  src={finalImageUrl}
+                  loading="lazy"
+                  decoding="async"
                   alt={displayItem.name}
-                  width={50}
-                  height={50}
-                  className="rounded-lg object-cover flex-shrink-0 sm:w-[60px] sm:h-[60px]"
+                  className="rounded-lg object-cover flex-shrink-0 w-[50px] h-[50px] sm:w-[60px] sm:h-[60px]"
                   onError={(e: any) => {
-                    if (e.target.src !== "/placeholder.svg") {
-                      e.target.src = "/placeholder.svg"
+                    const currentSrc = e.currentTarget.src;
+                    
+                    // Sistema de auto-recuperación de enlaces rotos por Case Sensitivity o Extensión
+                    if (currentSrc.includes('.jpg') && !currentSrc.includes('_retry1')) {
+                      e.currentTarget.src = currentSrc.replace('.jpg', '.png') + '&_retry1=true';
+                    } 
+                    else if (currentSrc.includes('.png') && !currentSrc.includes('_retry2')) {
+                      const urlBase = currentSrc.split('&_retry')[0].replace('.png', '.jpg');
+                      const urlMayuscula = urlBase.replace(/%2F([a-z])/g, (match: string, p1: string) => `%2F${p1.toUpperCase()}`);
+                      e.currentTarget.src = urlMayuscula + '&_retry2=true';
+                    }
+                    else if (!currentSrc.includes("placeholder.svg")) {
+                      e.currentTarget.src = "/placeholder.svg"
                     }
                   }}
                 />

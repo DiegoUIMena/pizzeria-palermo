@@ -5,21 +5,27 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Package, Clock, CheckCircle, Truck, ChevronDown, ChevronUp, Utensils } from "lucide-react"
+import { ArrowLeft, Package, Clock, CheckCircle, Truck, ChevronDown, ChevronUp, Utensils, RefreshCcw } from "lucide-react"
 import Header from "../components/Header"
 import Footer from "../components/Footer"
 import { useAuth } from "../context/AuthContext"
+import { useCart } from "../context/CartContext"
+import { toast } from "@/hooks/use-toast"
 import { useRouter } from "next/navigation"
 import { useFormattedOrders } from "../../hooks/useUserOrders"
 import { FormattedOrder as Order, OrderItem } from "../../lib/types"
+import { getImagePath } from "../components/PromoSection"
+import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 
 export default function PedidosPage() {
   const router = useRouter()
   const { isAuthenticated, user } = useAuth()
+  const { addItem } = useCart()
   const [isRedirecting, setIsRedirecting] = useState(false)
   // Estado para controlar qué pedidos están expandidos
   const [expandedOrders, setExpandedOrders] = useState<{ [key: string]: boolean }>({})
   const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
+  const { itemsMenu } = useFirestorePizzaConfig()
 
   // Función para expandir/contraer un pedido
   const toggleOrderExpansion = (orderId: string) => {
@@ -27,6 +33,58 @@ export default function PedidosPage() {
       ...prev,
       [orderId]: !prev[orderId]
     }))
+  }
+
+  // Función para volver a pedir exactamente lo mismo
+  const handleReorder = (order: Order) => {
+    order.items.forEach((item: any) => {
+      let finalImage = item.image || item.imagen;
+      
+      const originalName = item.name || item.nombre || "";
+      const lowerName = originalName.toLowerCase();
+      const cleanPizzaName = originalName
+        .replace(/^pizza\s+/i, "")
+        .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '').trim();
+      
+      // Buscar la imagen real (con timestamp) en el menú actual de Firestore
+      let menuItem = null;
+      if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
+        menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === item.selectedMenuPizza.toLowerCase());
+      } else {
+        menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === cleanPizzaName.toLowerCase());
+      }
+      
+      if (menuItem && menuItem.imagen && menuItem.imagen.includes('firebasestorage.googleapis.com')) {
+        finalImage = menuItem.imagen;
+      } else if (lowerName.includes("duo")) {
+        finalImage = "/pizza-duo-bg.png";
+      } else if (lowerName.includes("premium") && cleanPizzaName.toLowerCase().includes("premium")) {
+        finalImage = "/pizza-premium-bg.png";
+      } else if ((lowerName.includes("promo") || lowerName.includes("personalizada")) && cleanPizzaName.toLowerCase().includes("promo")) {
+        finalImage = "/pizza-promo-bg.png";
+      } else {
+        // Forzar siempre la reconstrucción desde cero para asegurar ruta de Storage limpia
+        finalImage = getImagePath(cleanPizzaName);
+      }
+
+      // Extraemos las propiedades heredadas (como 'imagen' o 'nombre') para evitar que 
+      // interfieran con el contexto del carrito y fuercen rutas locales antiguas
+      const { image, imagen, name, nombre, ...cleanItem } = item;
+      
+      addItem({
+        ...cleanItem,
+        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Generar nuevo ID para evitar conflictos en el carrito
+        name: originalName,
+        image: finalImage,
+      } as any)
+    })
+
+    toast({
+      title: "¡Productos agregados!",
+      description: "El pedido ha sido copiado a tu carrito de compras.",
+    })
+
+    router.push("/")
   }
 
   // Usar el hook para obtener pedidos del usuario
@@ -146,8 +204,8 @@ export default function PedidosPage() {
           ) : (
             <div className="space-y-6">
               {orders.length > 0 ? (
-                orders.map((order) => (
-                  <Card key={order.id} className={`border-gray-200 hover:shadow-md transition-shadow ${expandedOrders[order.id] ? 'border-pink-200 shadow-md' : ''}`}>
+                orders.map((order, index) => (
+                  <Card key={`${order.id}-${index}`} className={`border-gray-200 hover:shadow-md transition-shadow ${expandedOrders[order.id] ? 'border-pink-200 shadow-md' : ''}`}>
                     <CardHeader className={`border-b border-gray-200 ${expandedOrders[order.id] ? 'bg-pink-50' : 'bg-gray-50'}`}>
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-lg text-gray-800 flex items-center gap-2">
@@ -226,7 +284,7 @@ export default function PedidosPage() {
                             <div key={index} className="flex justify-between text-sm">
                               <span className="text-gray-600 flex items-center">
                                 {item.quantity}x {item.name}
-                                {item.size && <span className="ml-1 text-xs text-gray-500">({item.size})</span>}
+                              {item.size && !item.name.toLowerCase().includes(String(item.size).toLowerCase()) && <span className="ml-1 text-xs text-gray-500">({item.size})</span>}
                               </span>
                               <span className="text-gray-800">${item.price.toLocaleString()}</span>
                             </div>
@@ -275,7 +333,7 @@ export default function PedidosPage() {
                                   <div className="flex justify-between mb-2">
                                     <span className="font-medium text-gray-800">
                                       {item.quantity}x {item.name}
-                                      {item.size && <span className="ml-1">({item.size})</span>}
+                                      {item.size && !item.name.toLowerCase().includes(String(item.size).toLowerCase()) && <span className="ml-1">({item.size})</span>}
                                       {item.pizzaType && <span className="ml-1 text-xs bg-pink-100 text-pink-800 px-1.5 py-0.5 rounded">{item.pizzaType}</span>}
                                     </span>
                                     <span className="font-medium">${item.price.toLocaleString()}</span>
@@ -348,9 +406,18 @@ export default function PedidosPage() {
                             </div>
                           )}
                           
-                          <div className="border-t border-gray-200 pt-2 flex justify-between font-bold">
-                            <span className="text-gray-800">Total:</span>
-                            <span className="text-pink-600">${order.total.toLocaleString()}</span>
+                          <div className="border-t border-gray-200 mt-2 pt-3 flex flex-col sm:flex-row justify-between items-center gap-3">
+                            <div className="flex justify-between w-full sm:w-auto gap-2 font-bold text-lg">
+                              <span className="text-gray-800">Total:</span>
+                              <span className="text-pink-600">${order.total.toLocaleString()}</span>
+                            </div>
+                            <Button 
+                              onClick={() => handleReorder(order)}
+                              className="w-full sm:w-auto bg-pink-600 text-white hover:bg-pink-700 shadow-sm"
+                            >
+                              <RefreshCcw className="w-4 h-4 mr-2" />
+                              Pedir otra vez
+                            </Button>
                           </div>
                         </div>
 

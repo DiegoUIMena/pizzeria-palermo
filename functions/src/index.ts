@@ -255,7 +255,7 @@ function processBoxesInventory(
 // FUNCTION 1: Calcular Precio de Pedido
 // ==================================================
 export const calculatePrice = onCall(async (request) => {
-  const {items, tipoEntrega, direccion} = request.data;
+  const {items, tipoEntrega, direccion, discountCode} = request.data;
 
   logger.info("calculatePrice called", {
     itemsCount: items?.length,
@@ -281,9 +281,43 @@ export const calculatePrice = onCall(async (request) => {
       direccion
     );
 
+    let discountAmount = 0;
+    let discountError = undefined;
+
+    if (discountCode) {
+      const db = admin.firestore();
+      const normalizedCode = String(discountCode).trim().toUpperCase();
+      const codesSnap = await db.collection("promociones").where("code", "==", normalizedCode).get();
+
+      if (!codesSnap.empty) {
+        const promo = codesSnap.docs[0].data();
+        if (!promo.active) {
+          discountError = "Este código está inactivo";
+        } else if (promo.expirationDate && new Date(promo.expirationDate) < new Date()) {
+          discountError = "Este código ha expirado";
+        } else if (promo.minAmount && calculation.subtotal < promo.minAmount) {
+          discountError = `Requiere compra mínima de $${promo.minAmount.toLocaleString('es-CL')}`;
+        } else if (promo.maxUses && (promo.currentUses || 0) >= promo.maxUses) {
+          discountError = "Límite de usos alcanzado para este código";
+        } else {
+          // Código totalmente válido
+          if (promo.type === 'percentage') {
+            discountAmount = Math.round((calculation.subtotal * (promo.value || 0)) / 100);
+          } else {
+            discountAmount = promo.value || 0;
+          }
+        }
+      } else {
+        discountError = "Código promocional no válido o no existe";
+      }
+    }
+
     return {
       success: true,
       ...calculation,
+      total: calculation.total,
+      discountAmount,
+      discountError
     };
   } catch (error) {
     logger.error("Error calculating price:", error);
@@ -526,25 +560,41 @@ export const createOrder = onCall(async (request) => {
         return itemName.includes("promo") || itemName.includes("combo") || pizzaType === "promo";
       });
 
-      const validDiscountCodes: Record<string, {percentage?: number; amount?: number}> = {
-        BIENVENIDO10: {percentage: 10},
-        PIZZA20: {amount: 2000},
-        DELIVERY5: {percentage: 5},
-        PROMO15: {percentage: 15},
-      };
-
       let discountCode: string | undefined;
       let discountFromCode = 0;
+      let promoRefToUpdate: admin.firestore.DocumentReference | undefined;
+      let promoCurrentUses = 0;
 
       if (orderData.discountCode) {
         const normalizedDiscountCode = String(orderData.discountCode).trim().toUpperCase();
-        const discountConfig = validDiscountCodes[normalizedDiscountCode];
+        const codesSnap = await transaction.get(db.collection("promociones").where("code", "==", normalizedDiscountCode));
 
-        if (!discountConfig) {
+        if (codesSnap.empty) {
           throw new HttpsError(
             "failed-precondition",
-            "Código de descuento inválido"
+            "Código de descuento inválido o no existe"
           );
+        }
+
+        const promoDoc = codesSnap.docs[0];
+        const promoData = promoDoc.data();
+        promoRefToUpdate = promoDoc.ref;
+        promoCurrentUses = promoData.currentUses || 0;
+
+        if (!promoData.active) {
+          throw new HttpsError("failed-precondition", "Este código de descuento está inactivo");
+        }
+
+        if (promoData.expirationDate && new Date(promoData.expirationDate) < new Date()) {
+          throw new HttpsError("failed-precondition", "Este código de descuento ha expirado");
+        }
+
+        if (promoData.minAmount && priceCalculation.subtotal < promoData.minAmount) {
+          throw new HttpsError("failed-precondition", `Este código requiere una compra mínima de $${promoData.minAmount.toLocaleString('es-CL')}`);
+        }
+
+        if (promoData.maxUses && promoCurrentUses >= promoData.maxUses) {
+          throw new HttpsError("failed-precondition", "Este código ha alcanzado su límite de usos");
         }
 
         if (orderData.voucherId || orderData.voucherCode) {
@@ -556,10 +606,10 @@ export const createOrder = onCall(async (request) => {
 
         discountCode = normalizedDiscountCode;
         orderData.discountCode = normalizedDiscountCode;
-        if (discountConfig.percentage) {
-          discountFromCode = Math.round((priceCalculation.subtotal * discountConfig.percentage) / 100);
-        } else if (discountConfig.amount) {
-          discountFromCode = discountConfig.amount;
+        if (promoData.type === 'percentage') {
+          discountFromCode = Math.round((priceCalculation.subtotal * (promoData.value || 0)) / 100);
+        } else if (promoData.type === 'amount') {
+          discountFromCode = promoData.value || 0;
         }
       }
 
@@ -735,6 +785,14 @@ export const createOrder = onCall(async (request) => {
 
       // En no-Webpay, el inventario ya se consumió en esta transacción.
       // En Webpay, se consumirá al confirmar pago en confirmWebpayTransaction.
+
+      // ✅ CRÍTICO: Actualizar contador de uso del código si se aplicó uno exitosamente
+      if (promoRefToUpdate) {
+        transaction.update(promoRefToUpdate, {
+          currentUses: promoCurrentUses + 1,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
 
       // ✅ CRÍTICO: Escribir pedido en la transacción AL FINAL
       transaction.set(orderRef, newOrder);

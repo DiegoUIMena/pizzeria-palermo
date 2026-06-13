@@ -34,7 +34,7 @@ const imageMap: Record<string, string> = {
   'centroamericana': 'centroamericana',
   'messi': 'messi',
   'de charly': 'de-charly',
-  'del pibe': 'del-pibe jpg',
+  'del pibe': 'del-pibe',
   'pepperoni cheese': 'pepperoni cheese',
   'pesto margarita': 'pesto margarita',
   'doble muzza': 'doble muzza',
@@ -74,7 +74,7 @@ const formatItemName = (name: string): string => {
 }
 
 // Función helper para obtener la ruta correcta de la imagen
-const getImagePath = (itemName: string, defaultImage?: string): string => {
+export const getImagePath = (itemName: string, defaultImage?: string): string => {
   // 1. Intercepción fuerte: Detectar bebidas por nombre y forzar URL de Storage (Ignora rutas viejas en la BD)
   const lowerName = normalizeText(itemName)
   let bebidaFileName = ''
@@ -107,21 +107,22 @@ const getImagePath = (itemName: string, defaultImage?: string): string => {
   }
 
   // Si ya tiene una URL completa de Firebase Storage, usarla directamente
-  if (defaultImage && (defaultImage.startsWith('https://') || defaultImage.startsWith('http://'))) {
+  if (defaultImage && defaultImage.includes('firebasestorage.googleapis.com')) {
     return defaultImage
   }
 
-  // Si es una ruta de bebida local hardcodeada, convertimos dinámicamente a Firebase Storage
-  if (defaultImage && defaultImage.startsWith('/bebidas/') && !defaultImage.includes('placeholder')) {
+  // Si es una ruta local hardcodeada (pizzas o bebidas), convertimos dinámicamente a Firebase Storage
+  if (defaultImage && (defaultImage.startsWith('/bebidas/') || defaultImage.startsWith('/pizzas/')) && !defaultImage.includes('placeholder')) {
     const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
     if (bucket) {
+      const folderName = defaultImage.startsWith('/pizzas/') ? 'pizzas' : 'bebidas'
       const fileName = defaultImage.split('/').pop() || ''
-      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(fileName)}?alt=media`
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${folderName}%2F${encodeURIComponent(fileName)}?alt=media`
     }
   }
   
-  // Si ya tiene una ruta de imagen válida (empieza con /pizzas/, /bebidas/ o /iconos/) y NO es placeholder
-  if (defaultImage && (defaultImage.startsWith('/pizzas/') || defaultImage.startsWith('/bebidas/') || defaultImage.startsWith('/iconos/')) && !defaultImage.includes('placeholder')) {
+  // Si ya tiene una ruta de imagen válida para iconos (locales) y NO es placeholder
+  if (defaultImage && defaultImage.startsWith('/iconos/') && !defaultImage.includes('placeholder')) {
     // Codificar espacios en el nombre del archivo
     const parts = defaultImage.split('/')
     const fileName = parts[parts.length - 1]
@@ -145,18 +146,9 @@ const getImagePath = (itemName: string, defaultImage?: string): string => {
   const isBebida = ['coca_cola_lata', 'coca_cola_lata_zero', 'coca_cola_1.5_litro', 'coca_cola_1.5_litro_zero', 'lipton_lata', 'lipton_botella'].includes(mappedName)
   const folder = isBebida ? 'bebidas' : 'pizzas'
 
-  // Si detectamos que es una bebida, forzamos usar el bucket de Storage
-  if (isBebida) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    if (bucket) {
-      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`
-    }
-  }
-
-  // Construir la ruta de la imagen y codificar el nombre del archivo
-  const imagePath = `/${folder}/${encodeURIComponent(mappedName + '.jpg')}`
-  
-  return imagePath
+  // Forzamos usar el bucket de Storage para todo (pizzas y bebidas)
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+  return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${folder}%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`
 }
 
 const promos = [
@@ -593,10 +585,9 @@ const bebidas = [
 ]
 
 export default function PromoSection() {
-  const initialCategoryKey = "🥬" // placeholder, will set below
-  const [activeCategory, setActiveCategory] = useState<string | null>(null)
+  const [activeCategory, setActiveCategory] = useState<string | null>("Todas las Pizzas")
   const { addItem, items } = useCart()
-  const [selectedSizes, setSelectedSizes] = useState<{ [key: number]: "familiar" | "mediana" }>({})
+  const [selectedSizes, setSelectedSizes] = useState<{ [key: string]: "familiar" | "mediana" }>({})
   const { loading: configLoading, itemsMenu, ingredients } = useFirestorePizzaConfig()
 
   // Categories = key (internal) and label (display)
@@ -610,13 +601,6 @@ export default function PromoSection() {
     { key: "Acompañamientos", label: "🍟 Acompañamientos", icon: "/iconos/agregados.svg", iconLabel: "AGREGADOS" },
     { key: "Bebidas", label: "🥤 Bebidas", icon: "/iconos/bebidas.svg", iconLabel: "BEBIDAS" },
   ]
-
-  // Inicializar activeCategory con la primera categoría (si no se setea aún)
-  useEffect(() => {
-    if (activeCategory === null && categories.length > 0) {
-      setActiveCategory(categories[0].key)
-    }
-  }, [activeCategory, categories])
 
   // Leer query param ?category=... y mapear a keys internas
   const searchParams = useSearchParams()
@@ -711,7 +695,7 @@ export default function PromoSection() {
           .filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos")
           .map(mapFirestoreItemToUI)
           
-        const mergedAcomps = [...acompanamientosFromFirestore]
+        const mergedAcomps: any[] = [...acompanamientosFromFirestore]
         acompanamientos.forEach(localAcomp => {
           if (!mergedAcomps.some(a => a.name.toLowerCase() === localAcomp.name.toLowerCase())) {
             mergedAcomps.push(localAcomp)
@@ -724,7 +708,7 @@ export default function PromoSection() {
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
           .map(mapFirestoreItemToUI)
           
-        const mergedBebidas = [...bebidasFromFirestore]
+        const mergedBebidas: any[] = [...bebidasFromFirestore]
         bebidas.forEach(localBebida => {
           if (!mergedBebidas.some(b => b.name.toLowerCase() === localBebida.name.toLowerCase())) {
             mergedBebidas.push(localBebida)
@@ -752,16 +736,16 @@ export default function PromoSection() {
 
   const currentItems: any[] = getCurrentItems()
 
-  const handleSizeChange = (itemId: number, size: "familiar" | "mediana") => {
+  const handleSizeChange = (itemId: string | number, size: "familiar" | "mediana") => {
     setSelectedSizes((prev) => ({
       ...prev,
-      [itemId]: size,
+      [String(itemId)]: size,
     }))
   }
 
   const handleAddToCart = (item: any) => {
   if (pizzaCategoryKeys.includes(activeCategory || "")) {
-      const selectedSize = selectedSizes[item.id] || "familiar"
+      const selectedSize = selectedSizes[String(item.id)] || "familiar"
       const finalPrice = selectedSize === "mediana" && item.mediumPrice ? item.mediumPrice : item.price
 
       addItem({
@@ -774,7 +758,7 @@ export default function PromoSection() {
       })
     } else if (item.variants) {
       // Manejar bebidas con variantes en cualquier categoría
-      const selectedVariant = selectedSizes[item.id] || "familiar" // "familiar" = "Tradicional"
+      const selectedVariant = selectedSizes[String(item.id)] || "familiar" // "familiar" = "Tradicional"
       const variantName = selectedVariant === "familiar" ? "Tradicional" : "Zero"
 
       addItem({
@@ -783,8 +767,8 @@ export default function PromoSection() {
         price: item.price,
         image: getImagePath(item.name, item.image),
         quantity: 1,
-        variant: variantName,
-      })
+        variant: variantName
+      } as any)
     } else {
       addItem({
         id: item.id,
@@ -1035,9 +1019,10 @@ export default function PromoSection() {
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                       loading="lazy"
+                      quality={75}
                       onError={(e: any) => {
-                        if (e.target.src !== "/placeholder.svg") {
-                          e.target.src = "/placeholder.svg"
+                        if (!e.currentTarget.src.includes("placeholder.svg")) {
+                          e.currentTarget.src = "/placeholder.svg"
                         }
                       }}
                     />
@@ -1078,7 +1063,7 @@ export default function PromoSection() {
                             <button
                               onClick={() => handleSizeChange(item.id, "familiar")}
                               className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors ${
-                                (selectedSizes[item.id] || "familiar") === "familiar"
+                              (selectedSizes[String(item.id)] || "familiar") === "familiar"
                                   ? "bg-pink-600 text-white shadow-md"
                                   : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                               }`}
@@ -1088,7 +1073,7 @@ export default function PromoSection() {
                             <button
                               onClick={() => handleSizeChange(item.id, "mediana")}
                               className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors ${
-                                selectedSizes[item.id] === "mediana"
+                              selectedSizes[String(item.id)] === "mediana"
                                   ? "bg-pink-600 text-white shadow-md"
                                   : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                               }`}
@@ -1099,7 +1084,7 @@ export default function PromoSection() {
                         )}
 
                       {/* Selector de variantes para bebidas y acompañamientos (excluyendo Lipton) */}
-                      {(activeCategory === "Acompañamientos" || (activeCategory === "Bebidas" && !item.name.toLowerCase().includes("lipton"))) && item.variants && (
+                      {(activeCategory === "Acompañamientos" || (activeCategory === "Bebidas" && !String(item.name || "").toLowerCase().includes("lipton"))) && item.variants && (
                         <div className="flex space-x-2">
                           <button
                             onClick={() => {
@@ -1110,11 +1095,11 @@ export default function PromoSection() {
                                 price: item.price,
                                 image: getImagePath(item.name, item.image),
                                 quantity: 1,
-                                variant: "Tradicional",
-                              })
+                                variant: "Tradicional"
+                              } as any)
                             }}
                             className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors relative ${
-                              (selectedSizes[item.id] || "familiar") === "familiar"
+                              (selectedSizes[String(item.id)] || "familiar") === "familiar"
                                 ? "bg-pink-600 text-white shadow-md"
                                 : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                             }`}
@@ -1125,7 +1110,7 @@ export default function PromoSection() {
                               const quantity = cartItem?.quantity || 0
                               return quantity > 0 ? (
                                 <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
-                                  (selectedSizes[item.id] || "familiar") === "familiar" 
+                                  (selectedSizes[String(item.id)] || "familiar") === "familiar" 
                                     ? "bg-white text-pink-600" 
                                     : "bg-pink-600 text-white"
                                 }`}>
@@ -1143,11 +1128,11 @@ export default function PromoSection() {
                                 price: item.price,
                                 image: getImagePath(item.name, item.image),
                                 quantity: 1,
-                                variant: "Zero",
-                              })
+                                variant: "Zero"
+                              } as any)
                             }}
                             className={`flex-1 px-3 py-2 text-xs rounded-lg font-medium transition-colors relative ${
-                              selectedSizes[item.id] === "mediana"
+                              selectedSizes[String(item.id)] === "mediana"
                                 ? "bg-pink-600 text-white shadow-md"
                                 : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                             }`}
@@ -1158,7 +1143,7 @@ export default function PromoSection() {
                               const quantity = cartItem?.quantity || 0
                               return quantity > 0 ? (
                                 <span className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
-                                  selectedSizes[item.id] === "mediana" 
+                                  selectedSizes[String(item.id)] === "mediana" 
                                     ? "bg-white text-pink-600" 
                                     : "bg-pink-600 text-white"
                                 }`}>
@@ -1189,7 +1174,7 @@ export default function PromoSection() {
                                 className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 px-4 h-10 flex items-center gap-2"
                                 onClick={() => {
                                   // Solo agregar si NO es una bebida con botones de variantes
-                                  if (!(item.variants && !item.name.toLowerCase().includes("lipton"))) {
+                                if (!(item.variants && !String(item.name || "").toLowerCase().includes("lipton"))) {
                                     handleAddToCart(item)
                                   }
                                 }}
@@ -1198,7 +1183,7 @@ export default function PromoSection() {
                                   // Para productos con variantes (bebidas)
                                   if (item.variants) {
                                     // Si tiene botones de variantes (no es Lipton), sumar ambas variantes
-                                    if (!item.name.toLowerCase().includes("lipton")) {
+                                  if (!String(item.name || "").toLowerCase().includes("lipton")) {
                                       const familiarItem = items.find(cartItem => cartItem.id === `${item.id}-familiar`)
                                       const medianaItem = items.find(cartItem => cartItem.id === `${item.id}-mediana`)
                                       const totalQuantity = (familiarItem?.quantity || 0) + (medianaItem?.quantity || 0)
@@ -1207,7 +1192,7 @@ export default function PromoSection() {
                                       ) : null
                                     }
                                     // Para Lipton, mostrar solo la variante seleccionada
-                                    const selectedVariant = selectedSizes[item.id] || "familiar"
+                                  const selectedVariant = selectedSizes[String(item.id)] || "familiar"
                                     const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedVariant}`)
                                     const quantity = cartItem?.quantity || 0
                                     return quantity > 0 ? (
@@ -1235,7 +1220,7 @@ export default function PromoSection() {
                             >
                               {(() => {
                                 // Para pizzas, buscar por ID con tamaño
-                                const selectedSize = selectedSizes[item.id] || "familiar"
+                              const selectedSize = selectedSizes[String(item.id)] || "familiar"
                                 const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedSize}`)
                                 const quantity = cartItem?.quantity || 0
                                 return quantity > 0 ? (
@@ -1256,39 +1241,6 @@ export default function PromoSection() {
           </div>
         )}
       </div>
-      {/* Estilos CSS para el efecto neon */}
-      <style jsx>{`
-        @keyframes pulse-neon {
-          0%,
-          100% {
-            box-shadow: 0 0 20px rgba(236, 72, 153, 0.5), 0 0 40px rgba(236, 72, 153, 0.3),
-              0 0 60px rgba(236, 72, 153, 0.1);
-          }
-          50% {
-            box-shadow: 0 0 30px rgba(236, 72, 153, 0.8), 0 0 60px rgba(236, 72, 153, 0.5),
-              0 0 90px rgba(236, 72, 153, 0.3);
-          }
-        }
-
-        .animate-pulse-neon {
-          animation: pulse-neon 2s ease-in-out infinite;
-        }
-
-        .shadow-neon {
-          box-shadow: 0 0 20px rgba(236, 72, 153, 0.5), 0 0 40px rgba(236, 72, 153, 0.3);
-        }
-
-        .shadow-neon-intense {
-          box-shadow: 0 0 30px rgba(236, 72, 153, 0.8), 0 0 60px rgba(236, 72, 153, 0.5),
-              0 0 90px rgba(236, 72, 153, 0.3);
-        }
-
-        @media (max-width: 768px) {
-          .animate-pulse-neon {
-            animation-duration: 3s;
-          }
-        }
-      `}</style>
     </section>
   )
 }

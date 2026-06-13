@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { X, Plus, Minus, ShoppingCart } from "lucide-react"
+import Image from "next/image"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 
@@ -60,27 +61,24 @@ const formatPizzaName = (name: string): string => {
 
 // Función helper para obtener la ruta correcta de la imagen de pizzas
 const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+
   // Si ya tiene una URL completa de Firebase Storage, usarla directamente
-  if (imagePath && (imagePath.startsWith('https://') || imagePath.startsWith('http://'))) {
+  if (imagePath && imagePath.includes('firebasestorage.googleapis.com')) {
     return imagePath
   }
   
   // Si ya tiene una ruta de imagen válida (empieza con /pizzas/) y NO es placeholder
   if (imagePath && imagePath.startsWith('/pizzas/') && !imagePath.includes('placeholder')) {
-    // Codificar espacios en el nombre del archivo
-    const parts = imagePath.split('/')
-    const fileName = parts[parts.length - 1]
-    const encodedFileName = encodeURIComponent(fileName)
-    parts[parts.length - 1] = encodedFileName
-    return parts.join('/')
+    const fileName = imagePath.split('/').pop() || ''
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(fileName)}?alt=media`
   }
   
   // Si es un placeholder o no tiene imagen, buscar por nombre de pizza
   if (pizzaName) {
     const cleanName = normalizeText(pizzaName)
     const mappedName = imageMap[cleanName] || cleanName
-    const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`
-    return imagePath
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`
   }
   
   // Último recurso: usar fondo genérico
@@ -117,9 +115,15 @@ function getExtraImagePath(itemName: string, imagePath?: string): string {
   }
 
   if (!imagePath) return "/placeholder.svg?height=200&width=200"
-  if (imagePath.startsWith('http')) return imagePath
-  if (!imagePath.startsWith('/')) return `/pizzas/${encodeURIComponent(imagePath)}`
+  if (imagePath.includes('firebasestorage.googleapis.com')) return imagePath
   
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+
+  if (!imagePath.startsWith('/') || imagePath.startsWith('/pizzas/')) {
+    const fileName = imagePath.split('/').pop() || imagePath
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(fileName)}?alt=media`
+  }
+
   const parts = imagePath.split('/')
   const fileName = parts.pop() || ''
   return [...parts, encodeURIComponent(fileName)].join('/')
@@ -1387,12 +1391,16 @@ export default function PizzaConfigModal({
                         <div className="flex items-center space-x-3">
                           {/* Imagen del extra */}
                           <div className="w-12 h-12 rounded-md overflow-hidden flex-shrink-0 border border-gray-200">
-                            <img 
+                            <Image 
                               src={getExtraImagePath(extra.name, extra.imagen)} 
                               alt={extra.name}
+                              width={48}
+                              height={48}
                               className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.src = "/placeholder.svg";
+                              onError={(e: any) => {
+                                if (!e.currentTarget.src.includes("placeholder.svg")) {
+                                  e.currentTarget.src = "/placeholder.svg"
+                                }
                               }}
                             />
                           </div>

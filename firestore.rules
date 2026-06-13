@@ -157,6 +157,14 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA CÓDIGOS PROMOCIONALES
+    // ============================================
+    match /promociones/{promoId} {
+      // Solo los administradores pueden leer, crear y editar los códigos
+      allow read, write: if isAdmin();
+    }
+    
+    // ============================================
     // REGLAS PARA CHATBOT (Multi-tenant)
     // ============================================
     
