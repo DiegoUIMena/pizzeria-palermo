@@ -69,10 +69,9 @@ service cloud.firestore {
         isStaff()
       );
       
-      // Usuario autenticado puede crear pedidos
-      // IMPORTANTE: En Fase 2 moveremos la creación a Cloud Functions
-      allow create: if isAuthenticated() && 
-                       request.auth.uid == request.resource.data.userId;
+      // La creación de pedidos ahora se hace exclusivamente a través de la Cloud Function (createOrder)
+      // Por seguridad, bloqueamos la creación directa desde el cliente.
+      allow create: if false;
       
       // Solo admin y staff pueden actualizar pedidos (cambiar estados, etc)
       allow update: if isAdmin() || isStaff();

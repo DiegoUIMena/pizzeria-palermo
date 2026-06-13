@@ -272,14 +272,6 @@ const Cart = ({ onClose }: CartProps) => {
     disponible: false,
   })
 
-  // Códigos de descuento válidos (esto vendría de una API en producción)
-  const validDiscountCodes = {
-    BIENVENIDO10: { percentage: 10, description: "10% de descuento de bienvenida" },
-    PIZZA20: { amount: 2000, description: "$2,000 de descuento en pizzas" },
-    DELIVERY5: { percentage: 5, description: "5% de descuento en delivery" },
-    PROMO15: { percentage: 15, description: "15% de descuento especial" },
-  }
-
   // Cálculos de totales (client-side como fallback)
   const localSubtotal = getTotal()
   // Solo se cobra delivery si la ubicación pertenece a una zona definida y disponible
@@ -870,9 +862,19 @@ const Cart = ({ onClose }: CartProps) => {
         }
       }
 
-      // Solo agregar notas si hay referencia
-      if (referencia && referencia.trim() !== '') {
-        orderData.notas = referencia
+      // Construir notas finales con referencia y fallback de códigos promocionales
+      let notasFinales = referencia ? referencia.trim() : ''
+      if (appliedDiscount && appliedDiscount.code) {
+        const promoText = `[CÓDIGO USADO: ${appliedDiscount.code}]`
+        notasFinales = notasFinales ? `${notasFinales} | ${promoText}` : promoText
+      }
+      if (appliedVoucher && appliedVoucher.code) {
+        const voucherText = `[VOUCHER USADO: ${appliedVoucher.code}]`
+        notasFinales = notasFinales ? `${notasFinales} | ${voucherText}` : voucherText
+      }
+
+      if (notasFinales !== '') {
+        orderData.notas = notasFinales
       }
 
       // Agregar información del voucher si está aplicado
@@ -884,7 +886,12 @@ const Cart = ({ onClose }: CartProps) => {
 
       if (appliedDiscount) {
         orderData.discountCode = appliedDiscount.code
+        orderData.discountAmount = appliedDiscount.amount
       }
+
+      orderData.subtotal = verifiedCalculation?.subtotal ?? subtotal
+      orderData.valorDelivery = isDelivery ? (verifiedCalculation?.deliveryFee ?? deliveryCost) : 0
+      orderData.total = verifiedTotal
 
       // Crear el pedido (ya incluye validación de inventario)
       console.log(`🔵 Llamando a createOrder...`)
@@ -1969,7 +1976,6 @@ const Cart = ({ onClose }: CartProps) => {
                         </Button>
                       </div>
                       {discountError && <p className="text-xs text-red-600">{discountError}</p>}
-                      <p className="text-xs text-gray-500">Códigos de prueba: BIENVENIDO10, PIZZA20, DELIVERY5, PROMO15</p>
                       <p className="text-xs text-amber-700">No combina con vouchers de Puntos Palermo.</p>
                     </div>
                   )}

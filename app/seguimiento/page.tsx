@@ -37,6 +37,7 @@ function getTrackingSteps(order: FormattedOrder) {
   const isDelivery = order.deliveryType === "Delivery"
   const baseSteps = [
     { key: "received", label: "Pedido recibido", icon: Package },
+    { key: "confirmed", label: "Pedido confirmado", icon: CheckCircle },
     { key: "preparing", label: "En preparación", icon: Clock },
     { key: "ready", label: "Pedido listo", icon: Store },
   ]
@@ -46,6 +47,7 @@ function getTrackingSteps(order: FormattedOrder) {
 
   const reached = {
     received: ["pago pendiente", "pendiente", "en preparacion", "pedido listo", "en camino"].includes(status),
+    confirmed: ["en preparacion", "pedido listo", "en camino"].includes(status),
     preparing: ["en preparacion", "pedido listo", "en camino"].includes(status),
     ready: ["pedido listo", "en camino"].includes(status),
     onTheWay: status === "en camino",
@@ -161,7 +163,7 @@ function SeguimientoContent() {
                   <Progress value={tracking.progress} className="h-2" />
                 </div>
 
-                <div className={`grid grid-cols-1 sm:grid-cols-2 ${tracking.steps.length === 4 ? "md:grid-cols-4" : "md:grid-cols-3"} gap-3`}>
+                <div className={`grid grid-cols-2 ${tracking.steps.length === 5 ? "md:grid-cols-5" : "md:grid-cols-4"} gap-3`}>
                   {tracking.steps.map((step) => {
                     const Icon = step.icon
                     const isDone = step.state === "completed"
@@ -170,24 +172,24 @@ function SeguimientoContent() {
                     return (
                       <div
                         key={step.key}
-                        className={`rounded-lg border p-4 text-center ${
+                        className={`rounded-xl border p-3 text-center transition-all ${
                           isDone
                             ? "border-green-300 bg-green-50"
                             : isCurrent
-                              ? "border-pink-300 bg-pink-50"
-                              : "border-gray-200 bg-white"
+                              ? "border-pink-300 bg-pink-50 shadow-md"
+                              : "border-gray-200 bg-gray-50"
                         }`}
                       >
                         <div
-                          className={`mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full ${
+                          className={`mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full ${
                             isDone
                               ? "bg-green-500 text-white"
                               : isCurrent
-                                ? "bg-pink-500 text-white"
-                                : "bg-gray-100 text-gray-400"
+                                ? "bg-pink-500 text-white animate-pulse"
+                                : "bg-white text-gray-400 border border-gray-200"
                           }`}
                         >
-                          <Icon className="h-6 w-6" />
+                          <Icon className="h-7 w-7" />
                         </div>
                         <p className="text-sm font-semibold text-gray-800">{step.label}</p>
                         <p className="text-xs text-gray-500 mt-1">
@@ -197,6 +199,19 @@ function SeguimientoContent() {
                     )
                   })}
                 </div>
+
+                {((activeOrder.deliveryType === 'Retiro' && activeOrder.status === 'Pedido Listo') || 
+                  (activeOrder.deliveryType === 'Delivery' && activeOrder.status === 'En camino')) && (
+                  <div className='mt-8 p-6 bg-green-50 rounded-2xl border-2 border-green-200 text-center animate-in fade-in slide-in-from-bottom-4 duration-700'>
+                    <div className='text-6xl mb-4 animate-bounce'>👍🏻</div>
+                    <h3 className='text-xl font-bold text-green-800 mb-2'>¡Excelente!</h3>
+                    <p className='text-lg text-green-700 font-medium'>
+                      {activeOrder.deliveryType === 'Retiro' 
+                        ? "Ya puedes pasar a retirar tu pedido."
+                        : "Tu pedido está en camino, llegará en minutos."}
+                    </p>
+                  </div>
+                )}
 
                 <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
                   <div className="flex flex-wrap justify-between gap-2">

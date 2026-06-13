@@ -45,6 +45,10 @@ interface Pedido {
     lat?: number;
     lng?: number;
   }
+  discountCode?: string
+  discountAmount?: number
+  voucherCode?: string
+  voucherDiscount?: number
   items: Array<{ 
     nombre: string; 
     cantidad: number; 
@@ -105,15 +109,35 @@ function getPedidoMontos(pedido: Pedido | null | undefined) {
   const valorDelivery = pedido?.tipoEntrega === 'Delivery'
     ? Math.max(0, Number(pedido?.valorDelivery || 0))
     : 0
-  const subtotalGuardado = Number(pedido?.subtotal)
-  const subtotal = Number.isFinite(subtotalGuardado)
-    ? Math.max(0, subtotalGuardado)
-    : Math.max(0, totalGuardado - valorDelivery)
+    
+  let discountAmount = Number(pedido?.discountAmount || 0)
+  const voucherDiscount = Number(pedido?.voucherDiscount || 0)
+
+  const subtotalGuardado = Number(pedido?.subtotal || 0)
+  
+  // Cálculo implícito si el backend eliminó los campos de descuento pero guardó subtotal y total
+  if (discountAmount === 0 && voucherDiscount === 0 && subtotalGuardado > 0) {
+    const implicitDiscount = subtotalGuardado + valorDelivery - totalGuardado;
+    if (implicitDiscount > 0) {
+      discountAmount = implicitDiscount;
+    }
+  }
+
+  const totalDescuentos = discountAmount + voucherDiscount
+
+  const subtotal = subtotalGuardado > 0
+    ? subtotalGuardado
+    : Math.max(0, totalGuardado - valorDelivery + totalDescuentos)
 
   return {
     subtotal,
     valorDelivery,
-    totalConDelivery: subtotal + valorDelivery,
+    descuentos: totalDescuentos,
+    discountCode: pedido?.discountCode,
+    discountAmount,
+    voucherCode: pedido?.voucherCode,
+    voucherDiscount,
+    totalConDelivery: totalGuardado,
   }
 }
 
@@ -454,6 +478,14 @@ export default function AdminPedidos() {
 *VUELTO A ENTREGAR:* ${formatCurrency(Math.max(0, vuelto))}`
       : ''
     
+    // Limpiar notas de códigos promocionales o vouchers para no enviar información extra al delivery
+    let notasDelivery = pedido.notas || '';
+    notasDelivery = notasDelivery
+      .replace(/\|?\s*\[CÓDIGO USADO:[^\]]+\]/g, '')
+      .replace(/\|?\s*\[VOUCHER USADO:[^\]]+\]/g, '')
+      .trim();
+    notasDelivery = notasDelivery.replace(/^\|\s*/, '').replace(/\s*\|$/, '').trim();
+
     // Crear el mensaje con todos los datos relevantes
     const mensaje = `
 🍕 *DELIVERY PIZZERÍA PALERMO* 🍕
@@ -465,13 +497,10 @@ ${pedido.direccion.referencia ? `*REFERENCIAS:* ${pedido.direccion.referencia}` 
 *UBICACIÓN EN MAPA:* ${pedido.direccion.lat && pedido.direccion.lng 
   ? `https://www.google.com/maps?q=${pedido.direccion.lat},${pedido.direccion.lng}` 
   : 'No disponible'}
-
 *MÉTODO DE PAGO:* ${pedido.metodoPago}
 ${detalleEfectivo}
-
 *VALOR DELIVERY:* ${formatCurrency(valorDelivery)}
-
-${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
+${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
 `.trim();
     
     getActiveDeliveryPhone()
@@ -833,7 +862,7 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                         <div key={idx} className="flex justify-between"><span>{i.cantidad}x {i.nombre}</span><span>${i.precio.toLocaleString()}</span></div>
                       ))}
                       {(() => {
-                        const { subtotal, valorDelivery, totalConDelivery } = getPedidoMontos(pedido)
+                        const { subtotal, valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedido)
                         return (
                           <>
                             <div className="border-t pt-2 flex justify-between dark:text-white">
@@ -846,7 +875,13 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                                 <span>{formatCurrency(valorDelivery)}</span>
                               </div>
                             )}
-                            <div className="font-bold flex justify-between dark:text-white">
+                            {descuentos > 0 && (
+                              <div className="flex justify-between text-green-600 dark:text-green-400">
+                                <span>Descuento {discountCode ? `(${discountCode})` : voucherCode ? `(${voucherCode})` : '(Promoción)'}</span>
+                                <span>-{formatCurrency(descuentos)}</span>
+                              </div>
+                            )}
+                            <div className="font-bold flex justify-between dark:text-white mt-1 border-t border-dashed border-gray-200 dark:border-gray-700 pt-1">
                               <span>Total</span>
                               <span>{formatCurrency(totalConDelivery)}</span>
                             </div>
@@ -1165,7 +1200,7 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
               
               <div className="comanda-totals">
                 {(() => {
-                  const { subtotal, valorDelivery, totalConDelivery } = getPedidoMontos(pedidoAImprimir)
+                  const { subtotal, valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedidoAImprimir)
                   return (
                     <>
                       <div className="comanda-total-row">
@@ -1176,7 +1211,12 @@ ${pedido.notas ? `\n*NOTAS ADICIONALES:* ${pedido.notas}` : ''}
                           DELIVERY: {formatCurrency(valorDelivery)}
                         </div>
                       )}
-                      <div className="comanda-total-row comanda-total-strong">
+                      {descuentos > 0 && (
+                        <div className="comanda-total-row">
+                          DESCUENTO {discountCode ? `(${discountCode})` : voucherCode ? `(${voucherCode})` : '(PROMO)'}: -{formatCurrency(descuentos)}
+                        </div>
+                      )}
+                      <div className="comanda-total-row comanda-total-strong" style={{ marginTop: "4px" }}>
                         TOTAL: {formatCurrency(totalConDelivery)}
                       </div>
                     </>
