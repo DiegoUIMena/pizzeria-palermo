@@ -164,6 +164,17 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA BANNERS DINÁMICOS
+    // ============================================
+    match /banners/{bannerId} {
+      // Todos pueden leer los banners
+      allow read: if true;
+      
+      // Solo admin puede modificar banners
+      allow write: if isAdmin();
+    }
+    
+    // ============================================
     // REGLAS PARA CHATBOT (Multi-tenant)
     // ============================================
     

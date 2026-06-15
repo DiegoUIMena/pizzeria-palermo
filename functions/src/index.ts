@@ -1349,6 +1349,73 @@ export const initWebpayTransaction = onCall(async (request) => {
 });
 
 // ==================================================
+// FUNCTION: Cancelar Transacción Webpay Plus (Abortada por el usuario)
+// ==================================================
+export const cancelWebpayTransaction = onCall(async (request) => {
+  const { token, orderId } = request.data;
+
+  logger.info("cancelWebpayTransaction called", { token, orderId });
+
+  if (!token || !orderId) {
+    throw new HttpsError("invalid-argument", "Token y orderId son requeridos");
+  }
+
+  try {
+    const db = admin.firestore();
+    const orderRef = db.collection("orders").doc(orderId);
+    
+    await db.runTransaction(async (transaction) => {
+      const orderDoc = await transaction.get(orderRef);
+
+      if (!orderDoc.exists) {
+        throw new HttpsError("not-found", "Pedido no encontrado");
+      }
+
+      const orderData = orderDoc.data();
+
+      // Verificar que este sea realmente el pedido correspondiente al token (medida de seguridad)
+      if (orderData?.webpay?.token !== token) {
+        logger.warn("Intento de cancelar un pedido con un token que no coincide", {
+          expectedToken: orderData?.webpay?.token,
+          receivedToken: token,
+          orderId
+        });
+        throw new HttpsError("permission-denied", "Token no coincide con el pedido");
+      }
+
+      // Si el pedido ya está pagado o cancelado, no hacemos nada
+      if (orderData?.paymentStatus === "paid" || orderData?.estado === "Cancelado") {
+        logger.info("El pedido ya está pagado o cancelado, ignorando", { orderId, estado: orderData?.estado });
+        return;
+      }
+
+      const now = new Date();
+      
+      // Marcar como cancelado
+      transaction.update(orderRef, {
+        "webpay.status": "aborted",
+        "webpay.canceledAt": now.toISOString(),
+        paymentStatus: "failed",
+        estado: "Cancelado",
+        cancelReason: "Cancelado por el usuario en pasarela de pago",
+        canceledAt: now.toISOString(),
+        canceledBy: "user",
+      });
+
+      logger.info("Pedido cancelado exitosamente por abandono en Webpay", { orderId });
+    });
+
+    return { success: true };
+  } catch (error) {
+    logger.error("Error al cancelar transacción Webpay:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", "Error interno al cancelar el pedido");
+  }
+});
+
+// ==================================================
 // FUNCTION 5: Confirmar Transacción Webpay Plus
 // ==================================================
 export const confirmWebpayTransaction = onCall(async (request) => {

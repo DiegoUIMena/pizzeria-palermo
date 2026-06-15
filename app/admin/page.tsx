@@ -20,6 +20,7 @@ import {
 import BusinessHoursManager from "./components/BusinessHoursManager"
 import ReposicionConfigManager from "./components/ReposicionConfigManager"
 import PromoCodesManager from "./components/PromoCodesManager"
+import BannersManager from "./components/BannersManager"
 
 // Tipos para el dashboard
 // Tipos ahora provienen del hook
@@ -283,6 +284,11 @@ export default function AdminDashboard() {
       {/* Gestión de Horarios */}
       <div className="mt-8">
         <BusinessHoursManager />
+      </div>
+
+      {/* Gestión de Banners Dinámicos (Inicio) */}
+      <div className="mt-8">
+        <BannersManager />
       </div>
 
       {/* Configuración de Reposición */}

@@ -146,7 +146,16 @@ export default function BusinessHoursManager() {
     try {
       // Eliminar de Storage
       const storageRef = ref(storage, `banners-closed/${imageId}`)
-      await deleteObject(storageRef)
+      try {
+        await deleteObject(storageRef)
+      } catch (storageError: any) {
+        // Si el error es porque el archivo ya no existe, continuamos para eliminarlo de la UI
+        if (storageError.code === 'storage/object-not-found') {
+          console.warn("La imagen ya no existía en Storage, procediendo a eliminarla de la configuración.")
+        } else {
+          throw storageError
+        }
+      }
 
       // Actualizar estado local
       setConfig((prev) => ({
@@ -155,7 +164,7 @@ export default function BusinessHoursManager() {
         activeBannerId: prev.activeBannerId === imageId ? null : prev.activeBannerId,
       }))
 
-      showMessage("success", "Imagen eliminada exitosamente")
+      showMessage("success", "Imagen eliminada. Recuerda hacer clic en 'Guardar Configuración'")
     } catch (error) {
       console.error("Error al eliminar imagen:", error)
       showMessage("error", "Error al eliminar la imagen")

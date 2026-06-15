@@ -34,19 +34,35 @@ function WebpayReturnContent() {
           setLoading(false);
         }, 30000);
         // Obtener el token de la URL
-        const token = searchParams.get("token_ws") || searchParams.get("TBK_TOKEN")
+        const tokenWs = searchParams.get("token_ws")
+        const tbkToken = searchParams.get("TBK_TOKEN")
+        const tbkIdSesion = searchParams.get("TBK_ID_SESION")
 
-        if (!token) {
+        if (tbkToken && !tokenWs) {
+          // El usuario canceló la transacción en Webpay (Volver a la tienda)
+          console.log("Transacción cancelada por el usuario (TBK_TOKEN presente)")
+          const cancelWebpayFunction = httpsCallable(functions, "cancelWebpayTransaction")
+          await cancelWebpayFunction({ 
+            token: tbkToken,
+            orderId: tbkIdSesion 
+          })
+          
+          setError("El pago ha sido cancelado. Tu pedido no fue procesado.")
+          setLoading(false)
+          return
+        }
+
+        if (!tokenWs) {
           setError("No se recibió el token de Webpay")
           setLoading(false)
           return
         }
 
-        console.log("Token recibido:", token)
+        console.log("Token recibido:", tokenWs)
 
         // Llamar a la Cloud Function para confirmar la transacción
         const confirmWebpayFunction = httpsCallable(functions, "confirmWebpayTransaction")
-        const response = await confirmWebpayFunction({ token })
+        const response = await confirmWebpayFunction({ token: tokenWs })
 
         const data = response.data as any
         console.log("Respuesta de confirmación:", data)

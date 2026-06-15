@@ -3,17 +3,33 @@
 import { useState, useEffect } from "react"
 import Image from "next/image"
 import { ChevronLeft, ChevronRight } from "lucide-react"
+import { db } from "@/lib/firebase"
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore"
 
 export default function BannerCarousel() {
   const [currentSlide, setCurrentSlide] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   const [isAutoPlaying, setIsAutoPlaying] = useState(true)
+  const [banners, setBanners] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Banners con diferentes diseños
-  const banners = [
-    { id: 1, desktop: "/banners/desktop_banner.jpg", mobile: "/banners/movil_banner.jpg" },
-    { id: 2, desktop: "/banners/desktop_banner2.jpg", mobile: "/banners/movil_banner2.jpg" },
-  ]
+  // Obtener banners desde Firestore
+  useEffect(() => {
+    const q = query(collection(db, "banners"), orderBy("createdAt", "asc"))
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedBanners = snapshot.docs.map(doc => ({
+        id: doc.id,
+        desktop: doc.data().desktopUrl,
+        mobile: doc.data().mobileUrl
+      }))
+      setBanners(fetchedBanners)
+      setIsLoading(false)
+      // Ajustar si el slide actual queda fuera de rango al borrar
+      if (currentSlide >= fetchedBanners.length && fetchedBanners.length > 0) setCurrentSlide(0)
+    })
+
+    return () => unsubscribe()
+  }, [currentSlide])
 
   // Detectar si es móvil
   useEffect(() => {
@@ -29,7 +45,7 @@ export default function BannerCarousel() {
 
   // Autoplay: cambiar slide cada 3 segundos (más dinámico)
   useEffect(() => {
-    if (!isAutoPlaying) return
+    if (!isAutoPlaying || banners.length <= 1) return
 
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % banners.length)
@@ -54,6 +70,14 @@ export default function BannerCarousel() {
     const newIndex = (currentSlide + 1) % banners.length
     goToSlide(newIndex)
   }
+
+  // Mostrar esqueleto de carga mientras se obtienen los datos
+  if (isLoading) {
+    return <section className="w-full h-[300px] sm:h-[400px] md:h-[500px] lg:h-[600px] bg-gray-900 animate-pulse"></section>
+  }
+
+  // Ocultar sección si no hay banners
+  if (banners.length === 0) return null
 
   return (
     <section className="relative w-full overflow-hidden bg-gray-900">
@@ -82,37 +106,43 @@ export default function BannerCarousel() {
         </div>
 
         {/* Controles de navegación - Flechas */}
-        <button
-          onClick={goToPrevious}
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-pink-400 transition-all hover:scale-110 z-10 drop-shadow-lg"
-          aria-label="Banner anterior"
-        >
-          <ChevronLeft className="w-8 h-8 sm:w-10 sm:h-10" strokeWidth={3} />
-        </button>
-        
-        <button
-          onClick={goToNext}
-          className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-pink-400 transition-all hover:scale-110 z-10 drop-shadow-lg"
-          aria-label="Siguiente banner"
-        >
-          <ChevronRight className="w-8 h-8 sm:w-10 sm:h-10" strokeWidth={3} />
-        </button>
+        {banners.length > 1 && (
+          <>
+            <button
+              onClick={goToPrevious}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-pink-400 transition-all hover:scale-110 z-10 drop-shadow-lg"
+              aria-label="Banner anterior"
+            >
+              <ChevronLeft className="w-8 h-8 sm:w-10 sm:h-10" strokeWidth={3} />
+            </button>
+            
+            <button
+              onClick={goToNext}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-pink-400 transition-all hover:scale-110 z-10 drop-shadow-lg"
+              aria-label="Siguiente banner"
+            >
+              <ChevronRight className="w-8 h-8 sm:w-10 sm:h-10" strokeWidth={3} />
+            </button>
+          </>
+        )}
 
         {/* Indicadores (dots) */}
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 hidden sm:flex gap-3 z-10">
-          {banners.map((_, index) => (
-            <button
-              key={index}
-              onClick={() => goToSlide(index)}
-              className={`transition-all rounded-full ${
-                currentSlide === index
-                  ? "bg-pink-500 w-10 h-3"
-                  : "bg-white/60 hover:bg-white/80 w-3 h-3"
-              }`}
-              aria-label={`Ir al banner ${index + 1}`}
-            />
-          ))}
-        </div>
+        {banners.length > 1 && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 hidden sm:flex gap-3 z-10">
+            {banners.map((_, index) => (
+              <button
+                key={index}
+                onClick={() => goToSlide(index)}
+                className={`transition-all rounded-full ${
+                  currentSlide === index
+                    ? "bg-pink-500 w-10 h-3"
+                    : "bg-white/60 hover:bg-white/80 w-3 h-3"
+                }`}
+                aria-label={`Ir al banner ${index + 1}`}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

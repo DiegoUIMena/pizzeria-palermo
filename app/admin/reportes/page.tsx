@@ -19,11 +19,13 @@ import {
   Clock,
   ArrowUpRight,
   ArrowDownRight,
+  CreditCard,
 } from "lucide-react"
 import VentasChart from "./components/VentasChart"
 import ProductosChart from "./components/ProductosChart"
 import InventarioChart from "./components/InventarioChart"
 import ClientesChart from "./components/ClientesChart"
+import PagosReport from "./components/PagosReport"
 import { useAdminReports } from '@/hooks/useAdminReports'
 import GeneralSalesReport from './components/GeneralSalesReport'
 
@@ -168,7 +170,7 @@ export default function AdminReportes() {
 
         {/* Tabs de Reportes */}
         <Tabs defaultValue="ventas" className="space-y-6" onValueChange={setReporteActivo}>
-          <TabsList className="no-print grid grid-cols-4 md:w-[600px] bg-gray-100 dark:bg-gray-800">
+          <TabsList className="no-print grid grid-cols-5 md:w-[750px] bg-gray-100 dark:bg-gray-800">
             <TabsTrigger value="ventas" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <BarChart3 className="w-4 h-4" />
               <span className="hidden sm:inline">Ventas</span>
@@ -184,6 +186,10 @@ export default function AdminReportes() {
             <TabsTrigger value="clientes" className="flex items-center gap-2">
               <TrendingUp className="w-4 h-4" />
               <span className="hidden sm:inline">Clientes</span>
+            </TabsTrigger>
+            <TabsTrigger value="pagos" className="flex items-center gap-2">
+              <CreditCard className="w-4 h-4" />
+              <span className="hidden sm:inline">Pagos y Transacciones</span>
             </TabsTrigger>
           </TabsList>
 
@@ -404,6 +410,11 @@ export default function AdminReportes() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Reporte de Pagos */}
+          <TabsContent value="pagos" className="no-print">
+            <PagosReport orders={orders} />
           </TabsContent>
         </Tabs>
       </main>
