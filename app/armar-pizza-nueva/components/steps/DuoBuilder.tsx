@@ -49,15 +49,23 @@ function getPizzaImagePath(imagePath?: string, pizzaName?: string): string {
   if (imagePath && 
       imagePath !== '/placeholder.svg' && 
       !imagePath.includes('placeholder') &&
-      imagePath.startsWith('/')) {
-    return imagePath;
+      !imagePath.startsWith('http')) {
+    
+    if (imagePath.startsWith('/iconos/')) return imagePath;
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com';
+    const parts = imagePath.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      const folder = parts[0]; 
+      const fileName = parts.slice(1).join('/');
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(folder)}%2F${encodeURIComponent(fileName)}?alt=media`;
+    }
   }
   
   if (pizzaName) {
     const cleanName = pizzaName.toLowerCase().trim();
     const mappedName = imageMap[cleanName] || cleanName;
-    const imagePath = `/pizzas/${encodeURIComponent(mappedName + '.jpg')}`;
-    return imagePath;
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com';
+    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`;
   }
   
   return "/pizza-promo-bg.png";
@@ -203,24 +211,16 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
 
       // Determinar imagen (usar la de la primera mitad si es del menú)
       const duoImage = (() => {
-        console.log("🍕 [DUO - IMAGEN] Determinando imagen...");
-        console.log("🍕 [DUO] Mitad 1:", mitad1Name, "- Tipo:", config.half1?.baseType);
-        console.log("🍕 [DUO] Mitad 2:", mitad2Name, "- Tipo:", config.half2?.baseType);
         
         // Intentar obtener imagen de la primera mitad si es del menú
         if (config.half1?.baseType === 'menu' && config.half1?.variety) {
           const pizza1 = pizzasParaDuo.find(p => p.nombre === config.half1?.variety);
-          console.log("🍕 [DUO] Pizza1 encontrada:", pizza1?.nombre);
-          console.log("🍕 [DUO] Imagen disponible:", pizza1?.imagen);
           
           if (pizza1 && pizza1.imagen) {
             const finalPath = getPizzaImagePath(pizza1.imagen, pizza1.nombre);
-            console.log("🍕 [DUO] Path final generado:", finalPath);
             return finalPath;
           } else if (pizza1) {
-            console.log("⚠️ [DUO] Pizza1 sin imagen, buscando por nombre");
             const finalPath = getPizzaImagePath(undefined, pizza1.nombre);
-            console.log("🍕 [DUO] Path fallback por nombre:", finalPath);
             return finalPath;
           }
         }
@@ -228,22 +228,18 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
         // Si la primera no tiene, intentar con la segunda
         if (config.half2?.baseType === 'menu' && config.half2?.variety) {
           const pizza2 = pizzasParaDuo.find(p => p.nombre === config.half2?.variety);
-          console.log("🍕 [DUO] Intentando con Pizza2:", pizza2?.nombre);
           
           if (pizza2 && pizza2.imagen) {
             const finalPath = getPizzaImagePath(pizza2.imagen, pizza2.nombre);
-            console.log("🍕 [DUO] Path final desde Pizza2:", finalPath);
             return finalPath;
           } else if (pizza2) {
             const finalPath = getPizzaImagePath(undefined, pizza2.nombre);
-            console.log("🍕 [DUO] Path fallback desde Pizza2:", finalPath);
             return finalPath;
           }
         }
         
         // Si ambas son personalizadas, usar imagen genérica
         const genericPath = "/pizza-duo-bg.png";
-        console.log("🍕 [DUO] Usando imagen genérica:", genericPath);
         return genericPath;
       })();
 
@@ -264,15 +260,6 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
         ingredients: allSimpleIngredients,
         premiumIngredients: allPremiumIngredients,
       };
-      
-      console.log("🛒 [DUO - CARRITO] Item a agregar:");
-      console.table({
-        name: cartItem.name,
-        image: cartItem.image,
-        price: cartItem.price,
-        pizza1: cartItem.pizza1,
-        pizza2: cartItem.pizza2
-      });
       
       addItem(cartItem);
 

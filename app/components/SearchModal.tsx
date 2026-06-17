@@ -7,12 +7,15 @@ import { Input } from "@/components/ui/input"
 import Image from "next/image"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 import { scrollToSection } from "@/lib/scroll-utils"
+import { getImagePath } from "./PromoSection"
 
 interface SearchModalProps {
   isOpen: boolean
   onClose: () => void
 }
 
+/*
+// Promos y combos guardados como referencia hasta que se configuren en la BD
 // Productos estáticos (Promos y Combos)
 const staticProducts = [
   {
@@ -65,6 +68,7 @@ const staticProducts = [
     image: "/placeholder.svg?height=80&width=80",
   },
 ]
+*/
 
 export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [searchTerm, setSearchTerm] = useState("")
@@ -96,14 +100,13 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
           category,
           price: item.precioFamiliar || item.price || 0,
           mediumPrice: item.precioMediana || null,
-          image: item.image || item.imagen || "/placeholder.svg",
+          image: getImagePath(item.nombre || item.name || "Sin nombre", item.image || item.imagen),
           hasSizes: !!(item.precioFamiliar && item.precioMediana),
           variants: item.variantes || item.variants || null,
         }
       })
 
-    // Combinar con productos estáticos (promos y combos)
-    return [...staticProducts, ...firestoreProducts]
+    return firestoreProducts
   }, [itemsMenu])
 
   const filteredProducts = useMemo(() => {

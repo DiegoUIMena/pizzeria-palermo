@@ -7,41 +7,49 @@ import { useBoxInventory } from '@/hooks/useBoxInventory';
 
 // Función auxiliar para obtener la ruta de la imagen de bebida/extra correcta desde Firebase Storage o local
 function getExtraImagePath(itemName: string, imagePath?: string): string {
+
+  if (imagePath && imagePath.includes('firebasestorage.googleapis.com')) {
+    return imagePath;
+  }
+
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com';
   const lowerName = (itemName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
-  let bebidaFileName = ''
-  
-  if (lowerName.includes('lipton') && lowerName.includes('botella')) bebidaFileName = 'lipton_botella.jpg'
-  else if (lowerName.includes('lipton') && lowerName.includes('lata')) bebidaFileName = 'lipton_lata.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('1.5') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_1.5_litro_zero.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('1.5')) bebidaFileName = 'coca_cola_1.5_litro.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('lata') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_lata_zero.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
-  
-  if (bebidaFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
+
+  if (imagePath && !imagePath.includes('placeholder') && !imagePath.startsWith('http')) {
+    if (imagePath.startsWith('/iconos/')) return imagePath;
+    const parts = imagePath.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      let folder = parts[0]; 
+      const fileName = parts.slice(1).join('/');
+      
+      const isBebidaFallback = lowerName.includes('sprite') || lowerName.includes('fanta') || lowerName.includes('jugo') || lowerName.includes('bebida') || lowerName.includes('lata') || lowerName.includes('botella');
+      const isAcompFallback = lowerName.includes('salsa') || lowerName.includes('empanada') || lowerName.includes('palo');
+      
+      if (isBebidaFallback) folder = 'bebidas';
+      else if (isAcompFallback) folder = 'acompañamientos';
+      
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(folder)}%2F${encodeURIComponent(fileName)}?alt=media`;
+      return url;
+    }
   }
 
-  let acompFileName = ''
-  if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
-  else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('ajo')) acompFileName = 'salsa_de_ajo.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
-
-  if (acompFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
+  // Fallback inteligente para nombres genéricos sin imagen
+  if (!imagePath || imagePath.includes('placeholder')) {
+    const isBebidaFallback = lowerName.includes('coca') || lowerName.includes('sprite') || lowerName.includes('fanta') || lowerName.includes('jugo') || lowerName.includes('bebida') || lowerName.includes('lata') || lowerName.includes('botella') || lowerName.includes('lipton');
+    const isAcompFallback = lowerName.includes('salsa') || lowerName.includes('empanada') || lowerName.includes('palo') || lowerName.includes('rollito') || lowerName.includes('gauchito') || lowerName.includes('canela');
+    
+    const cleanName = itemName.replace(/\s+/g, '_').toLowerCase();
+    
+    if (isBebidaFallback) {
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(cleanName + '.jpg')}?alt=media`;
+      return url;
+    } else if (isAcompFallback) {
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(cleanName + '.jpg')}?alt=media`;
+      return url;
+    }
   }
 
-  if (!imagePath) return "/placeholder.svg?height=200&width=200"
-  if (imagePath.startsWith('http')) return imagePath
-  if (!imagePath.startsWith('/')) return `/pizzas/${encodeURIComponent(imagePath)}`
-  
-  const parts = imagePath.split('/')
-  const fileName = parts.pop() || ''
-  return [...parts, encodeURIComponent(fileName)].join('/')
+  return imagePath || "/placeholder.svg?height=200&width=200"
 }
 
 interface Step6CustomizationOptionsProps {

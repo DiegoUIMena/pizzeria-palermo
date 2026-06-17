@@ -61,24 +61,31 @@ const formatPizzaName = (name: string): string => {
 
 // Función helper para obtener la ruta correcta de la imagen de pizzas
 const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
-  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
 
   // Si ya tiene una URL completa de Firebase Storage, usarla directamente
   if (imagePath && imagePath.includes('firebasestorage.googleapis.com')) {
     return imagePath
   }
   
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com'
+
   // Si ya tiene una ruta de imagen válida (empieza con /pizzas/) y NO es placeholder
-  if (imagePath && imagePath.startsWith('/pizzas/') && !imagePath.includes('placeholder')) {
-    const fileName = imagePath.split('/').pop() || ''
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(fileName)}?alt=media`
+  if (imagePath && !imagePath.includes('placeholder') && !imagePath.startsWith('http')) {
+    const parts = imagePath.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      const folder = parts[0]; 
+      const fileName = parts.slice(1).join('/');
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(folder)}%2F${encodeURIComponent(fileName)}?alt=media`;
+      return url;
+    }
   }
   
   // Si es un placeholder o no tiene imagen, buscar por nombre de pizza
   if (pizzaName) {
     const cleanName = normalizeText(pizzaName)
     const mappedName = imageMap[cleanName] || cleanName
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`
+    const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`;
+    return url;
   }
   
   // Último recurso: usar fondo genérico
@@ -86,47 +93,49 @@ const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
 }
 
 function getExtraImagePath(itemName: string, imagePath?: string): string {
+
+  if (imagePath && imagePath.includes('firebasestorage.googleapis.com')) {
+    return imagePath
+  }
+  
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com'
   const lowerName = (itemName || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
-  let bebidaFileName = ''
-  
-  if (lowerName.includes('lipton') && lowerName.includes('botella')) bebidaFileName = 'lipton_botella.jpg'
-  else if (lowerName.includes('lipton') && lowerName.includes('lata')) bebidaFileName = 'lipton_lata.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('1.5') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_1.5_litro_zero.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('1.5')) bebidaFileName = 'coca_cola_1.5_litro.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('lata') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_lata_zero.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
-  
-  if (bebidaFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
+
+  if (imagePath && !imagePath.includes('placeholder') && !imagePath.startsWith('http')) {
+    if (imagePath.startsWith('/iconos/')) return imagePath;
+    const parts = imagePath.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      let folder = parts[0]; 
+      const fileName = parts.slice(1).join('/');
+      
+      const isBebidaFallback = lowerName.includes('sprite') || lowerName.includes('fanta') || lowerName.includes('jugo') || lowerName.includes('bebida') || lowerName.includes('lata') || lowerName.includes('botella');
+      const isAcompFallback = lowerName.includes('salsa') || lowerName.includes('empanada') || lowerName.includes('palo');
+      
+      if (isBebidaFallback) folder = 'bebidas';
+      else if (isAcompFallback) folder = 'acompañamientos';
+      
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(folder)}%2F${encodeURIComponent(fileName)}?alt=media`;
+      return url;
+    }
   }
 
-  let acompFileName = ''
-  if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
-  else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('ajo')) acompFileName = 'salsa_de_ajo.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
-
-  if (acompFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
+  // Fallback inteligente para nombres genéricos sin imagen
+  if (!imagePath || imagePath.includes('placeholder')) {
+    const isBebidaFallback = lowerName.includes('coca') || lowerName.includes('sprite') || lowerName.includes('fanta') || lowerName.includes('jugo') || lowerName.includes('bebida') || lowerName.includes('lata') || lowerName.includes('botella') || lowerName.includes('lipton');
+    const isAcompFallback = lowerName.includes('salsa') || lowerName.includes('empanada') || lowerName.includes('palo') || lowerName.includes('rollito') || lowerName.includes('gauchito') || lowerName.includes('canela');
+    
+    const cleanName = itemName.replace(/\s+/g, '_').toLowerCase();
+    
+    if (isBebidaFallback) {
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(cleanName + '.jpg')}?alt=media`;
+      return url;
+    } else if (isAcompFallback) {
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(cleanName + '.jpg')}?alt=media`;
+      return url;
+    }
   }
 
-  if (!imagePath) return "/placeholder.svg?height=200&width=200"
-  if (imagePath.includes('firebasestorage.googleapis.com')) return imagePath
-  
-  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-
-  if (!imagePath.startsWith('/') || imagePath.startsWith('/pizzas/')) {
-    const fileName = imagePath.split('/').pop() || imagePath
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(fileName)}?alt=media`
-  }
-
-  const parts = imagePath.split('/')
-  const fileName = parts.pop() || ''
-  return [...parts, encodeURIComponent(fileName)].join('/')
+  return imagePath || "/placeholder.svg?height=200&width=200"
 }
 
 // Tipos
@@ -228,23 +237,8 @@ export default function PizzaConfigModal({
   const promoIngredients = useMemo(() => {
     // Verificar que ingredients es un array y tiene elementos
     if (!Array.isArray(ingredients) || ingredients.length === 0) {
-      console.log("¡Advertencia! ingredients es vacío o no es un array:", ingredients);
       return [];
     }
-    
-    // Imprimir para depuración
-    console.log("Total de ingredientes cargados:", ingredients.length);
-    
-    // Depurar categorías y clases disponibles
-    const categoriasDisponibles = [...new Set((ingredients as FirestoreIngredient[]).map(i => i.categoria))];
-    const clasesDisponibles = [...new Set((ingredients as FirestoreIngredient[]).map(i => i.clase).filter(Boolean))];
-    console.log("Categorías de ingredientes disponibles:", categoriasDisponibles);
-    console.log("Clases de ingredientes disponibles:", clasesDisponibles);
-    
-    // Mostrar todos los ingredientes para depuración
-    console.log("Todos los ingredientes:", (ingredients as FirestoreIngredient[]).map(i => 
-      `${i.nombre} (${i.categoria}, clase: ${i.clase || 'no definida'})`
-    ));
     
     // Filtrar SOLO ingredientes simples usando el campo 'clase'
     const simpleIngredients = (ingredients as FirestoreIngredient[])
@@ -252,17 +246,11 @@ export default function PizzaConfigModal({
         // Priorizar el campo 'clase' si existe
         if (i.clase) {
           const esSimplePorClase = i.clase.toLowerCase() === "simple";
-          if (esSimplePorClase) {
-            console.log(`Ingrediente simple por CLASE encontrado: ${i.nombre} (clase: ${i.clase})`);
-          }
           return esSimplePorClase;
         }
         
         // Si no hay campo clase, usar categoría como fallback
         const esSimplePorCategoria = i.categoria === "simple";
-        if (esSimplePorCategoria) {
-          console.log(`Ingrediente simple por CATEGORIA encontrado: ${i.nombre} (categoría: ${i.categoria})`);
-        }
         return esSimplePorCategoria;
       })
       .map((i, idx) => ({ 
@@ -271,11 +259,8 @@ export default function PizzaConfigModal({
         category: "simple" as const 
       }));
     
-    console.log("Ingredientes simples encontrados:", simpleIngredients.length);
-    
     // Si no se encontraron ingredientes simples, aplicar fallback
     if (simpleIngredients.length === 0) {
-      console.log("No se encontraron ingredientes simples. Aplicando fallback...");
       // Como fallback, considerar los ingredientes que NO son premium como simples
       const fallbackSimples = (ingredients as FirestoreIngredient[])
         .filter(i => {
@@ -290,8 +275,6 @@ export default function PizzaConfigModal({
           category: "simple" as const 
         }));
       
-      console.log("Fallback - ingredientes NO premium (tratados como simples):", fallbackSimples.length);
-      
       return fallbackSimples;
     }
     
@@ -302,7 +285,6 @@ export default function PizzaConfigModal({
   const premiumIngredients = useMemo(() => {
     // Verificar que ingredients es un array y tiene elementos
     if (!Array.isArray(ingredients) || ingredients.length === 0) {
-      console.log("¡Advertencia! ingredients es vacío o no es un array:", ingredients);
       return [];
     }
     
@@ -342,30 +324,20 @@ export default function PizzaConfigModal({
       })
       .filter((i): i is { id: number; name: string; category: "premium" | "simple" } => i !== null); // Eliminar los null con type guard
     
-    console.log("Ingredientes premium y simples encontrados:", mappedIngredients.length);
-    console.log("Ingredientes premium:", mappedIngredients.filter(i => i.category === "premium").length);
-    console.log("Ingredientes simples:", mappedIngredients.filter(i => i.category === "simple").length);
-    
     return mappedIngredients;
   }, [ingredients])
 
   // Extras: Salsas, bebidas y agregados desde itemsMenu (memoizado)
   const promoExtras = useMemo(() => {
-    console.log("🔍 DEBUG: itemsMenu completo:", itemsMenu);
-    console.log("🔍 DEBUG: Total items en itemsMenu:", (itemsMenu as FirestoreItem[]).length);
     
     // FILTRAR SOLO ITEMS ACTIVOS
     const activeItemsMenu = (itemsMenu as FirestoreItem[]).filter((i) => i.activo !== false);
-    console.log("🔍 DEBUG: Items activos:", activeItemsMenu.length);
     
     const salsas = activeItemsMenu.filter((i) => i.categoria === "Acompañamientos" && i.nombre.toLowerCase().includes("salsa"));
-    console.log("🔍 DEBUG: Salsas encontradas:", salsas.length, salsas.map(s => s.nombre));
     
     const bebidas = activeItemsMenu.filter((i) => i.categoria === "Bebidas");
-    console.log("🔍 DEBUG: Bebidas encontradas:", bebidas.length, bebidas.map(b => b.nombre));
     
     const otrosAcompañamientos = activeItemsMenu.filter((i) => i.categoria === "Acompañamientos" && !i.nombre.toLowerCase().includes("salsa"));
-    console.log("🔍 DEBUG: Otros acompañamientos:", otrosAcompañamientos.length, otrosAcompañamientos.map(a => a.nombre));
     
     const resultado = [
       ...salsas,
@@ -378,13 +350,6 @@ export default function PizzaConfigModal({
       imagen: item.imagen || "/placeholder.svg",
       category: item.categoria.toLowerCase().includes("bebida") ? "bebida" : item.nombre.toLowerCase().includes("salsa") ? "salsa" : "agregado"
     }));
-    
-    console.log("🔍 DEBUG: promoExtras resultado final:", resultado.length, "items");
-    console.log("🔍 DEBUG: promoExtras por categoría:", {
-      salsas: resultado.filter(r => r.category === "salsa").length,
-      bebidas: resultado.filter(r => r.category === "bebida").length,
-      agregados: resultado.filter(r => r.category === "agregado").length
-    });
     
     return resultado;
   }, [itemsMenu])
@@ -423,7 +388,6 @@ export default function PizzaConfigModal({
 
   // Pizzas para DUO (memoizado)
   const palermoTradicionalPizzas = useMemo(() => {
-    console.log("Pizzas a excluir:", PIZZAS_EXCLUIDAS);
     
     // FILTRAR SOLO PIZZAS ACTIVAS
     const activePizzas = (itemsMenu as FirestoreItem[])
@@ -437,13 +401,11 @@ export default function PizzaConfigModal({
         image: item.imagen || "/placeholder.svg"
       }));
     
-    console.log("Pizzas activas antes de filtrar:", activePizzas.map(p => p.name));
     
     const pizzas = activePizzas
       // Filtrar las pizzas excluidas usando la función mejorada
       .filter(pizza => !isPizzaExcluida(pizza.name));
     
-    console.log("Pizzas disponibles para DUO después de filtrar:", pizzas.map(p => p.name));
     return pizzas;
   }, [itemsMenu])
 
@@ -505,17 +467,12 @@ export default function PizzaConfigModal({
     
     const availablePizzaIds = availablePizzas.map(p => p.id);
     
-    console.log("Verificando selecciones al cambiar tamaño...");
-    console.log("Pizzas disponibles (excluyendo las prohibidas):", availablePizzas.map(p => p.name));
-    
     // Verificar si las pizzas seleccionadas están en la lista de disponibles
     if (selectedPizza1 !== null) {
       const pizza1 = palermoTradicionalPizzas.find(p => p.id === selectedPizza1);
       if (pizza1 && isPizzaExcluida(pizza1.name)) {
-        console.log("Reseteo: Pizza 1 seleccionada está en la lista de excluidas:", pizza1.name);
         setSelectedPizza1(null);
       } else if (!availablePizzaIds.includes(selectedPizza1)) {
-        console.log("Reseteo: Pizza 1 seleccionada no disponible para este tamaño");
         setSelectedPizza1(null);
       }
     }
@@ -523,23 +480,19 @@ export default function PizzaConfigModal({
     if (selectedPizza2 !== null) {
       const pizza2 = palermoTradicionalPizzas.find(p => p.id === selectedPizza2);
       if (pizza2 && isPizzaExcluida(pizza2.name)) {
-        console.log("Reseteo: Pizza 2 seleccionada está en la lista de excluidas:", pizza2.name);
         setSelectedPizza2(null);
       } else if (!availablePizzaIds.includes(selectedPizza2)) {
-        console.log("Reseteo: Pizza 2 seleccionada no disponible para este tamaño");
         setSelectedPizza2(null);
       }
     }
     
     // Verificar si pizza1 sigue siendo válida
     if (selectedPizza1 && !availablePizzaIds.includes(selectedPizza1)) {
-      console.log(`Pizza 1 (ID: ${selectedPizza1}) ya no está disponible. Reseteando selección.`);
       setSelectedPizza1(null);
     }
     
     // Verificar si pizza2 sigue siendo válida
     if (selectedPizza2 && !availablePizzaIds.includes(selectedPizza2)) {
-      console.log(`Pizza 2 (ID: ${selectedPizza2}) ya no está disponible. Reseteando selección.`);
       setSelectedPizza2(null);
     }
   }, [isOpen, activePizzaType, selectedSize, selectedPizza1, selectedPizza2, PIZZAS_EXCLUIDAS, palermoTradicionalPizzas, isPizzaExcluida]);
@@ -547,19 +500,11 @@ export default function PizzaConfigModal({
   // Efecto para diagnosticar el estado al abrir el modal
   useEffect(() => {
     if (isOpen) {
-      console.log("============= MODAL ABIERTO =============");
-      console.log("PizzaType:", activePizzaType);
-      console.log("Loading:", loading);
-      console.log("Ingredients count:", Array.isArray(ingredients) ? ingredients.length : "no es array");
-      console.log("PromoIngredients count:", promoIngredients.length);
-      console.log("PremiumIngredients count:", premiumIngredients.length);
-      
       // Verificar explícitamente que ninguna pizza seleccionada sea una excluida
       if (activePizzaType === "duo") {
         if (selectedPizza1) {
           const pizza1 = palermoTradicionalPizzas.find(p => p.id === selectedPizza1);
           if (pizza1 && isPizzaExcluida(pizza1.name)) {
-            console.log("VERIFICACIÓN INICIAL: Pizza 1 seleccionada está en la lista de excluidas. Reseteando.");
             setSelectedPizza1(null);
           }
         }
@@ -567,13 +512,10 @@ export default function PizzaConfigModal({
         if (selectedPizza2) {
           const pizza2 = palermoTradicionalPizzas.find(p => p.id === selectedPizza2);
           if (pizza2 && isPizzaExcluida(pizza2.name)) {
-            console.log("VERIFICACIÓN INICIAL: Pizza 2 seleccionada está en la lista de excluidas. Reseteando.");
             setSelectedPizza2(null);
           }
         }
       }
-      
-      console.log("=========================================");
 
       // Si el modal se abre pero los ingredientes aún están cargando,
       // podríamos implementar un retraso o indicador de carga aquí
@@ -586,23 +528,16 @@ export default function PizzaConfigModal({
 
     if (!isEditing) {
       // NUEVO PEDIDO: Resetear inmediatamente
-      console.log("--- [NEW ORDER] Resetting states ---")
       resetStates()
     } else if (currentConfig && !loading) {
       // EDICIÓN: Cargar datos del pedido solo cuando los datos de Firestore estén disponibles
       const loadEditData = () => {
-        console.log("--- [EDIT MODE] Loading order data ---")
-        console.log("[EDIT MODE] currentConfig:", JSON.stringify(currentConfig))
-        console.log("[EDIT MODE] activePizzaType:", activePizzaType)
-        console.log("[EDIT MODE] promoExtras length:", promoExtras.length)
-        console.log("[EDIT MODE] palermoTradicionalPizzas length:", palermoTradicionalPizzas.length)
 
         // Set size
         if (currentConfig.size) {
           const size = pizzaSizes.find((s) => s.name === currentConfig.size)
           if (size) {
             setSelectedSize(size)
-            console.log(`[EDIT MODE] Size set to: ${size.name}`)
           }
         }
 
@@ -610,40 +545,30 @@ export default function PizzaConfigModal({
         if (activePizzaType === "promo" || activePizzaType === "premium") {
           const ingredientsMap: { [key: number]: number } = {}
           const availableIngredientsForType = getAvailableIngredients(activePizzaType)
-          console.log("[EDIT MODE] Available ingredients:", availableIngredientsForType.map(i => i.name))
 
           // Process simple ingredients
           currentConfig.ingredients?.forEach((ingredientStr) => {
             const parsed = parseItemString(ingredientStr)
-            console.log(`[EDIT MODE] Processing simple ingredient: "${ingredientStr}" -> ${JSON.stringify(parsed)}`)
             const found = availableIngredientsForType.find(
               (ing) => ing.name.toLowerCase() === parsed.name.toLowerCase() && ing.category === "simple"
             )
             if (found) {
               ingredientsMap[found.id] = parsed.quantity
-              console.log(`[EDIT MODE] ✓ Found simple ingredient: ${found.name} (ID: ${found.id})`)
-            } else {
-              console.log(`[EDIT MODE] ✗ Simple ingredient not found: ${parsed.name}`)
             }
           })
 
           // Process premium ingredients
           currentConfig.premiumIngredients?.forEach((ingredientStr) => {
             const parsed = parseItemString(ingredientStr)
-            console.log(`[EDIT MODE] Processing premium ingredient: "${ingredientStr}" -> ${JSON.stringify(parsed)}`)
             const found = availableIngredientsForType.find(
               (ing) => ing.name.toLowerCase() === parsed.name.toLowerCase() && ing.category === "premium"
             )
             if (found) {
               ingredientsMap[found.id] = parsed.quantity
-              console.log(`[EDIT MODE] ✓ Found premium ingredient: ${found.name} (ID: ${found.id})`)
-            } else {
-              console.log(`[EDIT MODE] ✗ Premium ingredient not found: ${parsed.name}`)
             }
           })
 
           setSelectedIngredients(ingredientsMap)
-          console.log("[EDIT MODE] Final ingredientsMap:", ingredientsMap)
         }
 
         // Process extras
@@ -653,22 +578,15 @@ export default function PizzaConfigModal({
           ...(currentConfig.drinks || []),
           ...(currentConfig.extras || []),
         ]
-        console.log("[EDIT MODE] Processing extras:", allCartExtras)
-        console.log("[EDIT MODE] Available extras:", promoExtras.map(e => e.name))
         
         allCartExtras.forEach((extraStr) => {
           const parsed = parseItemString(extraStr)
-          console.log(`[EDIT MODE] Processing extra: "${extraStr}" -> ${JSON.stringify(parsed)}`)
           const found = promoExtras.find((e) => e.name.toLowerCase() === parsed.name.toLowerCase())
           if (found) {
             extrasMap[found.id] = parsed.quantity
-            console.log(`[EDIT MODE] ✓ Found extra: ${found.name} (ID: ${found.id})`)
-          } else {
-            console.log(`[EDIT MODE] ✗ Extra not found: ${parsed.name}`)
           }
         })
         setSelectedExtras(extrasMap)
-        console.log("[EDIT MODE] Final extrasMap:", extrasMap)
 
         // Set comments
         setComments(currentConfig.comments || "")
@@ -681,16 +599,13 @@ export default function PizzaConfigModal({
         // Set selected menu pizza for Premium/Promo
         if (currentConfig.selectedMenuPizza) {
           setSelectedMenuPizza(currentConfig.selectedMenuPizza)
-          console.log(`[EDIT MODE] Selected menu pizza: ${currentConfig.selectedMenuPizza}`)
         }
 
         // Set DUO pizzas if applicable
         if (activePizzaType === "duo") {
-          console.log("[EDIT MODE] Processing DUO pizzas")
           
           // Obtener pizzas disponibles para el tamaño seleccionado
           const availablePizzas = getAvailablePizzasForSize(selectedSize.id as "familiar" | "mediana");
-          console.log("[EDIT MODE] Available pizzas after filtering:", availablePizzas.map(p => p.name))
           
           if (currentConfig.pizza1) {
             const pizza1 = availablePizzas.find(
@@ -698,9 +613,7 @@ export default function PizzaConfigModal({
             )
             if (pizza1) {
               setSelectedPizza1(pizza1.id)
-              console.log(`[EDIT MODE] ✓ Found pizza1: ${pizza1.name} (ID: ${pizza1.id})`)
             } else {
-              console.log(`[EDIT MODE] ✗ Pizza1 not found or excluded: ${currentConfig.pizza1}`)
               setSelectedPizza1(null) // Resetear si la pizza ya no está disponible
             }
           }
@@ -710,15 +623,11 @@ export default function PizzaConfigModal({
             )
             if (pizza2) {
               setSelectedPizza2(pizza2.id)
-              console.log(`[EDIT MODE] ✓ Found pizza2: ${pizza2.name} (ID: ${pizza2.id})`)
             } else {
-              console.log(`[EDIT MODE] ✗ Pizza2 not found or excluded: ${currentConfig.pizza2}`)
               setSelectedPizza2(null) // Resetear si la pizza ya no está disponible
             }
           }
         }
-
-        console.log("--- [EDIT MODE] Load complete ---")
       }
 
       // Ejecutar con un pequeño delay para evitar bucles infinitos
@@ -846,10 +755,6 @@ export default function PizzaConfigModal({
   }
 
   const handleSave = async () => {
-    console.log("🎯 [INICIO HANDLE SAVE]")
-    console.log("🎯 activePizzaType:", activePizzaType)
-    console.log("🎯 selectedMenuPizza:", selectedMenuPizza)
-    console.log("🎯 selectedSize:", selectedSize.name)
     setIsAdding(true)
 
     if (activePizzaType === "duo") {
@@ -903,16 +808,9 @@ export default function PizzaConfigModal({
       }
 
       if (isEditing) {
-        console.log("[EDIT MODE] About to update DUO item")
-        console.log("[EDIT MODE] isEditing:", isEditing)
-        console.log("[EDIT MODE] currentConfig?.id:", currentConfig?.id)
-        console.log("[EDIT MODE] Payload ID:", cartItemPayload.id)
         updateItem(cartItemPayload)
-        console.log("[EDIT MODE] Updating DUO item:", cartItemPayload)
       } else {
-        console.log("[NEW] Adding new DUO item")
         addItem(cartItemPayload)
-        console.log("Adding new DUO item:", cartItemPayload)
       }
     } else {
       const pizzaName = `Pizza ${selectedSize.name} ${activePizzaType === "premium" ? "Premium" : "Promo"}`
@@ -932,38 +830,26 @@ export default function PizzaConfigModal({
         name: pizzaName,
         price: calculateTotal(),
         image: (() => {
-          console.log("🍕 [DEBUG IMAGEN] selectedMenuPizza:", selectedMenuPizza)
-          console.log("🍕 [DEBUG IMAGEN] activePizzaType:", activePizzaType)
-          console.log("🍕 [DEBUG IMAGEN] itemsMenu.length:", itemsMenu.length)
           
           // Si el usuario seleccionó una pizza del menú como base
           if (selectedMenuPizza && selectedMenuPizza !== "base") {
             const pizzaDelMenu = itemsMenu.find((item) => item.nombre === selectedMenuPizza)
-            console.log("🍕 [DEBUG IMAGEN] Buscando pizza:", selectedMenuPizza)
-            console.log("🍕 [DEBUG IMAGEN] pizzaDelMenu encontrada:", pizzaDelMenu?.nombre)
-            console.log("🍕 [DEBUG IMAGEN] pizzaDelMenu.imagen:", pizzaDelMenu?.imagen)
             
             if (pizzaDelMenu && pizzaDelMenu.imagen) {
               const finalPath = getPizzaImagePath(pizzaDelMenu.imagen, pizzaDelMenu.nombre)
-              console.log("🍕 [DEBUG IMAGEN] Path final generado:", finalPath)
               return finalPath
             } else if (pizzaDelMenu) {
               // Si encontramos la pizza pero no tiene imagen, usar el nombre para buscar en imageMap
-              console.log("⚠️ [DEBUG IMAGEN] Pizza encontrada sin imagen, buscando por nombre")
               const finalPath = getPizzaImagePath(undefined, pizzaDelMenu.nombre)
-              console.log("🍕 [DEBUG IMAGEN] Path fallback por nombre:", finalPath)
               return finalPath
             } else {
               // Si no encontramos la pizza en itemsMenu, intentar buscar directamente por el nombre seleccionado
-              console.log("⚠️ [DEBUG IMAGEN] Pizza no encontrada en itemsMenu, buscando por selectedMenuPizza")
               const finalPath = getPizzaImagePath(undefined, selectedMenuPizza)
-              console.log("🍕 [DEBUG IMAGEN] Path fallback directo:", finalPath)
               return finalPath
             }
           }
           // Si es completamente personalizada, usar imagen genérica
           const genericPath = activePizzaType === "promo" ? "/pizza-promo-bg.png" : "/pizza-premium-bg.png"
-          console.log("🍕 [DEBUG IMAGEN] Usando imagen genérica:", genericPath)
           return genericPath
         })(),
         quantity: 1, // Assuming quantity 1 for simplicity, or get from currentConfig if editing
@@ -1014,24 +900,9 @@ export default function PizzaConfigModal({
       }
 
       if (isEditing) {
-        console.log("[EDIT MODE] About to update regular item")
-        console.log("[EDIT MODE] isEditing:", isEditing)
-        console.log("[EDIT MODE] currentConfig?.id:", currentConfig?.id)
-        console.log("[EDIT MODE] Payload ID:", cartItemPayload.id)
         updateItem(cartItemPayload)
-        console.log("[EDIT MODE] Updating item:", cartItemPayload)
       } else {
-        console.log("[NEW] Adding new regular item")
-        console.log("🛒 [CARRITO] Item completo a agregar:")
-        console.table({
-          id: cartItemPayload.id,
-          name: cartItemPayload.name,
-          image: cartItemPayload.image,
-          price: cartItemPayload.price,
-          selectedMenuPizza: cartItemPayload.selectedMenuPizza
-        })
         addItem(cartItemPayload)
-        console.log("✅ Item agregado al carrito")
       }
     }
 
@@ -1120,7 +991,6 @@ export default function PizzaConfigModal({
               <h3 className="font-semibold text-gray-800 mb-3">MENU DE VARIEDADES</h3>
               <p className="text-sm text-red-600 mb-3">Elije la variedad u omite éste paso y continua con la base</p>
               <Select value={selectedMenuPizza} onValueChange={(value) => {
-                console.log("📌 [SELECTOR] Pizza seleccionada del menú:", value);
                 setSelectedMenuPizza(value);
                 // Si se selecciona "4 Quesos" o "Entre Ríos", cambiar automáticamente a Familiar
                 if (isPizzaSoloFamiliar(value) && selectedSize.id === "mediana") {
@@ -1373,13 +1243,6 @@ export default function PizzaConfigModal({
             {["SALSAS", "BEBIDAS", "AGREGADOS"].map((categoryTitle) => {
               const categoryKey = categoryTitle.toLowerCase().slice(0, -1) as "salsa" | "bebida" | "agregado"
               const itemsForCategory = promoExtras.filter((extra) => extra.category === categoryKey)
-              
-              console.log(`🎯 DEBUG: Renderizando ${categoryTitle}:`, {
-                categoryKey,
-                itemsTotal: promoExtras.length,
-                itemsEnCategoria: itemsForCategory.length,
-                items: itemsForCategory.map(i => i.name)
-              });
               
               if (itemsForCategory.length === 0) return null
               return (

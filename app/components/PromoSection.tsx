@@ -75,64 +75,36 @@ const formatItemName = (name: string): string => {
 
 // Función helper para obtener la ruta correcta de la imagen
 export const getImagePath = (itemName: string, defaultImage?: string): string => {
-  // 1. Intercepción fuerte: Detectar bebidas por nombre y forzar URL de Storage (Ignora rutas viejas en la BD)
-  const lowerName = normalizeText(itemName)
-  let bebidaFileName = ''
-  
-  if (lowerName.includes('lipton') && lowerName.includes('botella')) bebidaFileName = 'lipton_botella.jpg'
-  else if (lowerName.includes('lipton') && lowerName.includes('lata')) bebidaFileName = 'lipton_lata.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('1.5') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_1.5_litro_zero.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('1.5')) bebidaFileName = 'coca_cola_1.5_litro.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('lata') && lowerName.includes('zero')) bebidaFileName = 'coca_cola_lata_zero.jpg'
-  else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
-  
-  if (bebidaFileName) {
-    // Fallback al bucket conocido por si la variable de entorno no está cargada en el cliente
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
-  }
 
-  // 2. Intercepción para acompañamientos y salsas
-  let acompFileName = ''
-  if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
-  else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('ajo')) acompFileName = 'salsa_de_ajo.jpg'
-  else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
-
-  if (acompFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
-  }
-
-  // Si ya tiene una URL completa de Firebase Storage, usarla directamente
+  // 1. Si ya tiene una URL completa de Storage (subida desde panel admin), usarla directamente
   if (defaultImage && defaultImage.includes('firebasestorage.googleapis.com')) {
     return defaultImage
   }
 
-  // Si es una ruta local hardcodeada (pizzas o bebidas), convertimos dinámicamente a Firebase Storage
-  if (defaultImage && (defaultImage.startsWith('/bebidas/') || defaultImage.startsWith('/pizzas/')) && !defaultImage.includes('placeholder')) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-    if (bucket) {
-      const folderName = defaultImage.startsWith('/pizzas/') ? 'pizzas' : 'bebidas'
-      const fileName = defaultImage.split('/').pop() || ''
-      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${folderName}%2F${encodeURIComponent(fileName)}?alt=media`
+  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com'
+  const lowerName = normalizeText(itemName || '')
+  
+  // 2. Si la DB tiene una ruta local (ej. /bebidas/coca.png), usar los nombres EXACTOS de la DB
+  // Esto previene errores de extensión (.png vs .jpg) y uso de mayúsculas
+  if (defaultImage && !defaultImage.includes('placeholder') && !defaultImage.startsWith('http')) {
+    if (defaultImage.startsWith('/iconos/')) return defaultImage;
+    const parts = defaultImage.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      let folder = parts[0]; 
+      const fileName = parts.slice(1).join('/');
+      
+      const isBebidaFallback = lowerName.includes('sprite') || lowerName.includes('fanta') || lowerName.includes('jugo') || lowerName.includes('bebida') || lowerName.includes('lata') || lowerName.includes('botella');
+      const isAcompFallback = lowerName.includes('salsa') || lowerName.includes('empanada') || lowerName.includes('palo');
+      
+      if (isBebidaFallback) folder = 'bebidas';
+      else if (isAcompFallback) folder = 'acompañamientos';
+      
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(folder)}%2F${encodeURIComponent(fileName)}?alt=media`;
+      return url;
     }
   }
   
-  // Si ya tiene una ruta de imagen válida para iconos (locales) y NO es placeholder
-  if (defaultImage && defaultImage.startsWith('/iconos/') && !defaultImage.includes('placeholder')) {
-    // Codificar espacios en el nombre del archivo
-    const parts = defaultImage.split('/')
-    const fileName = parts[parts.length - 1]
-    const encodedFileName = encodeURIComponent(fileName)
-    parts[parts.length - 1] = encodedFileName
-    return parts.join('/')
-  }
-  
-  // Si es un placeholder o no tiene defaultImage, buscar en el imageMap
-  // Limpiar el nombre: remover tamaños entre paréntesis y variantes
+  // 3. Fallbacks estrictos por nombre si no hay imagen en BD (como último recurso)
   const cleanName = itemName
     .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '')
     .replace(/\s*(Tradicional|Zero)$/gi, '')
@@ -143,14 +115,22 @@ export const getImagePath = (itemName: string, defaultImage?: string): string =>
   const normalizedName = normalizeText(cleanName)
   const mappedName = imageMap[normalizedName] || normalizedName
   
-  const isBebida = ['coca_cola_lata', 'coca_cola_lata_zero', 'coca_cola_1.5_litro', 'coca_cola_1.5_litro_zero', 'lipton_lata', 'lipton_botella'].includes(mappedName)
-  const folder = isBebida ? 'bebidas' : 'pizzas'
+  const isBebidaFallback = ['coca_cola_lata', 'coca_cola_lata_zero', 'coca_cola_1.5_litro', 'coca_cola_1.5_litro_zero', 'lipton_lata', 'lipton_botella'].includes(mappedName) || 
+                           normalizedName.includes('coca') || normalizedName.includes('sprite') || normalizedName.includes('fanta') || normalizedName.includes('jugo') || normalizedName.includes('bebida') || normalizedName.includes('lata') || normalizedName.includes('botella');
+  
+  const isAcompFallback = ['canela', 'gauchitos', 'salsa_de_ajo', 'salsa_chimichurri', 'salsa_bbq', 'salsa_pesto'].includes(mappedName) || 
+                          normalizedName.includes('salsa') || normalizedName.includes('empanada') || normalizedName.includes('palo') || normalizedName.includes('rollito') || normalizedName.includes('gauchito');
+  
+  let folder = 'pizzas';
+  if (isBebidaFallback) folder = 'bebidas';
+  else if (isAcompFallback) folder = 'acompañamientos';
 
-  // Forzamos usar el bucket de Storage para todo (pizzas y bebidas)
-  const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
-  return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${folder}%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`
+  const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(folder)}%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`;
+  return url;
 }
 
+/*
+// Promos y combos guardados como referencia hasta que se configuren en la BD
 const promos = [
   {
     id: 1,
@@ -219,370 +199,7 @@ const combos = [
     category: "Combos",
   },
 ]
-
-const pizzasPalermo = [
-  {
-    id: 101,
-    name: "Chilena",
-    description: "Salsa, queso, carne de vacuno, tomate fresco, aceitunas, cebolla morada, orégano",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 102,
-    name: "Bariloche",
-    description: "Salsa, queso, vacuno asado desmechado, tocino, choricillo, aceitunas, pimentón, orégano",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 103,
-    name: "Buenos Aires",
-    description: "Salsa, queso, mechada de vacuno, champiñón, choricillo, aceitunas negras, orégano",
-    price: 16900,
-    mediumPrice: 13500,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 104,
-    name: "Cuyana",
-    description: "Salsa, queso, pechuga de pollo, choricillo, pimentón, tocino, orégano",
-    price: 15900,
-    mediumPrice: 13500,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 105,
-    name: "4 Estaciones",
-    description: "Mechada, pollo BBQ, Amalfitana, Hawaiana",
-    price: 15900,
-    mediumPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 106,
-    name: "Sevillana",
-    description: "Salsa, queso, jamón serrano, aceituna sevillana, cebolla morada, choricillo, rúcula, orégano",
-    price: 16900,
-    mediumPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 107,
-    name: "Amalfitana",
-    description: "Salsa, queso, jamón artesanal, aceitunas negras, pesto de albahaca, rúcula, orégano",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 108,
-    name: "Calabresa",
-    description: "Salsa, queso, tomate fresco, chorizo calabresa, chorizo artesanal, aceitunas negras, orégano",
-    price: 16900,
-    mediumPrice: 13500,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 109,
-    name: "Entre Ríos",
-    description: "Salsa, queso, tomate fresco, camarón al ajillo, aceitunas verdes, toque de perejil, orégano",
-    price: 17900,
-    mediumPrice: null,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 110,
-    name: "Patagonia",
-    description: "Salsa, queso, tomate fresco, salmón ahumado, aceitunas verdes, rúcula, alcaparras, orégano",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 111,
-    name: "Puerto Madryn",
-    description: "Salsa bechamel (blanca), queso, espinaca fresca, filete de atún a la mantequilla, champiñón, eneldo",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 112,
-    name: "Recoleta",
-    description: "Salsa, queso gouda, queso azul, mermelada de cebolla",
-    price: 16900,
-    mediumPrice: 13500,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 113,
-    name: "4 Quesos",
-    description: "Salsa bechamel, queso gouda, queso azul, queso grana padano, queso de cabra",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 114,
-    name: "Neuquén",
-    description: "Salsa, queso, queso de cabra, tomate fresco, pesto de albahaca, orégano (ajo opcional)",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 115,
-    name: "La Rioja",
-    description: "Salsa, queso, nueces, queso azul, miel de abeja",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 116,
-    name: "Cordobesa",
-    description: "Salsa, queso, láminas de zapallo italiano, arándanos frescos, queso azul",
-    price: 16900,
-    mediumPrice: 13500,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 117,
-    name: "Luján",
-    description: "Salsa, queso, jamón serrano, rúcula, tomate fresco, queso grana padano, orégano",
-    price: 17900,
-    mediumPrice: 13900,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 118,
-    name: "Hawaiana",
-    description: "Salsa, queso, jamón artesanal, piña caramelizada en panela, shot de caramelo",
-    price: 13900,
-    mediumPrice: 12000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 119,
-    name: "Veggie 1",
-    description: "Salsa, queso, choclo, champiñón, espárragos, pesto de albahaca, rúcula, orégano",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 120,
-    name: "Veggie 2",
-    description: "Salsa, queso, champiñón salteado al ajillo, aceitunas negras, cebolla morada, orégano",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-  {
-    id: 121,
-    name: "Messi",
-    description: "Salsa, extra queso, tomate fresco, cebolla morada, aceitunas verdes, orégano",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Palermo",
-  },
-]
-
-const pizzasTradicionales = [
-  {
-    id: 201,
-    name: "Pepperoni Cheese",
-    description: "Salsa tomate, doble queso, doble pepperoni americano, orégano",
-    price: 14500,
-    mediumPrice: 12000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 202,
-    name: "Centroamericana",
-    description: "Salsa tomate, doble queso, jamón, choclo, pimentón, tocino, orégano",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 203,
-    name: "Napolitana",
-    description: "Salsa tomate, queso, jamón, aceituna negra, orégano",
-    price: 10000,
-    mediumPrice: 8500,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 204,
-    name: "Pesto Margarita",
-    description: "Salsa tomate, doble queso, tomate fresco, orégano, pesto de albahaca",
-    price: 14500,
-    mediumPrice: 12000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 205,
-    name: "Chicken BBQ",
-    description: "Salsa tomate, queso, pechuga de pollo, salsa bbq, cebolla morada, tocino",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 206,
-    name: "Doble Muzza",
-    description: "Salsa tomate, doble queso, aceituna verde, chimichurri, orégano",
-    price: 13000,
-    mediumPrice: 10000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 207,
-    name: "De Charly",
-    description: "Salsa tomate, doble queso, salame, choclo, aceituna negra, orégano",
-    price: 15900,
-    mediumPrice: 13000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-  {
-    id: 208,
-    name: "Del Pibe",
-    description: "Salsa tomate, doble queso, jamón artesanal, orégano",
-    price: 14500,
-    mediumPrice: 12000,
-    image: "/placeholder.svg?height=200&width=200",
-    category: "Pizzas Tradicionales",
-  },
-]
-
-const acompanamientos = [
-  {
-    id: 15,
-    name: "Rollitos de Canela",
-    description: "Pack de 4 rollitos de canela, dos cobertura glasé canela y dos de chocolate",
-    price: 4900,
-    originalPrice: null,
-    image: "/acompañamientos/canela.jpg",
-    category: "Acompañamientos",
-  },
-  {
-    id: 16,
-    name: "Gauchitos",
-    description: "Nuestra versión de palitos de ajo al estilo Tortafrita Argentina",
-    price: 4000,
-    originalPrice: null,
-    image: "/acompañamientos/gauchitos.jpg",
-    category: "Acompañamientos",
-  },
-  {
-    id: 17,
-    name: "Salsa de Ajo",
-    description: "Deliciosa salsa de ajo para acompañar tus pizzas",
-    price: 700,
-    originalPrice: null,
-    image: "/acompañamientos/salsa_de_ajo.jpg",
-    category: "Acompañamientos",
-  },
-  {
-    id: 18,
-    name: "Salsa Chimichurri",
-    description: "Tradicional salsa chimichurri argentina",
-    price: 700,
-    originalPrice: null,
-    image: "/acompañamientos/salsa_chimichurri.jpg",
-    category: "Acompañamientos",
-  },
-  {
-    id: 19,
-    name: "Salsa BBQ",
-    description: "Salsa barbacoa dulce y ahumada",
-    price: 700,
-    originalPrice: null,
-    image: "/acompañamientos/salsa_bbq.jpg",
-    category: "Acompañamientos",
-  },
-  {
-    id: 20,
-    name: "Salsa Pesto",
-    description: "Salsa pesto de albahaca fresca",
-    price: 1000,
-    originalPrice: null,
-    image: "/acompañamientos/salsa_pesto.jpg",
-    category: "Acompañamientos",
-  },
-  // bebidas moved to the `bebidas` array below
-]
-
-const bebidas = [
-  {
-    id: 401,
-    name: "Coca Cola Lata 350cc",
-    description: "Disfruta el sabor de tu bebida Coca Cola en lata de 350cc",
-    price: 1500,
-    originalPrice: null,
-    image: "/bebidas/coca_cola_lata.jpg",
-    category: "Bebidas",
-  },
-  {
-    id: 403,
-    name: "Coca Cola Zero Lata 350cc",
-    description: "Disfruta el sabor de tu bebida Coca Cola Zero en lata de 350cc",
-    price: 1500,
-    originalPrice: null,
-    image: "/bebidas/coca_cola_lata_zero.jpg",
-    category: "Bebidas",
-  },
-  {
-    id: 402,
-    name: "Coca Cola 1.5 Litro",
-    description: "Disfruta el sabor de tu bebida Coca Cola en botella de 1.5 litros",
-    price: 2900,
-    originalPrice: null,
-    image: "/bebidas/coca_cola_1.5_litro.jpg",
-    category: "Bebidas",
-  },
-  {
-    id: 404,
-    name: "Coca Cola Zero 1.5 Litro",
-    description: "Disfruta el sabor de tu bebida Coca Cola Zero en botella de 1.5 litros",
-    price: 2900,
-    originalPrice: null,
-    image: "/bebidas/coca_cola_1.5_litro_zero.jpg",
-    category: "Bebidas",
-  },
-]
+*/
 
 export default function PromoSection() {
   const [activeCategory, setActiveCategory] = useState<string | null>("Todas las Pizzas")
@@ -597,7 +214,7 @@ export default function PromoSection() {
     { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne", icon: "/iconos/tradicionales.svg", iconLabel: "TRADICIONALES" },
     { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar", icon: "/iconos/mar.svg", iconLabel: "DEL MAR" },
     { key: "Quiero armar mi pizza", label: "🍕 Armar tu Pizza", href: "/armar-pizza-nueva", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
-    { key: "Combos", label: "🎁 Combos", icon: "/iconos/combos.svg", iconLabel: "COMBOS" },
+    // { key: "Combos", label: "🎁 Combos", icon: "/iconos/combos.svg", iconLabel: "COMBOS" }, // Oculto hasta que se configuren combos en la Base de Datos
     { key: "Acompañamientos", label: "🍟 Acompañamientos", icon: "/iconos/agregados.svg", iconLabel: "AGREGADOS" },
     { key: "Bebidas", label: "🥤 Bebidas", icon: "/iconos/bebidas.svg", iconLabel: "BEBIDAS" },
   ]
@@ -687,34 +304,14 @@ export default function PromoSection() {
     // Other categories: try to match by categoria field
     switch (activeCategory) {
       case "Combos":
-        return combos
+        return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Combos").map(mapFirestoreItemToUI)
       case "Promos":
-        return promos
+        return activeItems.filter((it: any) => (it.categoria || it.category || "").includes("Promo")).map(mapFirestoreItemToUI)
       case "Acompañamientos": {
-        const acompanamientosFromFirestore = activeItems
-          .filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos")
-          .map(mapFirestoreItemToUI)
-          
-        const mergedAcomps: any[] = [...acompanamientosFromFirestore]
-        acompanamientos.forEach(localAcomp => {
-          if (!mergedAcomps.some(a => a.name.toLowerCase() === localAcomp.name.toLowerCase())) {
-            mergedAcomps.push(localAcomp)
-          }
-        })
-        return mergedAcomps
+        return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos").map(mapFirestoreItemToUI)
       }
       case "Bebidas": {
-        const bebidasFromFirestore = activeItems
-          .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
-          .map(mapFirestoreItemToUI)
-          
-        const mergedBebidas: any[] = [...bebidasFromFirestore]
-        bebidas.forEach(localBebida => {
-          if (!mergedBebidas.some(b => b.name.toLowerCase() === localBebida.name.toLowerCase())) {
-            mergedBebidas.push(localBebida)
-          }
-        })
-        return mergedBebidas
+        return activeItems.filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid")).map(mapFirestoreItemToUI)
       }
       case "Pizzas Palermo":
         return activeItems
@@ -725,7 +322,7 @@ export default function PromoSection() {
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("tradicional") || (it.categoria || it.category || "").toLowerCase().includes("clasica"))
           .map(mapFirestoreItemToUI)
       default:
-        return promos
+        return []
     }
   }
 
