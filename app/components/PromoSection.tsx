@@ -615,7 +615,7 @@ export default function PromoSection() {
                       fill
                       sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
+                      loading="eager"
                       quality={75}
                       onError={(e: any) => {
                         if (!e.currentTarget.src.includes("placeholder.svg")) {

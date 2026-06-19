@@ -252,78 +252,87 @@ export default function PagosReport({ orders }: PagosReportProps) {
               </TableHeader>
               <TableBody>
                 {txFiltered.length > 0 ? (
-                  txFiltered.map((order) => (
-                    <TableRow key={order.id} className="dark:border-gray-700">
-                      <TableCell className="font-medium">
-                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
-                          <span>#{order.orderNumber}</span>
+                  txFiltered.map((order) => {
+                    const isPaid = order.paymentStatus === "paid" || (order.metodoPago === "Efectivo" && order.estado === "Entregado");
+                    const isCancelledPayment = order.metodoPago === "Efectivo" && order.estado === "Cancelado";
+                    return (
+                      <TableRow key={order.id} className="dark:border-gray-700">
+                        <TableCell className="font-medium">
+                          <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
+                            <span>#{order.orderNumber}</span>
+                            <Badge 
+                              variant="outline" 
+                              className={
+                                order.paymentStatus === "refunded" ? "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 text-[10px] font-normal px-1.5 py-0" :
+                                order.estado === "Entregado" ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] font-normal px-1.5 py-0" :
+                                order.estado === "Cancelado" ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 text-[10px] font-normal px-1.5 py-0" :
+                                "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 text-[10px] font-normal px-1.5 py-0"
+                              }
+                            >
+                              {order.paymentStatus === "refunded" ? "Reembolsado" : order.estado}
+                            </Badge>
+                          </div>
+                        </TableCell>
+                        <TableCell>{formatOrderDate(order)}</TableCell>
+                        <TableCell>
+                          <span className="flex items-center gap-1">
+                            {order.metodoPago === "Webpay Plus" ? <CreditCard className="w-4 h-4 text-blue-500" /> : 
+                             order.metodoPago === "Efectivo" ? <Banknote className="w-4 h-4 text-emerald-500" /> : 
+                             <Building className="w-4 h-4 text-purple-500" />}
+                            {order.metodoPago}
+                          </span>
+                        </TableCell>
+                        <TableCell>
                           <Badge 
                             variant="outline" 
                             className={
-                              order.paymentStatus === "refunded" ? "bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 text-[10px] font-normal px-1.5 py-0" :
-                              order.estado === "Entregado" ? "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 text-[10px] font-normal px-1.5 py-0" :
-                              order.estado === "Cancelado" ? "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 text-[10px] font-normal px-1.5 py-0" :
-                              "bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-300 text-[10px] font-normal px-1.5 py-0"
+                              isPaid ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200" :
+                              isCancelledPayment ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200" :
+                              order.paymentStatus === "refunded" ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200" :
+                              order.paymentStatus === "failed" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200" :
+                              "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200"
                             }
                           >
-                            {order.paymentStatus === "refunded" ? "Reembolsado" : order.estado}
+                            {isPaid ? "Pagado" : 
+                             isCancelledPayment ? "Cancelado" : 
+                             order.paymentStatus === "refunded" ? "Reembolsado" : 
+                             order.paymentStatus === "failed" ? "Fallido" : 
+                             "Pendiente"}
                           </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell>{formatOrderDate(order)}</TableCell>
-                      <TableCell>
-                        <span className="flex items-center gap-1">
-                          {order.metodoPago === "Webpay Plus" ? <CreditCard className="w-4 h-4 text-blue-500" /> : 
-                           order.metodoPago === "Efectivo" ? <Banknote className="w-4 h-4 text-emerald-500" /> : 
-                           <Building className="w-4 h-4 text-purple-500" />}
-                          {order.metodoPago}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant="outline" 
-                          className={
-                            order.paymentStatus === "paid" ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 border-green-200" :
-                            order.paymentStatus === "refunded" ? "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 border-purple-200" :
-                            order.paymentStatus === "failed" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 border-red-200" :
-                            "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400 border-yellow-200"
-                          }
-                        >
-                          {order.paymentStatus === "paid" ? "Pagado" : order.paymentStatus === "refunded" ? "Reembolsado" : order.paymentStatus === "failed" ? "Fallido" : "Pendiente"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>${order.total.toLocaleString()}</TableCell>
-                      {metodoFilter === "Webpay Plus" && (
-                        <>
-                          <TableCell>
-                            <Badge variant="outline" className={
-                              order.webpay?.status === "approved" ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" :
-                              order.webpay?.status === "rejected" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" :
-                              "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
-                            }>
-                              {order.webpay?.status === "approved" ? "Aprobado" : order.webpay?.status === "rejected" ? "Rechazado" : "Pendiente"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-mono text-xs text-gray-500">{order.webpay?.authorizationCode || "-"}</TableCell>
-                          <TableCell className="font-mono text-xs">{order.webpay?.cardDetail?.card_number ? `**** ${order.webpay?.cardDetail?.card_number}` : "-"}</TableCell>
-                          <TableCell className="text-center">
-                            {order.paymentStatus === "paid" && order.webpay?.token && (
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleRefund(order.id)}
-                                disabled={refunding === order.id}
-                                className="h-7 text-xs px-2"
-                              >
-                                {refunding === order.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCcw className="w-3 h-3 mr-1" />}
-                                Reembolsar
-                              </Button>
-                            )}
-                          </TableCell>
-                        </>
-                      )}
-                    </TableRow>
-                  ))
+                        </TableCell>
+                        <TableCell>${order.total.toLocaleString()}</TableCell>
+                        {metodoFilter === "Webpay Plus" && (
+                          <>
+                            <TableCell>
+                              <Badge variant="outline" className={
+                                order.webpay?.status === "approved" ? "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400" :
+                                order.webpay?.status === "rejected" ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" :
+                                "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+                              }>
+                                {order.webpay?.status === "approved" ? "Aprobado" : order.webpay?.status === "rejected" ? "Rechazado" : "Pendiente"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs text-gray-500">{order.webpay?.authorizationCode || "-"}</TableCell>
+                            <TableCell className="font-mono text-xs">{order.webpay?.cardDetail?.card_number ? `**** ${order.webpay?.cardDetail?.card_number}` : "-"}</TableCell>
+                            <TableCell className="text-center">
+                              {order.paymentStatus === "paid" && order.webpay?.token && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleRefund(order.id)}
+                                  disabled={refunding === order.id}
+                                  className="h-7 text-xs px-2"
+                                >
+                                  {refunding === order.id ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCcw className="w-3 h-3 mr-1" />}
+                                  Reembolsar
+                                </Button>
+                              )}
+                            </TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    );
+                  })
                 ) : (
                   <TableRow>
                     <TableCell colSpan={metodoFilter === "Webpay Plus" ? 9 : 5} className="h-24 text-center">

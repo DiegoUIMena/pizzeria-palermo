@@ -29,133 +29,97 @@ export const useAlarms = () => {
 export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [alarmaActiva, setAlarmaActiva] = useState(false);
   const intervaloAlarmaRef = useRef<number | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const bufferNuevoPedidoRef = useRef<AudioBuffer | null>(null);
-  const bufferTiempoCriticoRef = useRef<AudioBuffer | null>(null);
+  
+  // Referencias a los audios HTML5 pre-cargados
+  const audioNuevoPedidoRef = useRef<HTMLAudioElement | null>(null);
+  const audioTiempoCriticoRef = useRef<HTMLAudioElement | null>(null);
+  
   const audioDesbloqueadoRef = useRef(false);
   const contadorTiempoCriticoRef = useRef<Map<string, number>>(new Map()); // Contador por pedido
   const ultimaReproduccionRef = useRef<Map<string, number>>(new Map()); // Timestamp de última reproducción por pedido
-  const sourcesActivosRef = useRef<AudioBufferSourceNode[]>([]); // Referencias a sources de audio activos
+  const sourcesActivosRef = useRef<HTMLAudioElement[]>([]); // Referencias a audios activos
   const alarmaNuevoPedidoPendienteRef = useRef(false);
   const alarmasTiempoCriticoPendientesRef = useRef<Set<string>>(new Set());
   const avisoBloqueoMostradoRef = useRef(false);
 
-  // Pre-cargar los audios en buffers (mucho más rápido)
+  // Pre-cargar los audios usando elementos HTML5 estándar (altamente compatible con pestañas en segundo plano)
   useEffect(() => {
-    const initAudio = async () => {
-      try {
-        // Crear contexto de audio
-        audioContextRef.current = new AudioContext();
-        
-        // Cargar y decodificar audio de nuevo pedido
-        const responseNuevoPedido = await fetch('/sounds/nuevo_pedido.mp3');
-        const arrayBufferNuevoPedido = await responseNuevoPedido.arrayBuffer();
-        bufferNuevoPedidoRef.current = await audioContextRef.current.decodeAudioData(arrayBufferNuevoPedido);
-        
-        // Cargar y decodificar audio de tiempo crítico
-        const responseTiempoCritico = await fetch('/sounds/tiempo_limite.mp3');
-        const arrayBufferTiempoCritico = await responseTiempoCritico.arrayBuffer();
-        bufferTiempoCriticoRef.current = await audioContextRef.current.decodeAudioData(arrayBufferTiempoCritico);
-        
-        console.log("✅ Audios pre-cargados en memoria");
-      } catch (error) {
-        console.error("Error al pre-cargar audios:", error);
-      }
-    };
-    
-    initAudio();
-    
-    const reproducirDesdeBuffer = (buffer: AudioBuffer, volume: number) => {
-      if (!audioContextRef.current) return;
+    if (typeof window !== "undefined") {
+      audioNuevoPedidoRef.current = new Audio('/sounds/nuevo_pedido.mp3');
+      audioNuevoPedidoRef.current.preload = 'auto';
+      audioNuevoPedidoRef.current.load();
 
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = buffer;
+      audioTiempoCriticoRef.current = new Audio('/sounds/tiempo_limite.mp3');
+      audioTiempoCriticoRef.current.preload = 'auto';
+      audioTiempoCriticoRef.current.load();
 
-      const gainNode = audioContextRef.current.createGain();
-      gainNode.gain.value = volume;
-
-      source.connect(gainNode);
-      gainNode.connect(audioContextRef.current.destination);
-      source.start(0);
-
-      sourcesActivosRef.current.push(source);
-      source.onended = () => {
-        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== source);
-      };
-    };
+      console.log("✅ Audios HTML5 pre-cargados en memoria");
+    }
 
     const procesarAlarmasPendientes = () => {
       if (alarmaNuevoPedidoPendienteRef.current) {
         alarmaNuevoPedidoPendienteRef.current = false;
-        if (bufferNuevoPedidoRef.current) {
-          reproducirDesdeBuffer(bufferNuevoPedidoRef.current, 0.7);
-          console.log("🔊 Alarma de nuevo pedido reproducida (pendiente)");
-        }
+        reproducirAlarmaNuevoPedido();
       }
 
       if (alarmasTiempoCriticoPendientesRef.current.size > 0) {
-        const pendientes = alarmasTiempoCriticoPendientesRef.current.size;
+        const pendientes = [...alarmasTiempoCriticoPendientesRef.current];
         alarmasTiempoCriticoPendientesRef.current.clear();
-        if (bufferTiempoCriticoRef.current) {
-          reproducirDesdeBuffer(bufferTiempoCriticoRef.current, 0.8);
-          console.log(`🔊 Alarma de tiempo crítico reproducida (pendiente x${pendientes})`);
-        }
+        pendientes.forEach(id => {
+          reproducirAlarmaTiempoAgotandose(id);
+        });
       }
     };
 
     // Desbloquear audio con cualquier interacción del usuario
-    const desbloquearAudio = async () => {
-      if (audioContextRef.current && !audioDesbloqueadoRef.current) {
-        // Resumir el contexto si está suspendido
-        if (audioContextRef.current.state === 'suspended') {
-          try {
-            await audioContextRef.current.resume();
-          } catch (error) {
-            // Si falla el resume, esperamos al siguiente gesto del usuario.
-            return;
-          }
-        }
-
-        if (audioContextRef.current.state !== 'running') {
-          return;
-        }
-
-        audioDesbloqueadoRef.current = true;
-        avisoBloqueoMostradoRef.current = false;
-        console.log("🔓 Audio desbloqueado por interacción del usuario");
-        procesarAlarmasPendientes();
-        
-        // Remover listeners después de desbloquear
-        document.removeEventListener('click', desbloquearAudio);
-        document.removeEventListener('keydown', desbloquearAudio);
-        document.removeEventListener('touchstart', desbloquearAudio);
+    const desbloquearAudio = () => {
+      audioDesbloqueadoRef.current = true;
+      avisoBloqueoMostradoRef.current = false;
+      console.log("🔓 Audio HTML5 desbloqueado por interacción del usuario");
+      
+      // Inicializar el canal de audio con una reproducción silenciosa
+      if (audioNuevoPedidoRef.current) {
+        const silentPlay = audioNuevoPedidoRef.current.cloneNode(true) as HTMLAudioElement;
+        silentPlay.volume = 0;
+        silentPlay.play().catch(() => {});
       }
+      
+      procesarAlarmasPendientes();
+      
+      // Remover listeners después de desbloquear
+      document.removeEventListener('click', desbloquearAudio);
+      document.removeEventListener('keydown', desbloquearAudio);
+      document.removeEventListener('touchstart', desbloquearAudio);
     };
     
     // Agregar listeners para desbloquear.
-    // No usamos { once: true } porque el primer gesto puede ocurrir antes de que el audio termine de cargarse.
     document.addEventListener('click', desbloquearAudio);
     document.addEventListener('keydown', desbloquearAudio);
     document.addEventListener('touchstart', desbloquearAudio);
     
     return () => {
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
       document.removeEventListener('click', desbloquearAudio);
       document.removeEventListener('keydown', desbloquearAudio);
       document.removeEventListener('touchstart', desbloquearAudio);
+      
+      // Detener cualquier audio activo al desmontar
+      sourcesActivosRef.current.forEach(audio => {
+        try {
+          audio.pause();
+        } catch {}
+      });
     };
   }, []);
 
-  // Alarma para nuevo pedido (reproducción instantánea)
-  const reproducirAlarmaNuevoPedido = useCallback(async () => {
+  // Alarma para nuevo pedido (reproducción instantánea compatible con segundo plano)
+  const reproducirAlarmaNuevoPedido = useCallback(() => {
     try {
-      if (!audioContextRef.current || !bufferNuevoPedidoRef.current) {
-        console.warn("Audio aún no cargado");
+      if (!audioNuevoPedidoRef.current) {
+        console.warn("Audio de nuevo pedido aún no cargado");
         return;
       }
 
+      // Si el navegador bloquea la reproducción por falta de interacción
       if (!audioDesbloqueadoRef.current) {
         alarmaNuevoPedidoPendienteRef.current = true;
         if (!avisoBloqueoMostradoRef.current) {
@@ -165,35 +129,20 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
       
-      // Asegurar que el contexto esté activo
-      if (audioContextRef.current.state === 'suspended') {
-        try {
-          await audioContextRef.current.resume();
-        } catch {
-          alarmaNuevoPedidoPendienteRef.current = true;
-          return;
-        }
-      }
+      // Clonar el nodo de audio para permitir reproducciones simultáneas sin interrumpirse
+      const clone = audioNuevoPedidoRef.current.cloneNode(true) as HTMLAudioElement;
+      clone.volume = 0.7; // Volumen al 70%
       
-      // Crear source desde el buffer (instantáneo)
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = bufferNuevoPedidoRef.current;
-      
-      // Crear gain node para controlar volumen
-      const gainNode = audioContextRef.current.createGain();
-      gainNode.gain.value = 0.7; // Volumen al 70% para evitar saturación
-      
-      source.connect(gainNode);
-      gainNode.connect(audioContextRef.current.destination);
-      source.start(0);
-      
-      // Guardar referencia del source activo
-      sourcesActivosRef.current.push(source);
-      
-      // Remover de la lista cuando termine
-      source.onended = () => {
-        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== source);
+      sourcesActivosRef.current.push(clone);
+      clone.onended = () => {
+        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== clone);
       };
+      
+      // El método .play() en HTML5 Audio es tolerado en pestañas inactivas si el dominio está desbloqueado
+      clone.play().catch(error => {
+        console.warn("🔊 Alarma de nuevo pedido bloqueada temporalmente en segundo plano:", error.message);
+        alarmaNuevoPedidoPendienteRef.current = true;
+      });
       
       console.log("🔊 Alarma de nuevo pedido reproducida");
     } catch (error) {
@@ -202,9 +151,8 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   // Alarma para tiempo agotándose (reproducción instantánea) - Solo 2 veces por pedido
-  const reproducirAlarmaTiempoAgotandose = useCallback(async (pedidoId?: string) => {
+  const reproducirAlarmaTiempoAgotandose = useCallback((pedidoId?: string) => {
     try {
-      // Si no se proporciona pedidoId, usar 'default' como fallback
       const id = pedidoId || 'default';
       
       // Verificar si se reprodujo hace menos de 3 segundos (evitar duplicados)
@@ -212,8 +160,7 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const ultimaReproduccion = ultimaReproduccionRef.current.get(id) || 0;
       const tiempoDesdeUltima = ahora - ultimaReproduccion;
       
-      if (tiempoDesdeUltima < 3000) { // 3 segundos de margen
-        console.log(`⏸️ Ignorando alarma de tiempo crítico para pedido ${id} (última hace ${Math.floor(tiempoDesdeUltima / 1000)}s)`);
+      if (tiempoDesdeUltima < 3000) {
         return;
       }
       
@@ -226,49 +173,28 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
       
-      if (!audioContextRef.current || !bufferTiempoCriticoRef.current) {
-        console.warn("Audio aún no cargado");
+      if (!audioTiempoCriticoRef.current) {
+        console.warn("Audio de tiempo crítico aún no cargado");
         return;
       }
 
       if (!audioDesbloqueadoRef.current) {
         alarmasTiempoCriticoPendientesRef.current.add(id);
-        if (!avisoBloqueoMostradoRef.current) {
-          avisoBloqueoMostradoRef.current = true;
-          console.warn("⚠️ Audio bloqueado por el navegador. Haz clic en la página de admin para activar las alarmas.");
-        }
         return;
       }
       
-      // Asegurar que el contexto esté activo
-      if (audioContextRef.current.state === 'suspended') {
-        try {
-          await audioContextRef.current.resume();
-        } catch {
-          alarmasTiempoCriticoPendientesRef.current.add(id);
-          return;
-        }
-      }
+      const clone = audioTiempoCriticoRef.current.cloneNode(true) as HTMLAudioElement;
+      clone.volume = 0.8; // Volumen al 80%
       
-      // Crear source desde el buffer (instantáneo)
-      const source = audioContextRef.current.createBufferSource();
-      source.buffer = bufferTiempoCriticoRef.current;
-      
-      // Crear gain node para controlar volumen
-      const gainNode = audioContextRef.current.createGain();
-      gainNode.gain.value = 0.8; // Volumen al 80%
-      
-      source.connect(gainNode);
-      gainNode.connect(audioContextRef.current.destination);
-      source.start(0);
-      
-      // Guardar referencia del source activo
-      sourcesActivosRef.current.push(source);
-      
-      // Remover de la lista cuando termine
-      source.onended = () => {
-        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== source);
+      sourcesActivosRef.current.push(clone);
+      clone.onended = () => {
+        sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== clone);
       };
+      
+      clone.play().catch(error => {
+        console.warn(`🔊 Alarma de tiempo crítico para ${id} bloqueada en segundo plano:`, error.message);
+        alarmasTiempoCriticoPendientesRef.current.add(id);
+      });
       
       // Incrementar contador y actualizar timestamp
       contadorTiempoCriticoRef.current.set(id, contadorActual + 1);
@@ -289,7 +215,6 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Función para iniciar la alarma repetitiva
   const iniciarAlarmaRepetitiva = useCallback(() => {
     if (intervaloAlarmaRef.current !== null) {
-      console.log("⚠️ Alarma repetitiva ya está activa, ignorando duplicado");
       return; // La alarma ya está activa
     }
     
@@ -299,10 +224,10 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Ejecutar la alarma inmediatamente la primera vez
     reproducirAlarmaNuevoPedido();
     
-    // Configurar intervalo para repetir la alarma cada 5 segundos (aumentado de 3s)
+    // Configurar intervalo para repetir la alarma cada 5 segundos
     intervaloAlarmaRef.current = window.setInterval(() => {
       reproducirAlarmaNuevoPedido();
-    }, 5000); // Aumentado a 5 segundos para evitar saturación
+    }, 5000);
   }, [reproducirAlarmaNuevoPedido]);
 
   // Función para detener la alarma repetitiva
@@ -316,12 +241,13 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Función para detener INMEDIATAMENTE todos los audios en reproducción
   const detenerAudiosInmediatamente = useCallback(() => {
-    // Detener todos los sources activos
-    sourcesActivosRef.current.forEach(source => {
+    // Detener todos los audios activos
+    sourcesActivosRef.current.forEach(audio => {
       try {
-        source.stop();
+        audio.pause();
+        audio.currentTime = 0;
       } catch (error) {
-        // Ignorar error si el source ya terminó
+        // Ignorar
       }
     });
     
