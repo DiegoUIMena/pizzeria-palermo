@@ -150,9 +150,9 @@ export default function FloatingOrderTracker() {
   }
 
   return (
-    <div className={`fixed right-6 bottom-24 md:bottom-32 z-40 transition-all duration-500 ease-in-out ${isReady ? 'animate-bounce' : 'animate-in slide-in-from-bottom-8'}`}>
+    <div className={`fixed right-6 bottom-24 md:bottom-32 z-40 transition-all duration-500 ease-in-out ${isReady ? '' : 'animate-in slide-in-from-bottom-8'}`}>
       <Link href={getTrackingLink()}>
-        <div className={`relative flex items-center gap-3 p-3 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.15)] border cursor-pointer hover:scale-105 transition-all duration-300 ${isReady ? 'bg-green-100 border-green-400 animate-pulse' : 'bg-white border-pink-300 hover:border-pink-500'}`}>
+        <div className={`relative flex items-center gap-3 p-3 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.15)] border cursor-pointer hover:scale-105 transition-all duration-300 ${isReady ? 'bg-green-100 border-green-400' : 'bg-white border-pink-300 hover:border-pink-500'}`}>
           <div className={`flex items-center justify-center w-10 h-10 rounded-full ${isReady ? 'bg-green-200' : 'bg-pink-100'}`}>
             {getIcon()}
           </div>

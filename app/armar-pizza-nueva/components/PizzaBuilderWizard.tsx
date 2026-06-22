@@ -171,7 +171,7 @@ export function PizzaBuilderWizard() {
     },
   });
 
-  const totalSteps = config.type === 'duo' ? 3 : 6;
+  const totalSteps = config.type === 'duo' ? 4 : 6;
 
   const handleNext = () => {
     if (currentStep < totalSteps) {
@@ -394,6 +394,17 @@ export function PizzaBuilderWizard() {
               config={config}
               onUpdate={updateConfig}
               onBack={handleBack}
+              half={1}
+              onNext={handleNext}
+            />
+          );
+        case 4:
+          return (
+            <DuoBuilder
+              config={config}
+              onUpdate={updateConfig}
+              onBack={handleBack}
+              half={2}
             />
           );
         default:

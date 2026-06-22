@@ -84,10 +84,12 @@ interface DuoBuilderProps {
   config: PizzaConfig;
   onUpdate: (updates: Partial<PizzaConfig>) => void;
   onBack: () => void;
+  half: 1 | 2;
+  onNext?: () => void;
 }
 
-export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
-  const [activeHalf, setActiveHalf] = useState<1 | 2>(1);
+export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilderProps) {
+  const activeHalf = half;
   const {
     loading,
     pizzasParaDuo,
@@ -175,6 +177,14 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
     halfTotal += (half.simpleIngredients?.length || 0) * precios.simple;
     halfTotal += (half.premiumIngredients?.length || 0) * precios.premium;
     return halfTotal;
+  };
+
+  const handleNextStep = () => {
+    if (config.half1?.baseType === 'menu' && !config.half1?.variety) {
+      alert('Por favor selecciona una pizza para la Mitad 1');
+      return;
+    }
+    if (onNext) onNext();
   };
 
   const handleComplete = () => {
@@ -285,34 +295,32 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
         </p>
       </div>
 
-      {/* Selector de mitad activa */}
+      {/* Selector de mitad activa (solo visual) */}
       <div className="flex gap-3 bg-gray-100 p-2 rounded-xl">
-        <button
-          onClick={() => setActiveHalf(1)}
+        <div
           className={`
-            flex-1 py-3 px-4 rounded-lg font-semibold transition-all
+            flex-1 py-3 px-4 rounded-lg font-semibold text-center transition-all
             ${
               activeHalf === 1
                 ? 'bg-white text-orange-600 shadow-md'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-gray-400 opacity-60'
             }
           `}
         >
-          ◀️ Mitad 1 (Izquierda)
-        </button>
-        <button
-          onClick={() => setActiveHalf(2)}
+          ◀️ Mitad 1 (Izquierda) {activeHalf === 1 && '(Configurando)'}
+        </div>
+        <div
           className={`
-            flex-1 py-3 px-4 rounded-lg font-semibold transition-all
+            flex-1 py-3 px-4 rounded-lg font-semibold text-center transition-all
             ${
               activeHalf === 2
                 ? 'bg-white text-orange-600 shadow-md'
-                : 'text-gray-600 hover:text-gray-900'
+                : 'text-gray-400 opacity-60'
             }
           `}
         >
-          Mitad 2 (Derecha) ▶️
-        </button>
+          Mitad 2 (Derecha) ▶️ {activeHalf === 2 && '(Configurando)'}
+        </div>
       </div>
 
       {/* Configuración de la mitad activa */}
@@ -478,12 +486,21 @@ export function DuoBuilder({ config, onUpdate, onBack }: DuoBuilderProps) {
         >
           ← Volver
         </button>
-        <button
-          onClick={handleComplete}
-          className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
-        >
-          ✓ Agregar al Carrito
-        </button>
+        {half === 1 ? (
+          <button
+            onClick={handleNextStep}
+            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+          >
+            Siguiente Mitad (Mitad 2) →
+          </button>
+        ) : (
+          <button
+            onClick={handleComplete}
+            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+          >
+            ✓ Agregar al Carrito
+          </button>
+        )}
       </div>
     </div>
   );

@@ -51,7 +51,8 @@ export function Step4SizeSelector({
       '4 quesos',
       'cuatro quesos',
       'entre rios',
-      'entre ríos'
+      'entre ríos',
+      'sevillana'
     ];
 
     // Si la pizza está en la lista, Mediana NO está disponible

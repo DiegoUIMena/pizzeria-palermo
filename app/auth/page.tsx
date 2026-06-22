@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,17 @@ export default function AuthPage() {
   const { login, register } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [activeTab, setActiveTab] = useState("login")
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search)
+      const tab = params.get("tab")
+      if (tab === "register" || tab === "login") {
+        setActiveTab(tab)
+      }
+    }
+  }, [])
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState("")
@@ -142,7 +153,7 @@ export default function AuthPage() {
             </CardHeader>
 
             <CardContent className="pt-6">
-              <Tabs defaultValue="login" className="w-full">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                 <TabsList className="grid w-full grid-cols-2 mb-6">
                   <TabsTrigger value="login">Iniciar Sesión</TabsTrigger>
                   <TabsTrigger value="register">Registrarse</TabsTrigger>

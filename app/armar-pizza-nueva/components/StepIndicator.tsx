@@ -9,7 +9,7 @@ interface StepIndicatorProps {
 export function StepIndicator({ currentStep, totalSteps, pizzaType }: StepIndicatorProps) {
   const getStepLabels = () => {
     if (pizzaType === 'duo') {
-      return ['Tipo de Pizza', 'Tamaño', 'Configurar Mitades'];
+      return ['Tipo de Pizza', 'Tamaño', 'Configurar Mitad 1', 'Configurar Mitad 2'];
     }
     return ['Tipo', 'Base', 'Variedad/Tamaño', 'Tamaño', 'Ingredientes', 'Personalizar'];
   };

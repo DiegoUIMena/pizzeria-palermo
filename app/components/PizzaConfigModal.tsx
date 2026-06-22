@@ -373,7 +373,7 @@ export default function PizzaConfigModal({
     const normalizar = (texto: string) => 
       texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     
-    const pizzasSoloFamiliar = ["4 Quesos", "Entre Ríos"];
+    const pizzasSoloFamiliar = ["4 Quesos", "Entre Ríos", "Sevillana"];
     return pizzasSoloFamiliar.some(pizza => 
       normalizar(pizzaName) === normalizar(pizza));
   };

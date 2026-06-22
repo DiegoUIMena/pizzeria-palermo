@@ -61,7 +61,7 @@ export function usePizzaBuilderData() {
   const pizzasParaDuo = useMemo(() => {
     if (!Array.isArray(itemsMenu) || itemsMenu.length === 0) return [];
 
-    const exclusionesDuo = ['4 estaciones', 'cuatro estaciones', '4 quesos', 'cuatro quesos', 'entre rios', 'entre rios'];
+    const exclusionesDuo = ['4 estaciones', 'cuatro estaciones', '4 quesos', 'cuatro quesos', 'entre rios', 'entre ríos', 'sevillana'];
 
     return itemsMenu
       .filter((pizza: any) => {

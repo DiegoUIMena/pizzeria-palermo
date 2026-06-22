@@ -90,6 +90,9 @@ export default function PedidosPage() {
   // Usar el hook para obtener pedidos del usuario
   const { orders, isLoading, error } = useFormattedOrders(user?.id)
 
+  // Limitar la visualización a los últimos 3 pedidos realizados
+  const displayedOrders = orders.slice(0, 3)
+
   // Efecto para manejar la autenticación
   useEffect(() => {
     if (!isAuthenticated) {
@@ -203,8 +206,8 @@ export default function PedidosPage() {
             </div>
           ) : (
             <div className="space-y-6">
-              {orders.length > 0 ? (
-                orders.map((order, index) => (
+              {displayedOrders.length > 0 ? (
+                displayedOrders.map((order, index) => (
                   <Card key={`${order.id}-${index}`} className={`border-gray-200 hover:shadow-md transition-shadow ${expandedOrders[order.id] ? 'border-pink-200 shadow-md' : ''}`}>
                     <CardHeader className={`border-b border-gray-200 ${expandedOrders[order.id] ? 'bg-pink-50' : 'bg-gray-50'}`}>
                       <div className="flex items-center justify-between">

@@ -1487,8 +1487,8 @@ const Cart = ({ onClose }: CartProps) => {
               </div>
               {/* Indicación de uso como mensaje flotante que se auto-oculta */}
               {!selectedLocation && (
-                <div className="bg-yellow-50 border border-yellow-100 rounded-md p-2 text-center animate-pulse">
-                  <p className="text-xs text-yellow-700">Haz clic en el mapa para seleccionar tu ubicación exacta</p>
+                <div className="bg-yellow-50 border border-yellow-100 rounded-md p-2 text-center">
+                  <p className="text-xs text-yellow-700">Haz clic en el mapa donde quieres recibir tu pedido</p>
                 </div>
               )}
             </div>
@@ -1867,9 +1867,9 @@ const Cart = ({ onClose }: CartProps) => {
             }}
           >
             <div className="p-4 bg-white border-t border-gray-200">
-              <div className="space-y-4">
-                {/* Bloque Voucher */}
-                {user?.id && (
+              {user?.id ? (
+                <div className="space-y-4">
+                  {/* Bloque Voucher */}
                   <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-lg">🍕</span>
@@ -1927,60 +1927,69 @@ const Cart = ({ onClose }: CartProps) => {
                       </div>
                     )}
                   </div>
-                )}
 
-                {/* Bloque Código de Descuento */}
-                <div className="bg-pink-50 p-3 rounded-lg border border-pink-200 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-pink-600" />
-                    <p className="text-sm font-semibold text-pink-900">Código promocional</p>
-                  </div>
-
-                  {appliedDiscount ? (
-                    <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
-                      <div>
-                        <span className="font-medium text-green-800">{appliedDiscount.code}</span>
-                        <p className="text-xs text-green-600">
-                          {appliedDiscount.percentage
-                            ? `${appliedDiscount.percentage}% de descuento aplicado`
-                            : `$${appliedDiscount.amount.toLocaleString()} de descuento aplicado`}
-                        </p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleRemoveDiscount}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        Quitar
-                      </Button>
+                  {/* Bloque Código de Descuento */}
+                  <div className="bg-pink-50 p-3 rounded-lg border border-pink-200 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Tag className="h-4 w-4 text-pink-600" />
+                      <p className="text-sm font-semibold text-pink-900">Código promocional</p>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex space-x-2">
-                        <Input
-                          placeholder="Ingresa tu código"
-                          value={discountCode}
-                          onChange={(e) => {
-                            setDiscountCode(e.target.value)
-                            setDiscountError("")
-                          }}
-                          className="flex-1"
-                        />
+
+                    {appliedDiscount ? (
+                      <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
+                        <div>
+                          <span className="font-medium text-green-800">{appliedDiscount.code}</span>
+                          <p className="text-xs text-green-600">
+                            {appliedDiscount.percentage
+                              ? `${appliedDiscount.percentage}% de descuento aplicado`
+                              : `$${appliedDiscount.amount.toLocaleString()} de descuento aplicado`}
+                          </p>
+                        </div>
                         <Button
-                          onClick={handleApplyDiscount}
-                          variant="outline"
-                          className="border-pink-300 text-pink-600 hover:bg-pink-50"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleRemoveDiscount}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
                         >
-                          Aplicar
+                          Quitar
                         </Button>
                       </div>
-                      {discountError && <p className="text-xs text-red-600">{discountError}</p>}
-                      <p className="text-xs text-amber-700">No combina con vouchers de Puntos Palermo.</p>
-                    </div>
-                  )}
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex space-x-2">
+                          <Input
+                            placeholder="Ingresa tu código"
+                            value={discountCode}
+                            onChange={(e) => {
+                              setDiscountCode(e.target.value)
+                              setDiscountError("")
+                            }}
+                            className="flex-1"
+                          />
+                          <Button
+                            onClick={handleApplyDiscount}
+                            variant="outline"
+                            className="border-pink-300 text-pink-600 hover:bg-pink-50"
+                          >
+                            Aplicar
+                          </Button>
+                        </div>
+                        {discountError && <p className="text-xs text-red-600">{discountError}</p>}
+                        <p className="text-xs text-amber-700">No combina con vouchers de Puntos Palermo.</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-center">
+                  <p className="text-sm text-amber-800 font-medium">
+                    <Link href="/auth?tab=login" className="underline font-bold text-pink-600 hover:text-pink-700">Inicia sesión</Link>
+                    {" o "}
+                    <Link href="/auth?tab=register" className="underline font-bold text-pink-600 hover:text-pink-700">registrate</Link>
+                    {" para obtener beneficios exclusivos en tus compras"}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>

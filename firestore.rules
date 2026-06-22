@@ -26,11 +26,19 @@ service cloud.firestore {
       // Usuario puede leer su propia info, admin puede leer todo
       allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
       
-      // Usuario puede crear su propio perfil al registrarse
-      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // Usuario puede crear su propio perfil al registrarse (bloqueando asignación de rol administrador o staff)
+      allow create: if isAuthenticated() && request.auth.uid == userId && 
+                    (!('role' in request.resource.data) || request.resource.data.role == 'customer');
       
-      // Usuario puede actualizar su propia info, admin puede actualizar todo
-      allow update: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      // Evitar que el usuario actualice su propio rol a menos que ya sea administrador
+      allow update: if isAuthenticated() && (
+        (request.auth.uid == userId && 
+         (
+           (!('role' in request.resource.data) && !('role' in resource.data)) ||
+           ('role' in request.resource.data && 'role' in resource.data && request.resource.data.role == resource.data.role)
+         )
+        ) || isAdmin()
+      );
       
       // Solo admin puede eliminar usuarios
       allow delete: if isAdmin();
@@ -199,7 +207,8 @@ service cloud.firestore {
       match /chat_sessions/{sessionId} {
         // Usuarios autenticados pueden leer/escribir sus propias sesiones
         // Las Cloud Functions usan privilegios admin para crear/actualizar
-        allow read: if true; // Necesario para que el widget funcione sin login
+        allow get: if true; // Necesario para que el widget funcione sin login
+        allow list: if isAdmin(); // Solo admin puede listar todas las sesiones
         allow create: if true; // Las Cloud Functions crean las sesiones
         allow update: if true; // Las Cloud Functions actualizan las sesiones
         allow delete: if isAdmin(); // Solo admin puede eliminar sesiones
