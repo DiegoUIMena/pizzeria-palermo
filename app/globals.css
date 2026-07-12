@@ -213,8 +213,39 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: #9ca3af;
+    @apply text-foreground;
     font-family: "Inter", sans-serif;
+    position: relative;
+  }
+
+  body.admin-body {
+    background-color: hsl(var(--background)) !important;
+  }
+
+  /* Marca de agua repetida del logo en un gris más oscuro a 45 grados */
+  body:not(.admin-body)::before {
+    content: "";
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background-image: url('/iconos/logo.png');
+    background-repeat: repeat;
+    background-size: 180px auto;
+    opacity: 0.07;
+    filter: grayscale(100%) brightness(0.35) contrast(1.2);
+    transform: rotate(45deg);
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* Hacer transparentes los layouts de página del cliente para revelar el fondo y la marca de agua */
+  body:not(.admin-body) div.min-h-screen.bg-gray-50,
+  body:not(.admin-body) main.min-h-screen.bg-gray-50,
+  body:not(.admin-body) section#promo-section {
+    background-color: transparent !important;
   }
 }
 
@@ -636,4 +667,39 @@ textarea:focus {
     opacity: 1;
     transform: scale(1.15);
   }
+}
+
+/* Clases de transición suave para el carrusel de Puntos Palermo */
+.puntos-carousel-track {
+  transition-property: transform !important;
+  transition-duration: 2200ms !important;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.puntos-carousel-slide {
+  transition-property: opacity, transform !important;
+  transition-duration: 2200ms !important;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* Forzar animación del carrusel de puntos incluso con prefers-reduced-motion activo */
+@media (prefers-reduced-motion: reduce) {
+  .puntos-carousel-track,
+  .puntos-carousel-slide {
+    transition-duration: 2200ms !important;
+  }
+}
+
+/* Forzar animación de rotación del icono de carga al repetir pedido */
+@keyframes custom-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.force-spin {
+  animation: custom-spin 1s linear infinite !important;
 }

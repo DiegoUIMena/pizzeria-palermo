@@ -71,7 +71,7 @@ function getPizzaImagePath(imagePath?: string, pizzaName?: string): string {
   }
   
   // Último recurso: usar fondo genérico
-  return "/pizza-promo-bg.png"
+  return "/pizzas/palermo.jpg"
 }
 
 // Función auxiliar para obtener la ruta de la imagen de bebida/extra correcta
@@ -87,7 +87,7 @@ function getExtraImagePath(itemName: string, imagePath?: string): string {
   else if (lowerName.includes('coca') && lowerName.includes('lata')) bebidaFileName = 'coca_cola_lata.jpg'
   
   if (bebidaFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.firebasestorage.app'
     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(bebidaFileName)}?alt=media`
   }
 
@@ -100,7 +100,7 @@ function getExtraImagePath(itemName: string, imagePath?: string): string {
   else if (lowerName.includes('salsa') && lowerName.includes('pesto')) acompFileName = 'salsa_pesto.jpg'
 
   if (acompFileName) {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com'
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.firebasestorage.app'
     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFileName)}?alt=media`
   }
 
@@ -238,8 +238,8 @@ export function PizzaBuilderWizard() {
           }
         }
         
-        // Si es personalizada, usar imagen genérica
-        const genericPath = "/pizza-premium-bg.png";
+        // Si es personalizada, usar imagen genérica de la base de mozzarella en Storage
+        const genericPath = "/pizzas/doble muzza.jpg";
         console.log("🍕 [NUEVA] Usando imagen genérica:", genericPath);
         return genericPath;
       })();
@@ -506,7 +506,7 @@ export function PizzaBuilderWizard() {
         {/* Columna principal - Wizard */}
         <div className="lg:col-span-2">
           {/* Indicador de pasos */}
-          <div className="mb-8">
+          <div className="mb-8 bg-white rounded-2xl shadow-xl p-6 transition-all duration-300">
             <StepIndicator
               currentStep={currentStep}
               totalSteps={totalSteps}

@@ -1,6 +1,5 @@
 import * as admin from 'firebase-admin'
 import { logger } from 'firebase-functions'
-import { randomBytes } from 'crypto'
 
 /**
  * Configuración de Puntos Palermo
@@ -18,83 +17,15 @@ interface RedemptionTier {
 }
 
 export const POINTS_CONFIG = {
-  pointsPerPeso: 0.01, // 1 punto por cada $100 (0.01 puntos por peso)
+  pointsPerPeso: 0.001, // 1 punto por cada $1000 (0.001 puntos por peso)
   voucherExpiryDays: 15,
   pointsExpiryDays: 90,
-  redemptionTiers: [
-    {points: 300, rewardType: 'fixed_discount', discountAmount: 2000, minimumOrderAmount: 0, label: '$2.000 de descuento'},
-    {points: 500, rewardType: 'fixed_discount', discountAmount: 3500, minimumOrderAmount: 0, label: '$3.500 de descuento'},
-    {points: 800, rewardType: 'fixed_discount', discountAmount: 6000, minimumOrderAmount: 10000, label: '$6.000 de descuento (compra min $10.000)'},
-    {points: 1200, rewardType: 'fixed_discount', discountAmount: 9000, minimumOrderAmount: 10000, label: '$9.000 de descuento (compra min $10.000)'},
-    {points: 1600, rewardType: 'fixed_discount', discountAmount: 12000, minimumOrderAmount: 15000, label: '$12.000 de descuento (compra min $15.000)'},
-    {points: 2000, rewardType: 'pizza_cap', discountAmount: 13000, minimumOrderAmount: 0, label: 'Pizza gratis hasta $13.000'},
-    {points: 2400, rewardType: 'pizza_cap', discountAmount: 15000, minimumOrderAmount: 0, label: 'Pizza gratis hasta $15.000'},
-  ] as RedemptionTier[],
+  redemptionTiers: [] as RedemptionTier[],
 }
 
-function getRedemptionTier(pointsToRedeem: number): RedemptionTier | undefined {
-  return POINTS_CONFIG.redemptionTiers.find((tier) => tier.points === pointsToRedeem)
-}
 
-async function getAvailableEarnedBuckets(
-  userId: string,
-  transaction: FirebaseFirestore.Transaction
-): Promise<Array<{ref: FirebaseFirestore.DocumentReference; remainingPoints: number}>> {
-  const db = admin.firestore()
-  const now = admin.firestore.Timestamp.now()
-  const historyRef = db.collection('users').doc(userId).collection('points_history')
-  // Nota: evitamos índice compuesto (type + expiresAt) para asegurar disponibilidad inmediata.
-  const snapshot = await transaction.get(
-    historyRef.where('type', '==', 'earned')
-  )
 
-  return snapshot.docs
-    .map((docSnap) => {
-      const data = docSnap.data()
-      const expiresAtTs = data.expiresAt as FirebaseFirestore.Timestamp | undefined
-      const expiresAtMs = expiresAtTs?.toMillis?.() ?? 0
-      return {
-        ref: docSnap.ref,
-        remainingPoints: Number(data.remainingPoints || 0),
-        expiresAtMs,
-      }
-    })
-    .filter((bucket) => bucket.remainingPoints > 0 && bucket.expiresAtMs > now.toMillis())
-    .sort((a, b) => a.expiresAtMs - b.expiresAtMs)
-    .map(({ref, remainingPoints}) => ({ref, remainingPoints}))
-}
 
-function consumePointsFromBuckets(
-  buckets: Array<{ref: FirebaseFirestore.DocumentReference; remainingPoints: number}>,
-  pointsToConsume: number,
-  transaction: FirebaseFirestore.Transaction
-): {success: boolean; remainingAfterConsume: number} {
-  let pending = pointsToConsume
-
-  for (const bucket of buckets) {
-    if (pending <= 0) break
-
-    const consumed = Math.min(bucket.remainingPoints, pending)
-    pending -= consumed
-
-    const nextRemaining = bucket.remainingPoints - consumed
-    transaction.update(bucket.ref, {
-      remainingPoints: nextRemaining,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      ...(nextRemaining === 0 ? {depletedAt: admin.firestore.FieldValue.serverTimestamp()} : {}),
-    })
-  }
-
-  return {
-    success: pending === 0,
-    remainingAfterConsume: pending,
-  }
-}
-
-function generateVoucherCode(): string {
-  // 10 caracteres hex en mayúscula: muy baja probabilidad de colisión
-  return randomBytes(5).toString('hex').toUpperCase()
-}
 
 /**
  * Suma puntos a un usuario registrado cuando realiza un pago exitoso
@@ -118,7 +49,26 @@ export async function addPointsToUser(
     const userRef = db.collection('users').doc(userId)
     await db.runTransaction(async (transaction) => {
       const userDoc = await transaction.get(userRef)
-      const currentPoints = userDoc.data()?.totalPoints || 0
+      const userData = userDoc.data()
+
+      // Los puntos solo se generan si el cliente activó su cuenta con su RUT
+      if (!userData?.rut) {
+        logger.info('User has not activated points account (missing RUT). Skipping points addition.', { userId, orderId })
+        return
+      }
+
+      // Evitar doble acumulación (idempotencia): verificar si ya existen puntos asignados para esta orden
+      const historyRef = db.collection('users').doc(userId).collection('points_history')
+      const existingTxSnapshot = await transaction.get(
+        historyRef.where('type', '==', 'earned').where('orderId', '==', orderId)
+      )
+
+      if (!existingTxSnapshot.empty) {
+        logger.info('Points already added for this order. Skipping duplicate addition.', { userId, orderId })
+        return
+      }
+
+      const currentPoints = userData?.totalPoints || 0
 
       transaction.update(userRef, {
         totalPoints: currentPoints + pointsEarned,
@@ -164,91 +114,9 @@ export async function redeemPointsForPizza(
   voucherId?: string
   voucherCode?: string
 }> {
-  try {
-    const db = admin.firestore()
-    const userRef = db.collection('users').doc(userId)
-    const redemptionTier = getRedemptionTier(pointsToRedeem)
-
-    if (!redemptionTier) {
-      return {
-        success: false,
-        error: 'Canje inválido. Selecciona uno de los tramos disponibles en Puntos Palermo.',
-      }
-    }
-
-    return await db.runTransaction(async (transaction) => {
-      const userDoc = await transaction.get(userRef)
-      const currentPoints = userDoc.data()?.totalPoints || 0
-      const buckets = await getAvailableEarnedBuckets(userId, transaction)
-      const availablePointsFromBuckets = buckets.reduce((sum, bucket) => sum + bucket.remainingPoints, 0)
-
-      // Validar puntos suficientes
-      if (currentPoints < pointsToRedeem || availablePointsFromBuckets < pointsToRedeem) {
-        return {
-          success: false,
-          error: `No tienes suficientes puntos vigentes. Tienes ${Math.min(currentPoints, availablePointsFromBuckets)}, necesitas ${pointsToRedeem}`,
-        }
-      }
-
-      const consumeResult = consumePointsFromBuckets(buckets, pointsToRedeem, transaction)
-      if (!consumeResult.success) {
-        return {
-          success: false,
-          error: 'No fue posible consumir los puntos vigentes para este canje. Intenta nuevamente.',
-        }
-      }
-
-      // Crear voucher con ID interno y código visible único para el cliente
-      const randomPart = Math.random().toString(36).substr(2, 12)
-      const timestampPart = Date.now().toString(36)
-      const voucherId = `VP-${timestampPart}-${randomPart}`
-      const voucherCode = generateVoucherCode()
-      const vouchersRef = db.collection('users').doc(userId).collection('vouchers').doc(voucherId)
-
-      // Actualizar puntos del usuario
-      transaction.update(userRef, {
-        totalPoints: currentPoints - pointsToRedeem,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      })
-
-      // Crear voucher
-      transaction.set(vouchersRef, {
-        voucherId: voucherId,
-        code: voucherCode,
-        rewardType: redemptionTier.rewardType,
-        pointsRedeemed: pointsToRedeem,
-        discountAmount: redemptionTier.discountAmount,
-        minimumOrderAmount: redemptionTier.minimumOrderAmount,
-        rewardLabel: redemptionTier.label,
-        pizzasIncluded: redemptionTier.rewardType === 'pizza_cap' ? 1 : 0,
-        pizzasAwarded: redemptionTier.rewardType === 'pizza_cap' ? 1 : 0,
-        status: 'active', // active | used | expired
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        expiresAt: admin.firestore.Timestamp.fromDate(new Date(Date.now() + POINTS_CONFIG.voucherExpiryDays * 24 * 60 * 60 * 1000)),
-      })
-
-      // Registrar en historial
-      const historyRef = db.collection('users').doc(userId).collection('points_history').doc()
-      transaction.set(historyRef, {
-        type: 'redeemed',
-        points: pointsToRedeem,
-        voucherId: voucherId,
-        description: `Canje aplicado: ${redemptionTier.label}`,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      })
-
-      return {
-        success: true,
-        voucherId: voucherId,
-        voucherCode,
-      }
-    })
-  } catch (error) {
-    logger.error('Error redeeming points:', error)
-    return {
-      success: false,
-      error: 'Error al canjear puntos',
-    }
+  return {
+    success: false,
+    error: 'El canje de puntos por vouchers o cupones de descuento ya no está disponible.',
   }
 }
 

@@ -57,6 +57,9 @@ export default function InventoryErrorModal({
             <AlertCircle className="h-6 w-6" />
             <DialogTitle className="text-xl font-bold">¡Atención!</DialogTitle>
           </div>
+          <DialogDescription className="sr-only">
+            Información sobre la falta de stock de ingredientes en tu pedido.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="my-4 p-4 bg-red-50 border border-red-200 rounded-md text-center space-y-3">

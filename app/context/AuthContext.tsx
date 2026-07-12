@@ -19,6 +19,7 @@ interface User {
   email: string
   phone?: string
   address?: string
+  rut?: string
   role: "customer" | "admin" | "staff"
   addresses?: Address[]
   preferences?: {

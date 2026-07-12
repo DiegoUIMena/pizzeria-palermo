@@ -30,6 +30,8 @@ export interface OrderItem {
   sinOregano?: boolean
   sinQueso?: boolean
   sinSalsaTomate?: boolean
+  isCanje?: boolean
+  canjePoints?: number
 }
 
 export interface FormattedOrder {

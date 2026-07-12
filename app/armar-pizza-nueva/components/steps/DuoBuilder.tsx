@@ -68,7 +68,7 @@ function getPizzaImagePath(imagePath?: string, pizzaName?: string): string {
     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(mappedName + '.jpg')}?alt=media`;
   }
   
-  return "/pizza-promo-bg.png";
+  return "/pizzas/palermo.jpg";
 }
 
 function normalizeMenuName(value: string): string {
@@ -248,8 +248,8 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
           }
         }
         
-        // Si ambas son personalizadas, usar imagen genérica
-        const genericPath = "/pizza-duo-bg.png";
+        // Si ambas son personalizadas, usar la pizza Palermo como imagen ilustrativa
+        const genericPath = "/pizzas/palermo.jpg";
         return genericPath;
       })();
 

@@ -92,3 +92,9 @@ ui-debug.log
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Custom development/testing scripts to ignore
+check-last-order.js
+run-points-test.js
+scripts/retroactive-points.js
+agregar-choclo.js

@@ -87,12 +87,14 @@ export default function PerfilPage() {
 
       <main className="container mx-auto px-4 py-12">
         <div className="max-w-2xl mx-auto">
-          <Link href="/" className="flex items-center text-gray-600 mb-6 hover:text-pink-600 transition-colors">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Volver al inicio
-          </Link>
-
-          <h1 className="text-3xl font-bold text-gray-800 mb-8">Mi Perfil</h1>
+          {/* Cabecera de la sección en contenedor legible */}
+          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 mb-8">
+            <Link href="/" className="inline-flex items-center text-gray-600 mb-4 hover:text-pink-600 transition-colors text-sm font-medium">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Volver al inicio
+            </Link>
+            <h1 className="text-3xl font-bold text-gray-800">Mi Perfil</h1>
+          </div>
 
           <Card className="border-gray-200">
             <CardHeader className="bg-gray-50 border-b border-gray-200">

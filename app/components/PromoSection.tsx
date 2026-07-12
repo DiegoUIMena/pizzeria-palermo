@@ -252,12 +252,7 @@ export default function PromoSection() {
   ]
 
   const mapFirestoreItemToUI = (it: any) => {
-    // Omitir variantes para bebidas Coca Cola, para que solo exista la opción tradicional
-    let itemVariants = it.variants || it.variantes
-    const itemName = (it.nombre || it.name || "").toLowerCase()
-    if (itemName.includes("coca cola") || itemName.includes("coca-cola")) {
-      itemVariants = undefined
-    }
+    const itemVariants = it.variants || it.variantes
 
     return {
       id: it.id || it.nombre || Math.random(),
@@ -311,7 +306,58 @@ export default function PromoSection() {
         return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos").map(mapFirestoreItemToUI)
       }
       case "Bebidas": {
-        return activeItems.filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid")).map(mapFirestoreItemToUI)
+        const rawBebidas = activeItems.filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
+        const desglosadas: any[] = []
+        
+        rawBebidas.forEach((it: any) => {
+          const variants = it.variants || it.variantes
+          const nameLower = (it.nombre || it.name || "").toLowerCase()
+          if (variants && variants.length > 0) {
+            // Desglosar cada variante como un producto individual
+            variants.forEach((v: string) => {
+              // Omitir variante Zero si no es Coca Cola (ej. Lipton)
+              if (!nameLower.includes("coca") && v === "Zero") {
+                return
+              }
+              
+              const suffix = v === "Zero" ? "Zero" : "Tradicional"
+              const idSuffix = v === "Zero" ? "mediana" : "familiar"
+              
+              const mapped = mapFirestoreItemToUI(it)
+              
+              // Inyectar imágenes correctas específicas para Coca Cola
+              let customImage = mapped.image
+              if (nameLower.includes("coca cola") || nameLower.includes("coca-cola")) {
+                if (v === "Zero") {
+                  if (nameLower.includes("lata")) {
+                    customImage = "/bebidas/coca_cola_lata_zero.jpg"
+                  } else {
+                    customImage = "/bebidas/coca_cola_1.5_litro_zero.jpg"
+                  }
+                } else {
+                  if (nameLower.includes("lata")) {
+                    customImage = "/bebidas/coca_cola_lata.jpg"
+                  } else {
+                    customImage = "/bebidas/coca_cola_1.5_litro.jpg"
+                  }
+                }
+              }
+
+              desglosadas.push({
+                ...mapped,
+                id: `${mapped.id}-${idSuffix}`,
+                name: !nameLower.includes("coca") ? mapped.name : `${mapped.name} ${suffix}`,
+                image: customImage,
+                variants: undefined, // Omitir selector de variantes en la tarjeta
+                variant: suffix,
+              })
+            })
+          } else {
+            desglosadas.push(mapFirestoreItemToUI(it))
+          }
+        })
+        
+        return desglosadas
       }
       case "Pizzas Palermo":
         return activeItems
@@ -578,6 +624,8 @@ export default function PromoSection() {
             ? "Pizzas con Carne y derivados" 
             : activeCategory === "Pizzas Vegetarianas"
             ? "Pizzas Vegetarianas, No Veganas (contiene lacteos)"
+            : activeCategory === "Acompañamientos"
+            ? "Agregados"
             : activeCategory}
         </h2>
 
@@ -608,7 +656,7 @@ export default function PromoSection() {
             >
               <CardContent className="p-0">
                 <div className="flex flex-col h-full">
-                  <div className="w-full h-48 relative flex-shrink-0 overflow-hidden bg-gray-100">
+                  <div className="w-full aspect-[4/3] relative flex-shrink-0 overflow-hidden bg-gray-100">
                     <Image
                       src={getImagePath(item.name, item.image)}
                       alt={formatItemName(item.name)}

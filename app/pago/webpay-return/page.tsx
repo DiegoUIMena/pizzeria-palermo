@@ -88,7 +88,7 @@ function WebpayReturnContent() {
         <Card className="w-full max-w-md">
           <CardContent className="pt-6">
             <div className="flex flex-col items-center space-y-4">
-              <Loader2 className="w-12 h-12 animate-spin text-pink-600" />
+              <Loader2 className="w-12 h-12 force-spin animate-spin text-pink-600" />
               <h2 className="text-xl font-semibold">Procesando pago...</h2>
               <p className="text-gray-600 text-center">
                 Por favor espera mientras confirmamos tu transacción con Webpay
@@ -298,7 +298,7 @@ export default function WebpayReturnPage() {
       <div className="min-h-screen bg-gradient-to-br from-pink-50 to-yellow-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 text-center">
-            <Loader2 className="w-16 h-16 animate-spin mx-auto mb-4 text-pink-600" />
+            <Loader2 className="w-16 h-16 force-spin animate-spin mx-auto mb-4 text-pink-600" />
             <p className="text-lg text-gray-600">Procesando pago...</p>
           </CardContent>
         </Card>

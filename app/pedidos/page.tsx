@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Package, Clock, CheckCircle, Truck, ChevronDown, ChevronUp, Utensils, RefreshCcw } from "lucide-react"
+import { ArrowLeft, Package, Clock, CheckCircle, Truck, ChevronDown, ChevronUp, Utensils, RefreshCcw, Sparkles, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react"
 import Header from "../components/Header"
 import Footer from "../components/Footer"
 import { useAuth } from "../context/AuthContext"
@@ -16,6 +16,9 @@ import { useFormattedOrders } from "../../hooks/useUserOrders"
 import { FormattedOrder as Order, OrderItem } from "../../lib/types"
 import { getImagePath } from "../components/PromoSection"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
+import { db, functions } from "@/lib/firebase"
+import { doc, collection, query, onSnapshot } from "firebase/firestore"
+import { httpsCallable } from "firebase/functions"
 
 export default function PedidosPage() {
   const router = useRouter()
@@ -27,6 +30,51 @@ export default function PedidosPage() {
   const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
   const { itemsMenu } = useFirestorePizzaConfig()
 
+  // Estados locales para el catálogo de canjes y puntos
+  const [catalogoCanjes, setCatalogoCanjes] = useState<any[]>([])
+  const [userPoints, setUserPoints] = useState<number | null>(null)
+  
+  // Estados para las modales
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [showErrorModal, setShowErrorModal] = useState(false)
+  const [redeemedProducts, setRedeemedProducts] = useState<any[]>([])
+  const [pointsNeeded, setPointsNeeded] = useState(0)
+  const [userCurrentPoints, setUserCurrentPoints] = useState(0)
+  const [isProcessingReorder, setIsProcessingReorder] = useState(false)
+  const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null)
+
+  // Cargar catálogo de canje para buscar IDs
+  useEffect(() => {
+    const q = query(collection(db, "puntos_palermo_catalogo"))
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      setCatalogoCanjes(fetched)
+    }, (error) => {
+      console.error("Error al cargar catálogo en pedidos:", error)
+    })
+    return () => unsubscribe()
+  }, [])
+
+  // Cargar puntos en tiempo real del usuario
+  useEffect(() => {
+    if (user?.id) {
+      const userRef = doc(db, 'users', user.id)
+      const unsubscribe = onSnapshot(userRef, (docSnap) => {
+        if (docSnap.exists()) {
+          setUserPoints(docSnap.data().totalPoints || 0)
+        } else {
+          setUserPoints(0)
+        }
+      }, (error) => {
+        console.error("Error al cargar puntos del usuario en pedidos:", error)
+      })
+      return () => unsubscribe()
+    }
+  }, [user])
+
   // Función para expandir/contraer un pedido
   const toggleOrderExpansion = (orderId: string) => {
     setExpandedOrders(prev => ({
@@ -36,56 +84,232 @@ export default function PedidosPage() {
   }
 
   // Función para volver a pedir exactamente lo mismo
-  const handleReorder = (order: Order) => {
+  const handleReorder = async (order: Order) => {
+    console.log("=== Click en Pedir Otra Vez ===");
+    console.log("Orden ID:", order.id, "documentId:", order.documentId);
+    if (isProcessingReorder) {
+      console.log("Ya se está procesando un reorder, ignorando clic.");
+      return;
+    }
+
+    // Activar estados de procesamiento de inmediato para retroalimentación instantánea
+    setIsProcessingReorder(true);
+    setReorderingOrderId(order.documentId || order.id);
+    console.log("Estados de carga activados al inicio:", { isProcessingReorder: true, reorderingOrderId: order.documentId || order.id });
+
+    const normalItems: any[] = [];
+    const canjeItems: any[] = [];
+
     order.items.forEach((item: any) => {
-      let finalImage = item.image || item.imagen;
-      
-      const originalName = item.name || item.nombre || "";
-      const lowerName = originalName.toLowerCase();
-      const cleanPizzaName = originalName
-        .replace(/^pizza\s+/i, "")
-        .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '').trim();
-      
-      // Buscar la imagen real (con timestamp) en el menú actual de Firestore
-      let menuItem = null;
-      if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
-        menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === item.selectedMenuPizza.toLowerCase());
+      if (item.isCanje) {
+        canjeItems.push(item);
       } else {
-        menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === cleanPizzaName.toLowerCase());
+        normalItems.push(item);
       }
-      
-      if (menuItem && menuItem.imagen && menuItem.imagen.includes('firebasestorage.googleapis.com')) {
-        finalImage = menuItem.imagen;
-      } else if (lowerName.includes("duo")) {
-        finalImage = "/pizza-duo-bg.png";
-      } else if (lowerName.includes("premium") && cleanPizzaName.toLowerCase().includes("premium")) {
-        finalImage = "/pizza-premium-bg.png";
-      } else if ((lowerName.includes("promo") || lowerName.includes("personalizada")) && cleanPizzaName.toLowerCase().includes("promo")) {
-        finalImage = "/pizza-promo-bg.png";
-      } else {
-        // Forzar siempre la reconstrucción desde cero para asegurar ruta de Storage limpia
-        finalImage = getImagePath(cleanPizzaName);
+    });
+
+    // 1. Si hay items de canje, validar puntos y procesar
+    if (canjeItems.length > 0) {
+      if (!user) {
+        toast({
+          title: "Inicia sesión",
+          description: "Debes iniciar sesión para volver a canjear productos.",
+          variant: "destructive"
+        });
+        setIsProcessingReorder(false);
+        setReorderingOrderId(null);
+        return;
       }
 
-      // Extraemos las propiedades heredadas (como 'imagen' o 'nombre') para evitar que 
-      // interfieran con el contexto del carrito y fuercen rutas locales antiguas
-      const { image, imagen, name, nombre, ...cleanItem } = item;
-      
-      addItem({
-        ...cleanItem,
-        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Generar nuevo ID para evitar conflictos en el carrito
-        name: originalName,
-        image: finalImage,
-      } as any)
-    })
+      // Buscar coincidencia en el catálogo
+      const matchedCanjes: Array<{ catalogProduct: any; item: any; quantity: number }> = [];
+      let totalPointsNeeded = 0;
 
-    toast({
-      title: "¡Productos agregados!",
-      description: "El pedido ha sido copiado a tu carrito de compras.",
-    })
+      for (const item of canjeItems) {
+        const originalName = item.name || item.nombre || "";
+        // Limpiar el nombre quitando " (PP)" al final
+        const cleanName = originalName.replace(/\s*\(PP\)\s*$/gi, "").trim();
+        const quantity = item.quantity || 1;
 
-    router.push("/")
-  }
+        // Buscar por nombre
+        const matched = catalogoCanjes.find((prod: any) => {
+          const pName = (prod.nombre || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          const cName = cleanName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          return pName === cName || pName.includes(cName) || cName.includes(pName);
+        });
+
+        if (matched) {
+          matchedCanjes.push({
+            catalogProduct: matched,
+            item,
+            quantity
+          });
+          totalPointsNeeded += (matched.puntos || matched.points || item.canjePoints || 0) * quantity;
+        } else {
+          // Si no se encuentra en el catálogo, usar los puntos del item
+          console.warn(`No se encontró "${cleanName}" en el catálogo. Usando fallback.`);
+          const points = (item.canjePoints || 0);
+          matchedCanjes.push({
+            catalogProduct: {
+              id: null,
+              nombre: cleanName,
+              puntos: points,
+              imagenUrl: item.image || item.imagen || "/placeholder.svg"
+            },
+            item,
+            quantity
+          });
+          totalPointsNeeded += points * quantity;
+        }
+      }
+
+      const currentPoints = userPoints !== null ? userPoints : 0;
+
+      // Caso Negativo: Puntos insuficientes
+      if (currentPoints < totalPointsNeeded) {
+        setPointsNeeded(totalPointsNeeded);
+        setUserCurrentPoints(currentPoints);
+        setShowErrorModal(true);
+        // Restablecer el estado de carga
+        setIsProcessingReorder(false);
+        setReorderingOrderId(null);
+        return;
+      }
+
+      // Caso Positivo: Puntos suficientes
+      console.log("Puntos suficientes. Iniciando procesamiento de canje...");
+      const newlyRedeemed: any[] = [];
+
+      try {
+        const redeemCatalogProductFn = httpsCallable(functions, 'redeemCatalogProduct');
+
+        for (const mc of matchedCanjes) {
+          const { catalogProduct, quantity } = mc;
+          
+          // Repetir el canje según la cantidad indicada en el historial
+          for (let i = 0; i < quantity; i++) {
+            let resData: any = { success: true };
+            
+            // Si el producto fue emparejado en el catálogo, hacemos el descuento de puntos real
+            if (catalogProduct.id) {
+              const result = await redeemCatalogProductFn({ productId: catalogProduct.id });
+              resData = result.data as any;
+            }
+
+            if (resData.success) {
+              // Agregar al carrito con costo 0
+              addItem({
+                id: `canje-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+                name: catalogProduct.nombre,
+                price: 0,
+                image: resData.imagenUrl || catalogProduct.imagenUrl || '/placeholder.svg',
+                quantity: 1,
+                isCanje: true,
+                canjePoints: resData.puntosCost || catalogProduct.puntos,
+              });
+
+              newlyRedeemed.push({
+                nombre: catalogProduct.nombre,
+                puntos: resData.puntosCost || catalogProduct.puntos,
+                imagenUrl: resData.imagenUrl || catalogProduct.imagenUrl || '/placeholder.svg'
+              });
+            } else {
+              throw new Error(resData.error || "No se pudo realizar el canje en lote.");
+            }
+          }
+        }
+
+        // Agregar los items normales
+        normalItems.forEach((item: any) => {
+          addNormalItemToCart(item);
+        });
+
+        // Mostrar la modal de éxito y pausar unos segundos
+        setRedeemedProducts(newlyRedeemed);
+        setShowSuccessModal(true);
+
+        setTimeout(() => {
+          setShowSuccessModal(false);
+          setIsProcessingReorder(false);
+          setReorderingOrderId(null);
+          router.push("/");
+        }, 5000); // 5 segundos informando al cliente
+        
+      } catch (error: any) {
+        console.error("Error al procesar reorder con canjes:", error);
+        toast({
+          title: "Error al procesar",
+          description: error?.message || "Hubo un problema al realizar los canjes. Inténtalo de nuevo.",
+          variant: "destructive"
+        });
+        setIsProcessingReorder(false);
+        setReorderingOrderId(null);
+      }
+    } else {
+      // 2. Si es un pedido normal sin canjes, agregamos todo directamente
+      console.log("Pedido normal sin canjes detectado. Procesando...");
+      setIsProcessingReorder(true);
+      setReorderingOrderId(order.id);
+      console.log("Estados establecidos para pedido normal - isProcessingReorder: true, reorderingOrderId:", order.id);
+
+      order.items.forEach((item: any) => {
+        addNormalItemToCart(item);
+      });
+
+      toast({
+        title: "¡Productos agregados!",
+        description: "El pedido ha sido copiado a tu carrito de compras.",
+      });
+
+      console.log("Productos normales agregados localmente al carrito. Redirigiendo a home...");
+      router.push("/");
+
+      setTimeout(() => {
+        setIsProcessingReorder(false);
+        setReorderingOrderId(null);
+        console.log("Estados de reorder limpiados para pedido normal.");
+      }, 1000);
+    }
+  };
+
+  // Función interna para agregar items normales
+  const addNormalItemToCart = (item: any) => {
+    let finalImage = item.image || item.imagen;
+    
+    const originalName = item.name || item.nombre || "";
+    const lowerName = originalName.toLowerCase();
+    const cleanPizzaName = originalName
+      .replace(/^pizza\s+/i, "")
+      .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '').trim();
+    
+    let menuItem = null;
+    if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
+      menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === item.selectedMenuPizza.toLowerCase());
+    } else {
+      menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === cleanPizzaName.toLowerCase());
+    }
+    
+    if (menuItem && menuItem.imagen && menuItem.imagen.includes('firebasestorage.googleapis.com')) {
+      finalImage = menuItem.imagen;
+    } else if (lowerName.includes("duo")) {
+      finalImage = "/pizzas/palermo.jpg";
+    } else if (lowerName.includes("premium") && cleanPizzaName.toLowerCase().includes("premium")) {
+      finalImage = "/pizzas/doble muzza.jpg";
+    } else if ((lowerName.includes("promo") || lowerName.includes("personalizada")) && cleanPizzaName.toLowerCase().includes("promo")) {
+      finalImage = "/pizzas/palermo.jpg";
+    } else {
+      finalImage = getImagePath(cleanPizzaName);
+    }
+
+    const { image, imagen, name, nombre, ...cleanItem } = item;
+    
+    addItem({
+      ...cleanItem,
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      name: originalName,
+      image: finalImage,
+    } as any);
+  };
 
   // Usar el hook para obtener pedidos del usuario
   const { orders, isLoading, error } = useFormattedOrders(user?.id)
@@ -116,7 +340,16 @@ export default function PedidosPage() {
 
       if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(order.id)) {
         const audio = new Audio('/notification.mp3') // Asumimos que existirá este archivo
-        audio.play().catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
+        audio.play()
+          .then(() => {
+            audio.onended = () => {
+              setTimeout(() => {
+                const secondAudio = new Audio('/notification.mp3')
+                secondAudio.play().catch(e => console.log('Autoplay de audio bloqueado por el navegador (segunda vez):', e))
+              }, 1500)
+            }
+          })
+          .catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
         
         setPlayedSound(prev => new Set(prev).add(order.id))
       }
@@ -191,13 +424,15 @@ export default function PedidosPage() {
 
       <main className="container mx-auto px-4 py-12">
         <div className="max-w-3xl mx-auto">
-          <Link href="/" className="flex items-center text-gray-600 mb-6 hover:text-pink-600 transition-colors">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Volver al inicio
-          </Link>
-
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">Mis Pedidos</h1>
-          <p className="text-gray-600 mb-8">Historial de tus pedidos y su estado</p>
+          {/* Cabecera de la sección en contenedor legible */}
+          <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8 mb-8">
+            <Link href="/" className="inline-flex items-center text-gray-600 mb-4 hover:text-pink-600 transition-colors text-sm font-medium">
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Volver al inicio
+            </Link>
+            <h1 className="text-3xl font-bold text-gray-800 mb-2">Mis Pedidos</h1>
+            <p className="text-gray-600 text-sm md:text-base">Historial de tus pedidos y su estado</p>
+          </div>
 
           {isLoading ? (
             <div className="text-center py-12">
@@ -416,10 +651,11 @@ export default function PedidosPage() {
                             </div>
                             <Button 
                               onClick={() => handleReorder(order)}
-                              className="w-full sm:w-auto bg-pink-600 text-white hover:bg-pink-700 shadow-sm"
+                              disabled={isProcessingReorder}
+                              className="w-full sm:w-auto bg-pink-600 text-white hover:bg-pink-700 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
                             >
-                              <RefreshCcw className="w-4 h-4 mr-2" />
-                              Pedir otra vez
+                              <RefreshCcw className={`w-4 h-4 mr-2 ${(reorderingOrderId === order.documentId || reorderingOrderId === order.id) ? 'force-spin animate-spin' : ''}`} />
+                              {(reorderingOrderId === order.documentId || reorderingOrderId === order.id) ? 'Procesando...' : 'Pedir otra vez'}
                             </Button>
                           </div>
                         </div>
@@ -499,6 +735,90 @@ export default function PedidosPage() {
           )}
         </div>
       </main>
+
+      {/* Modal de éxito de canje (reorder) */}
+      {showSuccessModal && redeemedProducts.length > 0 && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border-2 border-pink-100 shadow-2xl text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="inline-block bg-pink-100 p-4 rounded-full text-pink-600 shadow-md">
+              <CheckCircle2 className="w-10 h-10 animate-bounce text-pink-600" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">
+                ¡Canje Realizado Exitosamente!
+              </h3>
+              <p className="text-gray-600 text-sm font-semibold leading-relaxed">
+                Se han descontado los puntos de tu cuenta y los productos se agregaron al carrito.
+              </p>
+            </div>
+
+            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              {redeemedProducts.map((prod, idx) => (
+                <div key={idx} className="bg-pink-50/50 border border-pink-100 rounded-2xl p-3 flex items-center gap-3 justify-start text-left">
+                  <img
+                    src={prod.imagenUrl}
+                    alt={prod.nombre}
+                    className="w-12 h-12 rounded-xl object-cover border border-pink-200 flex-shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-extrabold text-gray-900 text-sm leading-snug truncate">{prod.nombre}</p>
+                    <div className="flex items-center gap-1 mt-0.5 text-pink-600 font-bold text-xs">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>{prod.puntos.toLocaleString('es-CL')} Puntos</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2 flex flex-col items-center justify-center gap-2">
+              <Loader2 className="w-6 h-6 force-spin animate-spin text-pink-600" />
+              <p className="text-xs text-gray-500 font-medium animate-pulse">
+                Procesando pedido y redirigiendo al inicio...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de error por puntos insuficientes (reorder) */}
+      {showErrorModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full border-2 border-red-100 shadow-2xl text-center space-y-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="inline-block bg-red-100 p-4 rounded-full text-red-600 shadow-md">
+              <AlertTriangle className="w-10 h-10 text-red-600 animate-pulse" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-2xl font-black text-gray-900 tracking-tight leading-tight">
+                Puntos Insuficientes
+              </h3>
+              <p className="text-gray-600 text-sm font-semibold leading-relaxed">
+                No posees los Puntos Palermo suficientes para canjear los productos de este pedido.
+              </p>
+            </div>
+
+            <div className="bg-red-50 border border-red-100 rounded-2xl p-4 flex flex-col gap-2 justify-center text-center">
+              <div className="text-sm text-gray-700 font-semibold">
+                Tienes: <span className="text-red-600 font-extrabold">{userCurrentPoints.toLocaleString('es-CL')} pts</span>
+              </div>
+              <div className="text-sm text-gray-700 font-semibold">
+                Necesitas: <span className="text-red-600 font-extrabold">{pointsNeeded.toLocaleString('es-CL')} pts</span>
+              </div>
+            </div>
+
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowErrorModal(false)}
+                className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-all text-center cursor-pointer text-sm"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
     </div>

@@ -8,7 +8,7 @@ import { Trash, ChevronDown, ChevronUp, AlertCircle, X } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { Minus, Plus } from "lucide-react"
-import { Truck, Store, MapPin, CheckCircle, ArrowLeft, CreditCard, Banknote, ArrowRightCircle, Tag } from "lucide-react"
+import { Truck, Store, MapPin, CheckCircle, ArrowLeft, CreditCard, Banknote, ArrowRightCircle, Tag, Sparkles } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -213,18 +213,7 @@ const Cart = ({ onClose }: CartProps) => {
   const [discountError, setDiscountError] = useState("")
   const [isDiscountPanelOpen, setIsDiscountPanelOpen] = useState(false)
 
-  // Estados para vouchers
-  const [voucherCode, setVoucherCode] = useState("")
-  const [appliedVoucher, setAppliedVoucher] = useState<{
-    id: string
-    code: string
-    rewardType: 'fixed_discount' | 'pizza_cap'
-    rewardLabel: string
-    minimumOrderAmount: number
-    discount: number
-  } | null>(null)
-  const [voucherError, setVoucherError] = useState("")
-  const [isValidatingVoucher, setIsValidatingVoucher] = useState(false)
+
 
   // Estados para dirección
   const [calle, setCalle] = useState("")
@@ -239,20 +228,35 @@ const Cart = ({ onClose }: CartProps) => {
 
   // Utilidad para interceptar y usar la URL de Storage
   const getStorageUrl = (path: string) => {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com';
-    if (path && path.startsWith('/bebidas/')) {
+    if (!path) return "/placeholder.svg?height=200&width=200";
+    if (path.startsWith('http')) return path;
+
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.firebasestorage.app';
+    
+    // Interceptar de manera resiliente rutas antiguas persistidas o genéricas
+    // y redirigirlas a la URL real con timestamp de la Doble Muzza
+    if (path.includes('pizza-premium-bg') || 
+        path.includes('pizza-promo-bg') || 
+        path.includes('pizza-duo-bg') || 
+        path.includes('doble muzza.jpg') || 
+        path.includes('doble_muzza.jpg') || 
+        path.includes('palermo.jpg')) {
+      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F1781109313438_doble_muzza.jpg?alt=media`;
+    }
+
+    if (path.startsWith('/bebidas/')) {
       const fileName = path.split('/').pop() || '';
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(fileName)}?alt=media`;
     }
-    if (path && path.startsWith('/acompañamientos/')) {
+    if (path.startsWith('/acompañamientos/')) {
       const fileName = path.split('/').pop() || '';
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(fileName)}?alt=media`;
     }
-    if (path && path.startsWith('/pizzas/')) {
+    if (path.startsWith('/pizzas/')) {
       const fileName = path.split('/').pop() || '';
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F${encodeURIComponent(fileName)}?alt=media`;
     }
-    return path || "/placeholder.svg?height=200&width=200";
+    return path;
   };
 
   // Estados para la ubicación y delivery
@@ -285,14 +289,13 @@ const Cart = ({ onClose }: CartProps) => {
     return name.includes('promo') || name.includes('combo') || item.pizzaType === 'promo'
   })
 
-  // Calcular descuento total (códigos + vouchers)
+  // Calcular descuento total (códigos)
   let discountFromCode = 0
   if (appliedDiscount) {
     discountFromCode = appliedDiscount.amount || 0;
   }
 
-  const voucherDiscount = appliedVoucher?.discount || 0
-  const discountAmount = discountFromCode + voucherDiscount
+  const discountAmount = discountFromCode
   const totalFinal = Math.max(0, (serverCalculation?.total ?? 0) - discountAmount)
   const isServerTotalReady = Boolean(serverCalculation)
   const showCalculatingTotal = isServerCalcLoading && !isServerTotalReady
@@ -405,6 +408,13 @@ const Cart = ({ onClose }: CartProps) => {
     }
   }, [paymentMethod])
 
+  // Forzar método de pago Efectivo si el total es $0 por ser solo canjes retirados en local
+  useEffect(() => {
+    if (totalFinal === 0 && paymentMethod !== "efectivo") {
+      setPaymentMethod("efectivo")
+    }
+  }, [totalFinal, paymentMethod])
+
   // Función para determinar si el botón de pago debe estar deshabilitado
   const isPaymentButtonDisabled = () => {
     if (isProcessing) return true
@@ -418,8 +428,8 @@ const Cart = ({ onClose }: CartProps) => {
       if (!hasGuestName || !hasGuestPhone || !hasValidGuestEmail) return true
     }
     
-    // Si es pago en efectivo, validar que el monto sea correcto
-    if (paymentMethod === "efectivo") {
+    // Si es pago en efectivo, validar que el monto sea correcto (solo si total es mayor a $0)
+    if (paymentMethod === "efectivo" && totalFinal > 0) {
       if (!cashAmount || cashAmount.trim() === "") return true
       if (cashAmountError !== "") return true
       
@@ -652,8 +662,8 @@ const Cart = ({ onClose }: CartProps) => {
       return
     }
 
-    // Validar pago en efectivo si es el método seleccionado
-    if (paymentMethod === "efectivo") {
+    // Validar pago en efectivo si es el método seleccionado y el total es mayor a $0
+    if (paymentMethod === "efectivo" && totalFinal > 0) {
       if (!cashAmount || cashAmount.trim() === "") {
         setCashAmountError("Por favor ingresa el monto con el que vas a pagar")
         return
@@ -854,8 +864,8 @@ const Cart = ({ onClose }: CartProps) => {
 
       const verifiedTotal = Math.max(0, (verifiedCalculation?.total ?? totalFinal) - discountAmount)
 
-      // Solo agregar detalles de pago si es efectivo
-      if (paymentMethod === "efectivo") {
+      // Solo agregar detalles de pago si es efectivo y el total es mayor a $0
+      if (paymentMethod === "efectivo" && verifiedTotal > 0) {
         orderData.paymentDetails = {
           cashAmount: parseFloat(cashAmount),
           change: parseFloat(cashAmount) - verifiedTotal
@@ -868,20 +878,8 @@ const Cart = ({ onClose }: CartProps) => {
         const promoText = `[CÓDIGO USADO: ${appliedDiscount.code}]`
         notasFinales = notasFinales ? `${notasFinales} | ${promoText}` : promoText
       }
-      if (appliedVoucher && appliedVoucher.code) {
-        const voucherText = `[VOUCHER USADO: ${appliedVoucher.code}]`
-        notasFinales = notasFinales ? `${notasFinales} | ${voucherText}` : voucherText
-      }
-
       if (notasFinales !== '') {
         orderData.notas = notasFinales
-      }
-
-      // Agregar información del voucher si está aplicado
-      if (appliedVoucher && hasAuthenticatedUser) {
-        orderData.voucherId = appliedVoucher.id
-        orderData.voucherCode = appliedVoucher.code
-        orderData.voucherDiscount = appliedVoucher.discount
       }
 
       if (appliedDiscount) {
@@ -1037,8 +1035,7 @@ const Cart = ({ onClose }: CartProps) => {
         clearCart()
         setAppliedDiscount(null)
         setDiscountCode("")
-        setAppliedVoucher(null)
-        setVoucherCode("")
+
         setGuestTrackingUrl("")
         setExpandedItems({})
         setCurrentView("cart")
@@ -1072,11 +1069,6 @@ const Cart = ({ onClose }: CartProps) => {
   }
 
   const handleApplyDiscount = () => {
-    if (appliedVoucher) {
-      setDiscountError("No puedes combinar código promocional con voucher de Puntos Palermo")
-      return
-    }
-
     const code = discountCode.toUpperCase().trim()
     if (!code) {
       setDiscountError("Ingresa un código de descuento")
@@ -1094,151 +1086,6 @@ const Cart = ({ onClose }: CartProps) => {
     setAppliedDiscount(null)
     setDiscountCode("")
     setDiscountError("")
-  }
-
-  const handleApplyVoucher = async () => {
-    if (!user?.id) {
-      setVoucherError("Debes estar autenticado para usar vouchers")
-      return
-    }
-
-    if (appliedDiscount) {
-      setVoucherError("No puedes combinar voucher con código promocional")
-      return
-    }
-
-    if (orderHasPromoOrCombo) {
-      setVoucherError("Este pedido incluye promo/combo y no permite aplicar voucher")
-      return
-    }
-
-    const code = voucherCode.toUpperCase().trim()
-    if (!code) {
-      setVoucherError("Ingresa el código del voucher")
-      return
-    }
-
-    try {
-      setIsValidatingVoucher(true)
-      setVoucherError("")
-
-      // Buscar por código explícito del voucher
-      const vouchersRef = collection(db, 'users', user.id, 'vouchers')
-      const byCodeQuery = query(vouchersRef, where('code', '==', code))
-      let vouchersSnap = await getDocs(byCodeQuery)
-
-      // Fallback legacy para vouchers antiguos sin campo code
-      if (vouchersSnap.empty) {
-        vouchersSnap = await getDocs(vouchersRef)
-      }
-      
-      let foundVoucher = null
-      let voucherId = ''
-      let matchedCode = ''
-      
-      for (const doc of vouchersSnap.docs) {
-        const data = doc.data()
-        const docCode = data.code || doc.id.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()
-        if (docCode === code) {
-          foundVoucher = data
-          voucherId = doc.id
-          matchedCode = docCode
-          break
-        }
-      }
-
-      if (!foundVoucher) {
-        setVoucherError("Código de voucher no válido")
-        setAppliedVoucher(null)
-        return
-      }
-
-      // Verificar uso histórico del voucher en órdenes del usuario
-      // (cubre casos antiguos donde el status del voucher quedó desincronizado)
-      const userOrdersRef = collection(db, 'orders')
-      const userOrdersSnap = await getDocs(query(userOrdersRef, where('userId', '==', user.id)))
-      const alreadyUsedInOrder = userOrdersSnap.docs.some(orderDoc => {
-        const orderData = orderDoc.data()
-        const isSameVoucher = orderData.voucherId === voucherId
-        const isCancelled = orderData.estado === 'Cancelado'
-        const isFailedPayment = orderData.paymentStatus === 'failed'
-        return isSameVoucher && !isCancelled && !isFailedPayment
-      })
-
-      if (alreadyUsedInOrder) {
-        setVoucherError("Este voucher ya ha sido utilizado")
-        setAppliedVoucher(null)
-        return
-      }
-
-      // Validar que no esté usado
-      if (foundVoucher.status === 'used') {
-        setVoucherError("Este voucher ya ha sido utilizado")
-        setAppliedVoucher(null)
-        return
-      }
-
-      // Validar que no esté expirado
-      if (foundVoucher.status === 'expired') {
-        setVoucherError("Este voucher ha expirado")
-        setAppliedVoucher(null)
-        return
-      }
-
-      // Validar fecha de expiración
-      const expiresAt = foundVoucher.expiresAt?.toDate?.() || foundVoucher.expiresAt
-      if (expiresAt && new Date(expiresAt) < new Date()) {
-        setVoucherError("Este voucher ha expirado")
-        setAppliedVoucher(null)
-        return
-      }
-
-      const rewardType = (foundVoucher.rewardType || ((foundVoucher.pizzasIncluded || foundVoucher.pizzasAwarded || 0) > 0 ? 'pizza_cap' : 'fixed_discount')) as 'fixed_discount' | 'pizza_cap'
-      const minimumOrderAmount = Number(foundVoucher.minimumOrderAmount || 0)
-      const discountAmount = Number(foundVoucher.discountAmount || 0)
-      const rewardLabel =
-        foundVoucher.rewardLabel ||
-        (rewardType === 'pizza_cap'
-          ? `Pizza gratis hasta $${discountAmount.toLocaleString('es-CL')}`
-          : `$${discountAmount.toLocaleString('es-CL')} de descuento`)
-
-      if (minimumOrderAmount > 0 && subtotal < minimumOrderAmount) {
-        setVoucherError(`Este voucher requiere compra mínima de $${minimumOrderAmount.toLocaleString('es-CL')}`)
-        setAppliedVoucher(null)
-        return
-      }
-
-      const discount = Math.min(subtotal, Math.max(0, discountAmount))
-
-      if (discount <= 0) {
-        setVoucherError("Este voucher no tiene un descuento válido")
-        setAppliedVoucher(null)
-        return
-      }
-
-      setAppliedVoucher({
-        id: voucherId,
-        code: matchedCode || code,
-        rewardType,
-        rewardLabel,
-        minimumOrderAmount,
-        discount,
-      })
-      setVoucherCode("")
-      setVoucherError("")
-    } catch (error) {
-      console.error('[CART] Error validando voucher:', error)
-      setVoucherError("Error al validar el voucher. Intenta nuevamente.")
-      setAppliedVoucher(null)
-    } finally {
-      setIsValidatingVoucher(false)
-    }
-  }
-
-  const handleRemoveVoucher = () => {
-    setAppliedVoucher(null)
-    setVoucherCode("")
-    setVoucherError("")
   }
 
   // Montar/desmontar el selector de ubicación para forzar recarga
@@ -1665,12 +1512,7 @@ const Cart = ({ onClose }: CartProps) => {
                     <span>-${discountFromCode.toLocaleString()}</span>
                   </div>
                 )}
-                {appliedVoucher && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Voucher ({appliedVoucher.code}):</span>
-                    <span>-${appliedVoucher.discount.toLocaleString()}</span>
-                  </div>
-                )}
+
                 <div className="flex justify-between font-bold text-lg border-t pt-2">
                   <span>Total:</span>
                   <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>
@@ -1735,104 +1577,121 @@ const Cart = ({ onClose }: CartProps) => {
               </div>
             )}
 
-            <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="space-y-3">
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="webpay" id="webpay" />
-                <Label
-                  htmlFor="webpay"
-                  className="flex items-center cursor-pointer flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <CreditCard className="h-4 w-4 text-pink-600 mr-3" />
-                  <div>
-                    <div className="font-medium text-gray-800">Webpay Plus</div>
-                    <div className="text-xs text-gray-500">
-                      {isAuthenticated ? "Tarjeta de crédito o débito" : "Tarjeta de crédito o débito (modo invitado seguro)"}
+            {totalFinal === 0 ? (
+              <div className="p-4 bg-green-50 border border-green-200 rounded-2xl text-center space-y-2.5 shadow-sm">
+                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center text-green-600 mx-auto">
+                  <CheckCircle className="w-6 h-6 animate-pulse" />
+                </div>
+                <h3 className="font-extrabold text-green-900 text-sm">Pedido de Canje Directo</h3>
+                <p className="text-xs text-green-700 leading-relaxed font-semibold">
+                  Tu pedido consta únicamente de productos de canje con retiro en local. No se requiere realizar ningún pago monetario.
+                </p>
+                <p className="text-[10px] text-gray-500 italic">
+                  Presiona "Confirmar pedido" para generar la comanda.
+                </p>
+              </div>
+            ) : (
+              <>
+                <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod} className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="webpay" id="webpay" />
+                    <Label
+                      htmlFor="webpay"
+                      className="flex items-center cursor-pointer flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    >
+                      <CreditCard className="h-4 w-4 text-pink-600 mr-3" />
+                      <div>
+                        <div className="font-medium text-gray-800">Webpay Plus</div>
+                        <div className="text-xs text-gray-500">
+                          {isAuthenticated ? "Tarjeta de crédito o débito" : "Tarjeta de crédito o débito (modo invitado seguro)"}
+                        </div>
+                      </div>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="efectivo" id="efectivo" />
+                    <Label
+                      htmlFor="efectivo"
+                      className="flex items-center cursor-pointer flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    >
+                      <Banknote className="h-4 w-4 text-pink-600 mr-3" />
+                      <div>
+                        <div className="font-medium text-gray-800">Efectivo</div>
+                        <div className="text-xs text-gray-500">Paga al recibir</div>
+                      </div>
+                    </Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="transferencia" id="transferencia" />
+                    <Label
+                      htmlFor="transferencia"
+                      className="flex items-center cursor-pointer flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
+                    >
+                      <ArrowRightCircle className="h-4 w-4 text-pink-600 mr-3" />
+                      <div>
+                        <div className="font-medium text-gray-800">Transferencia</div>
+                        <div className="text-xs text-gray-500">Transferencia bancaria</div>
+                      </div>
+                    </Label>
+                  </div>
+                </RadioGroup>
+                {paymentMethod === "efectivo" && (
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 mt-3">
+                    <h3 className="font-medium text-gray-800 mb-2 text-sm">¿Con cuánto vas a pagar?</h3>
+                    <div className="space-y-2">
+                      <Label htmlFor="cashAmount" className="text-sm text-gray-600">
+                        Monto en efectivo
+                      </Label>
+                      <Input
+                        id="cashAmount"
+                        type="number"
+                        placeholder={`Mínimo $${totalFinal.toLocaleString()}`}
+                        min={totalFinal}
+                        value={cashAmount}
+                        onChange={(e) => handleCashAmountChange(e.target.value)}
+                        className={`text-lg font-medium ${cashAmountError ? 'border-red-500' : ''}`}
+                      />
+                      {cashAmountError && (
+                        <p className="text-sm text-red-600">{cashAmountError}</p>
+                      )}
+                      <p className="text-xs text-gray-500">Total a pagar: ${totalFinal.toLocaleString()}</p>
+                      {cashAmount && !cashAmountError && parseFloat(cashAmount) > totalFinal && (
+                        <p className="text-xs text-green-600">
+                          Vuelto: ${(parseFloat(cashAmount) - totalFinal).toLocaleString()}
+                        </p>
+                      )}
                     </div>
                   </div>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="efectivo" id="efectivo" />
-                <Label
-                  htmlFor="efectivo"
-                  className="flex items-center cursor-pointer flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <Banknote className="h-4 w-4 text-pink-600 mr-3" />
-                  <div>
-                    <div className="font-medium text-gray-800">Efectivo</div>
-                    <div className="text-xs text-gray-500">Paga al recibir</div>
+                )}
+                {paymentMethod === "transferencia" && (
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 mt-3">
+                    <h3 className="font-medium text-gray-800 mb-2 text-sm">Datos para transferencia:</h3>
+                    <div className="space-y-1 text-xs text-gray-600">
+                      <div>
+                        <span className="font-medium">Titular:</span> Francisco Soto Hevia
+                      </div>
+                      <div>
+                        <span className="font-medium">RUT:</span> 15.682.774-6
+                      </div>
+                      <div>
+                        <span className="font-medium">Banco:</span> SANTANDER
+                      </div>
+                      <div>
+                        <span className="font-medium">Tipo:</span> CUENTA CORRIENTE
+                      </div>
+                      <div>
+                        <span className="font-medium">N° Cuenta:</span> 0000 7905 8750
+                      </div>
+                      <div className="text-red-600 font-medium mt-2">⚠️ No transferir a cuenta RUT</div>
+                    </div>
                   </div>
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="transferencia" id="transferencia" />
-                <Label
-                  htmlFor="transferencia"
-                  className="flex items-center cursor-pointer flex-1 p-3 border border-gray-200 rounded-lg hover:bg-gray-50"
-                >
-                  <ArrowRightCircle className="h-4 w-4 text-pink-600 mr-3" />
-                  <div>
-                    <div className="font-medium text-gray-800">Transferencia</div>
-                    <div className="text-xs text-gray-500">Transferencia bancaria</div>
-                  </div>
-                </Label>
-              </div>
-            </RadioGroup>
-            {paymentMethod === "efectivo" && (
-              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <h3 className="font-medium text-gray-800 mb-2 text-sm">¿Con cuánto vas a pagar?</h3>
-                <div className="space-y-2">
-                  <Label htmlFor="cashAmount" className="text-sm text-gray-600">
-                    Monto en efectivo
-                  </Label>
-                  <Input
-                    id="cashAmount"
-                    type="number"
-                    placeholder={`Mínimo $${totalFinal.toLocaleString()}`}
-                    min={totalFinal}
-                    value={cashAmount}
-                    onChange={(e) => handleCashAmountChange(e.target.value)}
-                    className={`text-lg font-medium ${cashAmountError ? 'border-red-500' : ''}`}
-                  />
-                  {cashAmountError && (
-                    <p className="text-sm text-red-600">{cashAmountError}</p>
-                  )}
-                  <p className="text-xs text-gray-500">Total a pagar: ${totalFinal.toLocaleString()}</p>
-                  {cashAmount && !cashAmountError && parseFloat(cashAmount) > totalFinal && (
-                    <p className="text-xs text-green-600">
-                      Vuelto: ${(parseFloat(cashAmount) - totalFinal).toLocaleString()}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-            {paymentMethod === "transferencia" && (
-              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <h3 className="font-medium text-gray-800 mb-2 text-sm">Datos para transferencia:</h3>
-                <div className="space-y-1 text-xs text-gray-600">
-                  <div>
-                    <span className="font-medium">Titular:</span> Francisco Soto Hevia
-                  </div>
-                  <div>
-                    <span className="font-medium">RUT:</span> 15.682.774-6
-                  </div>
-                  <div>
-                    <span className="font-medium">Banco:</span> SANTANDER
-                  </div>
-                  <div>
-                    <span className="font-medium">Tipo:</span> CUENTA CORRIENTE
-                  </div>
-                  <div>
-                    <span className="font-medium">N° Cuenta:</span> 0000 7905 8750
-                  </div>
-                  <div className="text-red-600 font-medium mt-2">⚠️ No transferir a cuenta RUT</div>
-                </div>
-              </div>
+                )}
+              </>
             )}
           </div>
         </div>
-
-        {/* Sección unificada: vouchers + códigos de descuento */}
+ 
+        {/* Sección unificada: códigos de descuento */}
         <div className="border-t border-gray-200 bg-gray-50">
           {/* Botón/pestaña para abrir el panel */}
           <button
@@ -1842,9 +1701,9 @@ const Cart = ({ onClose }: CartProps) => {
             <div className="flex items-center gap-2">
               <Tag className="h-4 w-4 text-pink-600" />
               <span className="font-medium text-gray-800">
-                {appliedVoucher || appliedDiscount ? 'Promoción aplicada' : 'Vouchers y códigos de descuento'}
+                {appliedDiscount ? 'Código promocional aplicado' : '¿Tienes un código de descuento?'}
               </span>
-              {(appliedVoucher || appliedDiscount) && (
+              {appliedDiscount && (
                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
                   Activo
                 </span>
@@ -1856,140 +1715,69 @@ const Cart = ({ onClose }: CartProps) => {
               }`} 
             />
           </button>
-
+ 
           {/* Panel desplegable */}
           <div 
             className={`transition-all duration-500 ease-in-out overflow-hidden ${
-              isDiscountPanelOpen ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+              isDiscountPanelOpen ? 'max-h-[300px] opacity-100' : 'max-h-0 opacity-0'
             }`}
             style={{
               transition: 'max-height 0.5s ease-in-out, opacity 0.3s ease-in-out'
             }}
           >
             <div className="p-4 bg-white border-t border-gray-200">
-              {user?.id ? (
-                <div className="space-y-4">
-                  {/* Bloque Voucher */}
-                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">🍕</span>
-                      <p className="text-sm font-semibold text-blue-900">Voucher de Puntos Palermo</p>
+              <div className="space-y-4">
+                {/* Bloque Código de Descuento */}
+                <div className="bg-pink-50 p-3 rounded-lg border border-pink-200 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-4 w-4 text-pink-600" />
+                    <p className="text-sm font-semibold text-pink-900">Código promocional</p>
+                  </div>
+ 
+                  {appliedDiscount ? (
+                    <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
+                      <div>
+                        <span className="font-medium text-green-800">{appliedDiscount.code}</span>
+                        <p className="text-xs text-green-600">
+                          {appliedDiscount.percentage
+                            ? `${appliedDiscount.percentage}% de descuento aplicado`
+                            : `$${appliedDiscount.amount.toLocaleString()} de descuento aplicado`}
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleRemoveDiscount}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        Quitar
+                      </Button>
                     </div>
-
-                    {appliedVoucher ? (
-                      <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
-                        <div>
-                          <p className="font-medium text-green-800">{appliedVoucher.rewardLabel}</p>
-                          <p className="text-xs text-gray-600">Código: {appliedVoucher.code}</p>
-                          {appliedVoucher.minimumOrderAmount > 0 && (
-                            <p className="text-xs text-amber-700">Compra mínima: ${appliedVoucher.minimumOrderAmount.toLocaleString()}</p>
-                          )}
-                          <p className="text-xs text-green-700">Ahorro: ${appliedVoucher.discount.toLocaleString()}</p>
-                        </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex space-x-2">
+                        <Input
+                          placeholder="Ingresa tu código"
+                          value={discountCode}
+                          onChange={(e) => {
+                            setDiscountCode(e.target.value)
+                            setDiscountError("")
+                          }}
+                          className="flex-1 text-[#1F2937]"
+                        />
                         <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleRemoveVoucher}
-                          className="text-red-600 hover:bg-red-50"
+                          onClick={handleApplyDiscount}
+                          variant="outline"
+                          className="border-pink-300 text-pink-600 hover:bg-pink-50 cursor-pointer"
                         >
-                          Quitar
+                          Aplicar
                         </Button>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex gap-2">
-                          <Input
-                            value={voucherCode}
-                            onChange={(e) => {
-                              setVoucherCode(e.target.value)
-                              if (voucherError) setVoucherError("")
-                            }}
-                            placeholder="Ingresa código del voucher"
-                            className="text-sm uppercase"
-                            disabled={isValidatingVoucher}
-                            maxLength={10}
-                          />
-                          <Button
-                            onClick={handleApplyVoucher}
-                            disabled={isValidatingVoucher || !voucherCode.trim()}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 whitespace-nowrap"
-                            size="sm"
-                          >
-                            {isValidatingVoucher ? "Validando..." : "Aplicar"}
-                          </Button>
-                        </div>
-                        {voucherError && (
-                          <div className="flex items-center gap-2 p-2 bg-red-50 rounded text-red-700 text-xs">
-                            <AlertCircle className="h-4 w-4" />
-                            <span>{voucherError}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Bloque Código de Descuento */}
-                  <div className="bg-pink-50 p-3 rounded-lg border border-pink-200 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Tag className="h-4 w-4 text-pink-600" />
-                      <p className="text-sm font-semibold text-pink-900">Código promocional</p>
+                      {discountError && <p className="text-xs text-red-600">{discountError}</p>}
                     </div>
-
-                    {appliedDiscount ? (
-                      <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
-                        <div>
-                          <span className="font-medium text-green-800">{appliedDiscount.code}</span>
-                          <p className="text-xs text-green-600">
-                            {appliedDiscount.percentage
-                              ? `${appliedDiscount.percentage}% de descuento aplicado`
-                              : `$${appliedDiscount.amount.toLocaleString()} de descuento aplicado`}
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={handleRemoveDiscount}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          Quitar
-                        </Button>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex space-x-2">
-                          <Input
-                            placeholder="Ingresa tu código"
-                            value={discountCode}
-                            onChange={(e) => {
-                              setDiscountCode(e.target.value)
-                              setDiscountError("")
-                            }}
-                            className="flex-1"
-                          />
-                          <Button
-                            onClick={handleApplyDiscount}
-                            variant="outline"
-                            className="border-pink-300 text-pink-600 hover:bg-pink-50"
-                          >
-                            Aplicar
-                          </Button>
-                        </div>
-                        {discountError && <p className="text-xs text-red-600">{discountError}</p>}
-                        <p className="text-xs text-amber-700">No combina con vouchers de Puntos Palermo.</p>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-center">
-                  <p className="text-sm text-amber-800 font-medium">
-                    <Link href="/auth?tab=login" className="underline font-bold text-pink-600 hover:text-pink-700">Inicia sesión</Link>
-                    {" o "}
-                    <Link href="/auth?tab=register" className="underline font-bold text-pink-600 hover:text-pink-700">registrate</Link>
-                    {" para obtener beneficios exclusivos en tus compras"}
-                  </p>
-                </div>
-              )}
+              </div>
             </div>
           </div>
         </div>
@@ -2006,7 +1794,13 @@ const Cart = ({ onClose }: CartProps) => {
                 : 'bg-pink-600 text-white hover:bg-pink-700'
             }`}
           >
-            {isProcessing ? "Procesando..." : showCalculatingTotal ? "Calculando total..." : `Confirmar Pago - $${totalFinal.toLocaleString()}`}
+            {isProcessing 
+              ? "Procesando..." 
+              : showCalculatingTotal 
+                ? "Calculando total..." 
+                : totalFinal === 0 
+                  ? "Confirmar pedido" 
+                  : `Confirmar Pago - $${totalFinal.toLocaleString()}`}
           </Button>
         </div>
       </div>
@@ -2153,8 +1947,16 @@ const Cart = ({ onClose }: CartProps) => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between mb-1 sm:mb-2">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight">
-                        {shouldGroup ? displayItem.name.replace(/ (Tradicional|Zero)$/, "") : displayItem.name}
+                      <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight flex flex-row items-center gap-2">
+                        <span>{shouldGroup ? displayItem.name.replace(/ (Tradicional|Zero)$/, "") : displayItem.name}</span>
+                        {displayItem.isCanje && (
+                          <img
+                            src="/iconos/puntos.png"
+                            alt="Puntos Palermo"
+                            className="w-8 h-8 sm:w-[50px] sm:h-[50px] object-contain flex-shrink-0"
+                            title="Canje por Puntos Palermo"
+                          />
+                        )}
                       </h3>
                       {shouldGroup && variantInfo.length > 0 && (
                         <div className="text-[10px] sm:text-xs text-gray-600 mt-0.5 sm:mt-1">
@@ -2415,43 +2217,58 @@ const Cart = ({ onClose }: CartProps) => {
 
                   {/* Controles de cantidad */}
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-1.5 sm:space-x-2">
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
-                        onClick={() => {
-                          if (shouldGroup) {
-                            updateQuantity(item.id, Math.max(0, item.quantity - 1))
-                          } else {
-                            updateQuantity(displayItem.id, Math.max(0, displayItem.quantity - 1))
-                          }
-                          setShowInventoryError(false)
-                        }}
-                      >
-                        <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                      </Button>
-                      <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{displayItem.quantity}</span>
-                      <Button
-                        size="icon"
-                        variant="outline"
-                        className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
-                        onClick={() => {
-                          if (shouldGroup) {
-                            updateQuantity(item.id, item.quantity + 1)
-                          } else {
-                            updateQuantity(displayItem.id, displayItem.quantity + 1)
-                          }
-                          setShowInventoryError(false)
-                        }}
-                      >
-                        <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                      </Button>
-                    </div>
+                    {displayItem.isCanje ? (
+                      <div className="text-xs text-pink-700 font-extrabold bg-pink-50 border border-pink-100 px-3 py-1.5 rounded-xl shadow-sm">
+                        Cantidad: {displayItem.quantity}
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1.5 sm:space-x-2">
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                          onClick={() => {
+                            if (shouldGroup) {
+                              updateQuantity(item.id, Math.max(0, item.quantity - 1))
+                            } else {
+                              updateQuantity(displayItem.id, Math.max(0, displayItem.quantity - 1))
+                            }
+                            setShowInventoryError(false)
+                          }}
+                        >
+                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                        <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{displayItem.quantity}</span>
+                        <Button
+                          size="icon"
+                          variant="outline"
+                          className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                          onClick={() => {
+                            if (shouldGroup) {
+                              updateQuantity(item.id, item.quantity + 1)
+                            } else {
+                              updateQuantity(displayItem.id, displayItem.quantity + 1)
+                            }
+                            setShowInventoryError(false)
+                          }}
+                        >
+                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                        </Button>
+                      </div>
+                    )}
                     <div className="text-right">
-                      <div className="font-bold text-sm sm:text-base text-gray-800">${(displayItem.price * displayItem.quantity).toLocaleString()}</div>
-                      {displayItem.quantity > 1 && (
-                        <div className="text-[10px] sm:text-xs text-gray-500">${displayItem.price.toLocaleString()} c/u</div>
+                      {displayItem.isCanje ? (
+                        <>
+                          <div className="font-bold text-sm sm:text-base text-pink-600">$0 (Canje)</div>
+                          <div className="text-[9px] sm:text-[10px] text-gray-500 font-semibold">{displayItem.canjePoints?.toLocaleString('es-CL')} pts</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="font-bold text-sm sm:text-base text-gray-800">${(displayItem.price * displayItem.quantity).toLocaleString()}</div>
+                          {displayItem.quantity > 1 && (
+                            <div className="text-[10px] sm:text-xs text-gray-500">${displayItem.price.toLocaleString()} c/u</div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -2684,8 +2501,8 @@ const Cart = ({ onClose }: CartProps) => {
           {expandedUpsell.snacks && (
             <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
               {[
-                { id: 15, name: "Rollitos de Canela", price: 4900, image: "/acompañamientos/canela.jpg" },
-                { id: 16, name: "Gauchitos", price: 4000, image: "/acompañamientos/gauchitos.jpg" },
+                { id: 15, name: "Rollitos de Canela", price: 4900, image: "/pizzas/canela.jpg" },
+                { id: 16, name: "Gauchitos", price: 4000, image: "/pizzas/gauchitos.jpg" },
               ].map(snack => {
                 const cartItem = items.find(item => item.id === String(snack.id))
                 const isInCart = !!cartItem
@@ -2700,8 +2517,8 @@ const Cart = ({ onClose }: CartProps) => {
                         onChange={(e) => {
                           if (e.target.checked) {
                             const imageMap: Record<string, string> = {
-                              "Rollitos de Canela": "/acompañamientos/canela.jpg",
-                              "Gauchitos": "/acompañamientos/gauchitos.jpg"
+                              "Rollitos de Canela": "/pizzas/canela.jpg",
+                              "Gauchitos": "/pizzas/gauchitos.jpg"
                             };
                             addItem({
                               id: String(snack.id),
@@ -2771,12 +2588,7 @@ const Cart = ({ onClose }: CartProps) => {
               <span className="font-medium">-${discountFromCode.toLocaleString()}</span>
             </div>
           )}
-          {appliedVoucher && (
-            <div className="flex justify-between text-xs sm:text-sm text-green-600">
-              <span>Voucher ({appliedVoucher.code})</span>
-              <span className="font-medium">-${appliedVoucher.discount.toLocaleString()}</span>
-            </div>
-          )}
+
           <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
             <span>Total</span>
             <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>

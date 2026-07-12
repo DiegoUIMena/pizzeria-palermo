@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders } from "lucide-react"
+import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders, Sparkles } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from 'react'
 
@@ -51,6 +51,7 @@ export default function AdminHeader() {
       ]
     },
     { name: "Zonas Delivery", href: "/admin/zonas-delivery", icon: MapPin },
+    { name: "Puntos Palermo", href: "/admin/puntos-palermo", icon: Sparkles },
     { name: "Chatbot", href: "/admin/chatbot", icon: MessageCircle },
     { name: "Reportes", href: "/admin/reportes", icon: BarChart3 },
   ]

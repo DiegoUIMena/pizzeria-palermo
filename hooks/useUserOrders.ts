@@ -101,7 +101,9 @@ export const useFormattedOrders = (userId: string | undefined) => {
         selectedMenuPizza: item.selectedMenuPizza,
         sinOregano: item.sinOregano,
         sinQueso: item.sinQueso,
-        sinSalsaTomate: item.sinSalsaTomate
+        sinSalsaTomate: item.sinSalsaTomate,
+        isCanje: item.isCanje,
+        canjePoints: item.canjePoints
       })),
       total: order.total,
       estimatedTime: estimatedTimeDisplay,

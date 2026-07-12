@@ -127,6 +127,11 @@ async function getPriceConfig(): Promise<PriceConfig> {
  * Calcular precio de un ítem del pedido
  */
 async function calculateItemPrice(item: OrderItem): Promise<number> {
+  // Si es un producto de canje de Puntos Palermo, su precio comercial es $0
+  if (item.isCanje) {
+    return 0;
+  }
+
   const PRICE_CONFIG = await getPriceConfig();
   let totalPrice = 0;
 

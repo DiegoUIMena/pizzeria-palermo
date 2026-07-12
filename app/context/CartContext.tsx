@@ -11,6 +11,8 @@ interface CartItem {
   price: number
   image: string
   quantity: number
+  isCanje?: boolean
+  canjePoints?: number
   // Agregar nuevos campos para detalles
   size?: string
   variant?: string
@@ -201,6 +203,8 @@ function sanitizeCartItem(raw: any): CartItem | null {
     sinOregano: raw.sinOregano,
     sinQueso: raw.sinQueso,
     sinSalsaTomate: raw.sinSalsaTomate,
+    isCanje: typeof raw.isCanje === "boolean" ? raw.isCanje : undefined,
+    canjePoints: typeof raw.canjePoints === "number" ? raw.canjePoints : undefined,
   }
 }
 
@@ -285,8 +289,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const createOrder = async (orderData: CreateOrderData): Promise<{id: string, orderNumber: number, success: boolean, error?: string, validationDetails?: any, guestAccessToken?: string, guestTokenExpiresAt?: string}> => {
     try {
       // Convertir CartItem[] a OrderItem[]
-      const orderItems: OrderItem[] = state.items.map(item => ({
-        nombre: item.name,
+      const orderItems: any[] = state.items.map(item => ({
+        nombre: item.isCanje ? `${item.name} (PP)` : item.name,
         cantidad: item.quantity,
         precio: item.price,
         size: item.size,
@@ -301,11 +305,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
         pizza2: item.pizza2,
         half1: item.half1,
         half2: item.half2,
-        selectedMenuPizza: item.selectedMenuPizza, // [ADDED] Pizza base seleccionada
-        // Opciones de personalización
+        selectedMenuPizza: item.selectedMenuPizza,
         sinOregano: item.sinOregano,
         sinQueso: item.sinQueso,
-        sinSalsaTomate: item.sinSalsaTomate
+        sinSalsaTomate: item.sinSalsaTomate,
+        isCanje: item.isCanje,
+        canjePoints: item.canjePoints,
       }))
 
       // Llamar a la Cloud Function createOrder

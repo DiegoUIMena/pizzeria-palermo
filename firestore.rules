@@ -30,12 +30,20 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.auth.uid == userId && 
                     (!('role' in request.resource.data) || request.resource.data.role == 'customer');
       
-      // Evitar que el usuario actualice su propio rol a menos que ya sea administrador
+      // Evitar que el usuario actualice su propio rol, puntos o RUT (si ya existe) a menos que ya sea administrador
       allow update: if isAuthenticated() && (
         (request.auth.uid == userId && 
          (
-           (!('role' in request.resource.data) && !('role' in resource.data)) ||
-           ('role' in request.resource.data && 'role' in resource.data && request.resource.data.role == resource.data.role)
+           // Bloquear alteración de rol
+           ((!('role' in request.resource.data) && !('role' in resource.data)) ||
+            ('role' in request.resource.data && 'role' in resource.data && request.resource.data.role == resource.data.role)) &&
+           
+           // Bloquear alteración de puntos acumulados
+           ((!('totalPoints' in resource.data) && !('totalPoints' in request.resource.data)) ||
+            (request.resource.data.totalPoints == resource.data.totalPoints)) &&
+           
+           // Bloquear cambio de RUT si ya se encuentra establecido
+           (!('rut' in resource.data) || (request.resource.data.rut == resource.data.rut))
          )
         ) || isAdmin()
       );
@@ -246,6 +254,17 @@ service cloud.firestore {
         allow create: if false;
         allow delete: if isAdmin();
       }
+    }
+    
+    // ============================================
+    // REGLAS PARA CATÁLOGO DE CANJE PUNTOS PALERMO
+    // ============================================
+    match /puntos_palermo_catalogo/{productoId} {
+      // Todos pueden leer el catálogo de canjes
+      allow read: if true;
+      
+      // Solo el administrador puede crear/modificar/eliminar productos
+      allow write: if isAdmin();
     }
     
     // ============================================

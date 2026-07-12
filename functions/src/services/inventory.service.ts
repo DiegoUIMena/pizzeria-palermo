@@ -171,7 +171,10 @@ function isGauchitosLikeItem(name: string): boolean {
 
 function isRollitosLikeItem(name: string): boolean {
   const normalizedName = normalizeText(name || "");
-  return normalizedName.includes("rollito") && normalizedName.includes("canela");
+  return (
+    normalizedName.includes("canela") &&
+    (normalizedName.includes("roll") || normalizedName.includes("rol"))
+  );
 }
 
 async function getAgregadosConfig(

@@ -437,7 +437,7 @@ export default function AdminInventario() {
   }
 
   const getStorageUrl = (path: string) => {
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-test-20260401.appspot.com';
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.firebasestorage.app';
     if (path && path.startsWith('/bebidas/')) {
       const fileName = path.split('/').pop() || '';
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(fileName)}?alt=media`;

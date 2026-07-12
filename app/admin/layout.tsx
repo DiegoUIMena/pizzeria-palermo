@@ -29,6 +29,13 @@ export default function AdminLayout({
     isTestHost
 
   useEffect(() => {
+    document.body.classList.add('admin-body')
+    return () => {
+      document.body.classList.remove('admin-body')
+    }
+  }, [])
+
+  useEffect(() => {
     if (isTestProject) {
       // Entorno de pruebas aislado: permitir acceso admin para QA sin bloquear por Auth.
       setIsAuthorized(true)

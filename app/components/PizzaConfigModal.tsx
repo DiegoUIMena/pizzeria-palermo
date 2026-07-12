@@ -88,8 +88,8 @@ const getPizzaImagePath = (imagePath?: string, pizzaName?: string): string => {
     return url;
   }
   
-  // Último recurso: usar fondo genérico
-  return "/pizza-promo-bg.png"
+  // Último recurso: usar fondo genérico de la Palermo en Storage
+  return "/pizzas/palermo.jpg"
 }
 
 function getExtraImagePath(itemName: string, imagePath?: string): string {
@@ -848,8 +848,8 @@ export default function PizzaConfigModal({
               return finalPath
             }
           }
-          // Si es completamente personalizada, usar imagen genérica
-          const genericPath = activePizzaType === "promo" ? "/pizza-promo-bg.png" : "/pizza-premium-bg.png"
+          // Si es completamente personalizada, usar imagen genérica de Storage
+          const genericPath = activePizzaType === "promo" ? "/pizzas/palermo.jpg" : "/pizzas/doble muzza.jpg"
           return genericPath
         })(),
         quantity: 1, // Assuming quantity 1 for simplicity, or get from currentConfig if editing
@@ -922,6 +922,10 @@ export default function PizzaConfigModal({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-md mx-auto h-[95vh] flex flex-col p-0 [&>button]:hidden">
+        <DialogTitle className="sr-only">Configurar Pizza</DialogTitle>
+        <DialogDescription className="sr-only">
+          Modifica y añade ingredientes o extras a tu pizza seleccionada.
+        </DialogDescription>
         <div className="relative h-40 bg-gradient-to-br from-pink-400 to-pink-600 flex-shrink-0">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-6xl">🍕</div>

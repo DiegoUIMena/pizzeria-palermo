@@ -30,6 +30,8 @@ export interface OrderItem {
     premiumIngredients: string[];
   };
   selectedMenuPizza?: string | null;  // Pizza base seleccionada para Premium/Promo
+  isCanje?: boolean;
+  canjePoints?: number;
 }
 
 export interface OrderAddress {

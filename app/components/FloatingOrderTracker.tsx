@@ -120,7 +120,16 @@ export default function FloatingOrderTracker() {
 
       if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(activeOrder.id)) {
         const audio = new Audio('/notification.mp3')
-        audio.play().catch(e => console.log('Autoplay blocked:', e))
+        audio.play()
+          .then(() => {
+            audio.onended = () => {
+              setTimeout(() => {
+                const secondAudio = new Audio('/notification.mp3')
+                secondAudio.play().catch(e => console.log('Autoplay blocked second time:', e))
+              }, 1500)
+            }
+          })
+          .catch(e => console.log('Autoplay blocked:', e))
         
         setPlayedSound(prev => new Set(prev).add(activeOrder.id))
       }

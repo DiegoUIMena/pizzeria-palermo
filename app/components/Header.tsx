@@ -50,6 +50,12 @@ export default function Header() {
     }
   }, [isCartOpen])
 
+  useEffect(() => {
+    const handleOpenCart = () => setIsCartOpen(true)
+    window.addEventListener('openCart', handleOpenCart)
+    return () => window.removeEventListener('openCart', handleOpenCart)
+  }, [])
+
   return (
     <>
       {/* Promotional Banner */}
@@ -86,26 +92,44 @@ export default function Header() {
             {/* Right Side Actions */}
             <div className="flex items-center space-x-2 sm:space-x-3">
               {/* Search Button */}
-              <Button
-                variant="outline"
-                size="icon"
+              <button
                 onClick={() => setIsSearchOpen(true)}
-                className="bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all w-8 h-8 sm:w-10 sm:h-10"
+                className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[46px] h-[46px] sm:w-[57px] sm:h-[57px]"
+                title="Buscar"
               >
-                <Search className="w-3 h-3 sm:w-4 sm:h-4" />
-              </Button>
+                <Image
+                  src="/iconos/header/buscar.svg"
+                  alt="Buscar"
+                  width={58}
+                  height={58}
+                  className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                />
+              </button>
+
+              {/* Puntos Palermo Icon (Solo registrados) */}
+              {isAuthenticated && (
+                <Link href="/perfil/puntos" className="flex items-center hover:opacity-85 transition-opacity" title="Puntos Palermo">
+                  <Image
+                    src="/iconos/header/puntos.svg"
+                    alt="Puntos Palermo"
+                    width={58}
+                    height={58}
+                    className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                  />
+                </Link>
+              )}
 
               {/* User Account */}
               {isAuthenticated ? (
                 <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="bg-pink-50 text-pink-600 border-pink-300 hover:bg-pink-100 hover:text-pink-700 hover:border-pink-400 transition-all w-8 h-8 sm:w-10 sm:h-10"
-                    >
-                      <UserCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                    </Button>
+                  <DropdownMenuTrigger className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[46px] h-[46px] sm:w-[57px] sm:h-[57px]" title="Mi Cuenta">
+                    <Image
+                      src="/iconos/header/usuario.svg"
+                      alt="Usuario"
+                      width={58}
+                      height={58}
+                      className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                    />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-64 p-2">
                     <div className="px-2 py-1.5">
@@ -125,12 +149,6 @@ export default function Header() {
                         <span>Mi perfil</span>
                       </Link>
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/perfil/puntos" className="cursor-pointer flex items-center text-sm">
-                        <Ticket className="mr-2 h-4 w-4" />
-                        <span>Puntos Palermo</span>
-                      </Link>
-                    </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
                       onClick={logout}
@@ -142,14 +160,14 @@ export default function Header() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <Link href="/auth">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all w-8 h-8 sm:w-10 sm:h-10"
-                  >
-                    <User className="w-3 h-3 sm:w-4 sm:h-4" />
-                  </Button>
+                <Link href="/auth" className="flex items-center hover:opacity-85 transition-opacity" title="Iniciar sesión">
+                  <Image
+                    src="/iconos/header/usuario.svg"
+                    alt="Acceder"
+                    width={58}
+                    height={58}
+                    className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                  />
                 </Link>
               )}
 
@@ -165,21 +183,24 @@ export default function Header() {
                 )}
 
                 <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
-                  <SheetTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className={`bg-gray-50 text-gray-600 border-gray-300 hover:bg-pink-50 hover:text-pink-600 hover:border-pink-300 transition-all relative w-8 h-8 sm:w-10 sm:h-10 ${
-                        itemCount > 0 ? 'animate-pulse-glow' : ''
-                      }`}
-                    >
-                      <ShoppingCart className="w-3 h-3 sm:w-4 sm:h-4" />
-                      {itemCount > 0 && (
-                        <span className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-pink-500 text-white rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center text-xs font-bold shadow-md">
-                          {itemCount}
-                        </span>
-                      )}
-                    </Button>
+                  <SheetTrigger
+                    className={`relative flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] ${
+                      itemCount > 0 ? "animate-pulse-glow" : ""
+                    }`}
+                    title="Carrito de compras"
+                  >
+                    <Image
+                      src="/iconos/header/carro.svg"
+                      alt="Carrito"
+                      width={58}
+                      height={58}
+                      className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                    />
+                    {itemCount > 0 && (
+                      <span className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-pink-500 text-white rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center text-xs font-bold shadow-md">
+                        {itemCount}
+                      </span>
+                    )}
                   </SheetTrigger>
                   <SheetContent
                     side="right"

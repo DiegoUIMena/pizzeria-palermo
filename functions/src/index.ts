@@ -44,6 +44,7 @@ import {
   isValidPhoneNumber,
 } from "./services/whatsapp.service";
 import {CreateOrderData} from "./types/orders";
+import {addPointsToUser} from "./utils/points-system";
 
 // Inicializar Firebase Admin (solo una vez)
 if (!admin.apps.length) {
@@ -963,87 +964,94 @@ export const updateOrderStatus = onCall(async (request) => {
       updates["inventoryProcessed"] = true;
       updates["inventoryStatus"] = "processed";
       logger.info("✅ Inventario consumido exitosamente");
+    }
 
-      // ✅ SUMAR PUNTOS para órdenes NO Webpay cuando se ACEPTAN (para cash/transfer/etc)
-      // Si es Webpay, los puntos ya se sumaron en confirmWebpayTransaction
-      // Solo sumamos puntos si:
-      // 1. No es una orden Webpay
-      // 2. Es un cliente registrado (no guest)
-      // 3. Los puntos aún no han sido sumados
-      if (
-        !orderData?.webpay?.token &&
-        orderData?.userId &&
-        orderData?.customerType !== 'guest' &&
-        !orderData?.pointsAdded
-      ) {
-        logger.info("💰 Sumando puntos para orden de cash/transfer", {
+    // ✅ SUMAR PUNTOS para órdenes NO Webpay cuando se ACEPTAN (para cash/transfer/etc)
+    // Si es Webpay, los puntos ya se sumaron en confirmWebpayTransaction
+    // Solo sumamos puntos si:
+    // 1. El nuevo estado es "En preparación"
+    // 2. No es una orden Webpay
+    // 3. Es un cliente registrado (no guest)
+    // 4. Los puntos aún no han sido sumados
+    if (
+      newStatus === "En preparación" &&
+      !orderData?.webpay?.token &&
+      orderData?.userId &&
+      orderData?.customerType !== 'guest' &&
+      !orderData?.pointsAdded
+    ) {
+      logger.info("💰 Sumando puntos para orden de cash/transfer", {
+        orderId,
+        userId: orderData.userId,
+        orderTotal: orderData.total
+      });
+
+      try {
+        await addPointsToUser(orderData.userId, orderData.total, orderId);
+        updates["pointsAdded"] = true;
+        updates["pointsAddedAt"] = new Date().toISOString();
+        logger.info("✅ Puntos sumados exitosamente para orden cash/transfer", {
           orderId,
-          userId: orderData.userId,
-          orderTotal: orderData.total
+          userId: orderData.userId
         });
-
-        try {
-          const { addPointsToUser } = await import('./utils/points-system.js');
-          await addPointsToUser(orderData.userId, orderData.total, orderId);
-          updates["pointsAdded"] = true;
-          updates["pointsAddedAt"] = new Date().toISOString();
-          logger.info("✅ Puntos sumados exitosamente para orden cash/transfer", {
-            orderId,
-            userId: orderData.userId
-          });
-        } catch (pointsError) {
-          logger.error("❌ Error sumando puntos (no crítico):", pointsError);
-          // No lanzamos error porque el admin ya aceptó la orden
-        }
+      } catch (pointsError) {
+        logger.error("❌ Error sumando puntos (no crítico):", pointsError);
+        // No lanzamos error porque el admin ya aceptó la orden
       }
+    }
 
-      // ✅ MARCAR VOUCHER COMO USADO para órdenes NO Webpay (transferencia/efectivo)
-      if (
-        !orderData?.webpay?.token &&
-        orderData?.userId &&
-        orderData?.voucherId &&
-        !orderData?.voucherProcessed
-      ) {
-        try {
-          const voucherRef = db
-            .collection('users')
-            .doc(orderData.userId)
-            .collection('vouchers')
-            .doc(orderData.voucherId);
+    // ✅ MARCAR VOUCHER COMO USADO para órdenes NO Webpay (transferencia/efectivo)
+    // Solo marcamos el voucher si:
+    // 1. El nuevo estado es "En preparación"
+    // 2. No es una orden Webpay
+    // 3. Es un cliente registrado (no guest)
+    // 4. Tiene un voucherId asociado y no ha sido procesado aún
+    if (
+      newStatus === "En preparación" &&
+      !orderData?.webpay?.token &&
+      orderData?.userId &&
+      orderData?.voucherId &&
+      !orderData?.voucherProcessed
+    ) {
+      try {
+        const voucherRef = db
+          .collection('users')
+          .doc(orderData.userId)
+          .collection('vouchers')
+          .doc(orderData.voucherId);
 
-          const voucherDoc = await voucherRef.get();
-          if (!voucherDoc.exists) {
-            logger.warn('Voucher no encontrado al procesar orden no-webpay', {
-              orderId,
-              userId: orderData.userId,
-              voucherId: orderData.voucherId,
-            });
-          } else {
-            const voucherData = voucherDoc.data();
-            if (voucherData?.status !== 'used') {
-              await voucherRef.update({
-                status: 'used',
-                usedAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              });
-            }
-
-            updates['voucherProcessed'] = true;
-            updates['voucherProcessedAt'] = new Date().toISOString();
-            logger.info('✅ Voucher marcado como usado en flujo no-webpay', {
-              orderId,
-              userId: orderData.userId,
-              voucherId: orderData.voucherId,
-            });
-          }
-        } catch (voucherError) {
-          logger.error('❌ Error marcando voucher en flujo no-webpay', {
+        const voucherDoc = await voucherRef.get();
+        if (!voucherDoc.exists) {
+          logger.warn('Voucher no encontrado al procesar orden no-webpay', {
             orderId,
             userId: orderData.userId,
             voucherId: orderData.voucherId,
-            error: voucherError,
+          });
+        } else {
+          const voucherData = voucherDoc.data();
+          if (voucherData?.status !== 'used') {
+            await voucherRef.update({
+              status: 'used',
+              usedAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+          }
+
+          updates['voucherProcessed'] = true;
+          updates['voucherProcessedAt'] = new Date().toISOString();
+          logger.info('✅ Voucher marcado como usado en flujo no-webpay', {
+            orderId,
+            userId: orderData.userId,
+            voucherId: orderData.voucherId,
           });
         }
+      } catch (voucherError) {
+        logger.error('❌ Error marcando voucher en flujo no-webpay', {
+          orderId,
+          userId: orderData.userId,
+          voucherId: orderData.voucherId,
+          error: voucherError,
+        });
       }
     }
     
@@ -1624,7 +1632,10 @@ export const confirmWebpayTransaction = onCall(async (request) => {
 
           const isRollitosLikeItem = (name: string) => {
             const normalized = normalizeText(name);
-            return normalized.includes("rollito") && normalized.includes("canela");
+            return (
+              normalized.includes("canela") &&
+              (normalized.includes("roll") || normalized.includes("rol"))
+            );
           };
           
           logger.info(`🍕 Processing ${freshOrderData.items.length} items for inventory consumption`);
@@ -1776,7 +1787,6 @@ export const confirmWebpayTransaction = onCall(async (request) => {
     // Sumar puntos si es un usuario registrado (no guest) y el pago fue exitoso
     if (transactionResult.success && orderData && orderData.customerType !== 'guest' && orderData.userId) {
       try {
-        const { addPointsToUser } = await import('./utils/points-system.js')
         // Usar el total guardado en la orden (incluye descuentos de voucher)
         const orderTotal = orderData.total || transactionResult.amount || 0
         logger.info('📊 Adding points to user after successful payment', { 
@@ -1851,58 +1861,10 @@ export const confirmWebpayTransaction = onCall(async (request) => {
  * - Registra la transacción en el historial
  */
 export const redeemPointsForPizza = onCall(async (request) => {
-  const { pointsToRedeem } = request.data
-
-  logger.info("redeemPointsForPizza called", {
-    userId: request.auth?.uid,
-    pointsToRedeem,
-  })
-
-  // Validar autenticación
-  if (!request.auth) {
-    throw new HttpsError("unauthenticated", "Debes estar autenticado")
-  }
-
-  const userId = request.auth.uid
-
-  // Validar parámetros
-  if (!pointsToRedeem || pointsToRedeem <= 0) {
-    throw new HttpsError("invalid-argument", "Cantidad de puntos inválida")
-  }
-
-  try {
-    const { redeemPointsForPizza: redeemPointsService } = await import('./utils/points-system.js')
-    const result = await redeemPointsService(userId, pointsToRedeem)
-
-    if (!result.success) {
-      throw new HttpsError("permission-denied", result.error || "Error al canjear puntos")
-    }
-
-    logger.info("Points redeemed successfully", {
-      userId,
-      pointsRedeemed: pointsToRedeem,
-      voucherId: result.voucherId,
-      voucherCode: result.voucherCode,
-    })
-
-    return {
-      success: true,
-      voucherId: result.voucherId,
-      voucherCode: result.voucherCode,
-      message: "Voucher creado exitosamente. Úsalo en tu próximo pedido según su tramo de canje.",
-    }
-  } catch (error) {
-    logger.error("Error redeeming points:", error)
-
-    if (error instanceof HttpsError) {
-      throw error
-    }
-
-    throw new HttpsError(
-      "internal",
-      "Error al procesar el canje de puntos"
-    )
-  }
+  throw new HttpsError(
+    "unimplemented",
+    "El canje de puntos por cupones de descuento ya no está disponible."
+  )
 })
 
 // ===VERSION ALTERNATIVA CON CORS MANUAL ===
@@ -1912,81 +1874,13 @@ export const redeemPointsForPizzaHttp = onRequest(
     cors: true, // Permitir cualquier origen (más permisivo pero funciona)
   },
   async (req, res) => {
-    // Verificar método
-    if (req.method !== "POST") {
-      res.status(405).json({ error: "Método no permitido" });
-      return;
-    }
-
-    try {
-      // Obtener el token de autenticación del header
-      const authHeader = req.headers.authorization;
-      if (!authHeader || !authHeader.startsWith("Bearer ")) {
-        res.status(401).json({ error: "Token no proporcionado" });
-        return;
-      }
-
-      const idToken = authHeader.substring(7);
-
-      // Verificar el token
-      let decodedToken;
-      try {
-        decodedToken = await admin.auth().verifyIdToken(idToken);
-      } catch (error) {
-        res.status(401).json({ error: "Token inválido o expirado" });
-        return;
-      }
-
-      const userId = decodedToken.uid;
-      const { pointsToRedeem } = req.body;
-
-      logger.info("redeemPointsForPizzaHttp called", {
-        userId,
-        pointsToRedeem,
-      });
-
-      // Validar parámetros
-      if (!pointsToRedeem || pointsToRedeem <= 0) {
-        res.status(400).json({ error: "Cantidad de puntos inválida" });
-        return;
-      }
-
-      // Llamar a la lógica de puntos
-      const { redeemPointsForPizza: redeemPointsService } = await import(
-        "./utils/points-system.js"
-      );
-      const result = await redeemPointsService(userId, pointsToRedeem);
-
-      if (!result.success) {
-        res.status(400).json({
-          success: false,
-          error: result.error || "Error al canjear puntos",
-        });
-        return;
-      }
-
-      logger.info("Points redeemed successfully via HTTP", {
-        userId,
-        pointsRedeemed: pointsToRedeem,
-        voucherId: result.voucherId,
-        voucherCode: result.voucherCode,
-      });
-
-      res.status(200).json({
-        success: true,
-        voucherId: result.voucherId,
-        voucherCode: result.voucherCode,
-        message: "Voucher creado exitosamente. Úsalo en tu próximo pedido según su tramo de canje.",
-      });
-    } catch (error) {
-      logger.error("Error redeeming points via HTTP:", error);
-      res.status(500).json({
-        success: false,
-        error: "Error al procesar el canje de puntos",
-      });
-    }
+    res.status(501).json({
+      success: false,
+      error: "El canje de puntos por cupones de descuento ya no está disponible."
+    });
   }
-);
+)
+
 
 // ==================================================
 // FUNCTION 6A: Expiración Automática de Puntos
@@ -2740,5 +2634,112 @@ export const refundOrder = onCall(async (request) => {
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
     throw new HttpsError("internal", "Error al reembolsar: " + errMsg);
+  }
+});
+
+/**
+ * Cloud Function para canjear un producto del catálogo de puntos palermo de forma segura en el servidor
+ */
+export const redeemCatalogProduct = onCall({ cors: true }, async (request) => {
+  // 1. Verificar autenticación
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Usuario no autenticado");
+  }
+
+  const { productId } = request.data;
+  if (!productId) {
+    throw new HttpsError("invalid-argument", "productId es requerido");
+  }
+
+  const userId = request.auth.uid;
+  const db = admin.firestore();
+
+  logger.info("redeemCatalogProduct called", { userId, productId });
+
+  try {
+    const result = await db.runTransaction(async (transaction) => {
+      // 1. Leer el producto del catálogo
+      const productRef = db.collection("puntos_palermo_catalogo").doc(productId);
+      const productDoc = await transaction.get(productRef);
+
+      if (!productDoc.exists) {
+        throw new HttpsError("not-found", "El producto no existe en el catálogo");
+      }
+
+      const productData = productDoc.data();
+      if (!productData) {
+        throw new HttpsError("not-found", "Producto inválido");
+      }
+
+      const pointsCost = Number(productData.puntos || 0);
+      const productName = String(productData.nombre || "");
+      const productImg = String(productData.imagenUrl || "");
+
+      // 2. Leer el usuario
+      const userRef = db.collection("users").doc(userId);
+      const userDoc = await transaction.get(userRef);
+
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "El usuario no existe");
+      }
+
+      const userData = userDoc.data();
+      if (!userData?.rut) {
+        throw new HttpsError("failed-precondition", "Debes activar tu cuenta ingresando tu RUT para realizar canjes.");
+      }
+
+      const currentPoints = Number(userData.totalPoints || 0);
+
+      // 3. Validar puntos
+      if (currentPoints < pointsCost) {
+        throw new HttpsError("failed-precondition", `Puntos insuficientes. Tienes ${currentPoints} y necesitas ${pointsCost}.`);
+      }
+
+      // 4. Descontar puntos
+      const newPoints = currentPoints - pointsCost;
+      transaction.update(userRef, {
+        totalPoints: newPoints,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      // 5. Registrar el canje en la colección "canjes" (historial global de canjes)
+      const canjeRef = db.collection("canjes").doc();
+      const canjeData = {
+        userId,
+        productId,
+        nombre: productName,
+        puntos: pointsCost,
+        imagenUrl: productImg,
+        fechaCanje: admin.firestore.FieldValue.serverTimestamp(),
+        estado: "canjeado",
+      };
+      transaction.set(canjeRef, canjeData);
+
+      // 6. Registrar en el historial de puntos del usuario
+      const historyRef = db.collection("users").doc(userId).collection("points_history").doc();
+      transaction.set(historyRef, {
+        type: "redeemed",
+        points: pointsCost,
+        description: `Canje de producto: ${productName}`,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      return {
+        success: true,
+        nombre: productName,
+        puntosCost: pointsCost,
+        imagenUrl: productImg,
+        newPoints: newPoints,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    logger.error("Error al canjear producto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    const errMsg = error instanceof Error ? error.message : String(error);
+    throw new HttpsError("internal", "Error al procesar el canje de puntos: " + errMsg);
   }
 });

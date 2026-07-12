@@ -269,7 +269,16 @@ function SeguimientoPedidoGuestContent() {
       if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(activeOrder.id)) {
         // Asumimos que crearás/tendrás un archivo de audio en /public/notification.mp3
         const audio = new Audio('/notification.mp3')
-        audio.play().catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
+        audio.play()
+          .then(() => {
+            audio.onended = () => {
+              setTimeout(() => {
+                const secondAudio = new Audio('/notification.mp3')
+                secondAudio.play().catch(e => console.log('Autoplay de audio bloqueado por el navegador (segunda vez):', e))
+              }, 1500)
+            }
+          })
+          .catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
         
         setPlayedSound(prev => new Set(prev).add(activeOrder.id))
       }

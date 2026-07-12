@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react"
 import { usePathname } from "next/navigation"
 import { X } from "lucide-react"
-import Image from "next/image"
 import { useBusinessHours } from "@/hooks/useBusinessHours"
 
 export default function ClosedBanner() {
@@ -82,34 +81,30 @@ export default function ClosedBanner() {
       />
       
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] max-w-2xl animate-[slideIn_0.4s_ease-out]">
-        <div className="relative bg-white rounded-lg shadow-2xl overflow-hidden">
+        <div className="relative bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-100">
           <button
             onClick={handleDismiss}
-            className="absolute top-3 right-3 z-10 text-white hover:text-gray-200 transition-all hover:scale-110"
+            className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/75 text-white transition-all hover:scale-110 p-2 rounded-full shadow-lg backdrop-blur-[2px]"
             aria-label="Cerrar banner"
           >
-            <X className="w-6 h-6 drop-shadow-lg" />
+            <X className="w-5 h-5" />
           </button>
 
-          <div className="relative w-full aspect-video sm:aspect-[21/9] bg-gray-200">
-            <Image
+          <div className="w-full flex items-center justify-center bg-gray-50 overflow-hidden">
+            <img
               src={activeBannerUrl}
               alt="Local cerrado"
-              fill
-              className="object-cover"
-              priority
-              unoptimized
-              loading="eager"
+              className="w-full h-auto max-h-[65vh] object-contain block"
             />
           </div>
 
           {config && (
             <div className="p-4 bg-gradient-to-r from-pink-500 to-pink-600 text-white text-center">
-              <p className="text-sm sm:text-base font-medium">
-                Horario de atencion: {config.openingTime} - {config.closingTime}
+              <p className="text-sm sm:text-base font-semibold">
+                Horario de atención: {config.openingTime} - {config.closingTime}
               </p>
-              <p className="text-xs sm:text-sm opacity-90 mt-1">
-                Vuelve pronto! Te esperamos con las mejores pizzas
+              <p className="text-xs sm:text-sm opacity-90 mt-1 font-medium">
+                ¡Vuelve pronto! Te esperamos con las mejores pizzas
               </p>
             </div>
           )}
