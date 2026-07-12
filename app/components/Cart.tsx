@@ -29,6 +29,9 @@ interface CartProps {
   onClose?: () => void
 }
 
+// Feature Flag para activar la integración automatizada de transferencias con Khipu
+const IS_KHIPU_ENABLED = false;
+
 const Cart = ({ onClose }: CartProps) => {
   const { items, removeItem, getTotal, updateQuantity, updateItem, clearCart, createOrder, addItem } = useCart()
   const { preciosConfig } = useFirestorePizzaConfig()
@@ -133,7 +136,9 @@ const Cart = ({ onClose }: CartProps) => {
             Procesando pago
           </h3>
           <p style="color: #4b5563; margin-bottom: 1rem; font-size: 0.9rem; line-height: 1.4;">
-            Estás siendo redirigido a Webpay Plus para completar tu pago de forma segura
+            {paymentMethod === 'transferencia'
+              ? 'Estás siendo redirigido a Khipu para completar tu transferencia bancaria de forma segura'
+              : 'Estás siendo redirigido a Webpay Plus para completar tu pago de forma segura'}
           </p>
           
           <!-- Barra de progreso -->
@@ -1004,6 +1009,65 @@ const Cart = ({ onClose }: CartProps) => {
           setIsProcessing(false)
           return
         }
+      } else if (paymentMethod === "transferencia" && IS_KHIPU_ENABLED) {
+        try {
+          console.log('🔵 Iniciando proceso de pago Khipu...')
+          console.log('🔵 Order ID:', result.id)
+          console.log('🔵 Total Final:', totalFinal)
+          setIsRedirectingToWebpay(true)
+          
+          const returnUrl = `${window.location.origin}/pago/khipu-return`
+          console.log('🔵 Return URL:', returnUrl)
+          
+          console.log('🔵 Llamando a initKhipuTransaction...')
+          const initKhipuFunction = httpsCallable(functions, "initKhipuTransaction")
+          const guestKhipuToken = !isAuthenticated ? result.guestAccessToken : undefined
+
+          if (!isAuthenticated && !guestKhipuToken) {
+            throw new Error("No se pudo generar token seguro para pago invitado")
+          }
+
+          const khipuResponse = await initKhipuFunction({
+            orderId: result.id,
+            returnUrl,
+            guestAccessToken: guestKhipuToken
+          })
+          
+          console.log('🔵 Respuesta de initKhipuTransaction:', khipuResponse)
+          const khipuData = khipuResponse.data as any
+          console.log('🔵 Khipu data:', khipuData)
+          
+          if (khipuData.success && khipuData.url && khipuData.token) {
+            console.log('🔵 Transacción de Khipu iniciada exitosamente')
+            
+            localStorage.setItem('pendingOrderId', result.id)
+            localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
+            localStorage.setItem('pendingPaymentProvider', 'khipu')
+            
+            console.log('🔵 Redireccionando a Khipu...')
+            window.location.href = khipuData.url
+            return
+          } else {
+            console.error('🔴 Error: Respuesta de Khipu incompleta:', khipuData)
+            throw new Error('No se pudo iniciar la transacción con Khipu')
+          }
+        } catch (khipuError: any) {
+          console.error('🔴 Error iniciando Khipu:', khipuError)
+          setIsRedirectingToWebpay(false)
+          
+          const errorMessage = khipuError.message || 
+                             khipuError.code || 
+                             "No se pudo iniciar el pago por transferencia automática. Intenta de nuevo o selecciona otro método."
+          
+          toast({
+            title: "Error con Khipu",
+            description: errorMessage,
+            variant: "destructive",
+            duration: 10000,
+          })
+          setIsProcessing(false)
+          return
+        }
       }
       
       // Para otros métodos de pago (efectivo, transferencia), continuar con flujo normal
@@ -1635,6 +1699,7 @@ const Cart = ({ onClose }: CartProps) => {
                     </Label>
                   </div>
                 </RadioGroup>
+                
                 {paymentMethod === "efectivo" && (
                   <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 mt-3">
                     <h3 className="font-medium text-gray-800 mb-2 text-sm">¿Con cuánto vas a pagar?</h3>
@@ -1663,34 +1728,43 @@ const Cart = ({ onClose }: CartProps) => {
                     </div>
                   </div>
                 )}
+
                 {paymentMethod === "transferencia" && (
                   <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 mt-3">
-                    <h3 className="font-medium text-gray-800 mb-2 text-sm">Datos para transferencia:</h3>
-                    <div className="space-y-1 text-xs text-gray-600">
-                      <div>
-                        <span className="font-medium">Titular:</span> Francisco Soto Hevia
+                    {IS_KHIPU_ENABLED ? (
+                      <div className="text-xs text-gray-600 space-y-1">
+                        <h3 className="font-semibold text-gray-800 mb-1 text-sm">Transferencia Automatizada:</h3>
+                        <p>Al confirmar tu pedido serás redirigido a la pasarela Khipu para realizar tu transferencia de forma inmediata y 100% segura sin necesidad de subir comprobantes.</p>
                       </div>
-                      <div>
-                        <span className="font-medium">RUT:</span> 15.682.774-6
-                      </div>
-                      <div>
-                        <span className="font-medium">Banco:</span> SANTANDER
-                      </div>
-                      <div>
-                        <span className="font-medium">Tipo:</span> CUENTA CORRIENTE
-                      </div>
-                      <div>
-                        <span className="font-medium">N° Cuenta:</span> 0000 7905 8750
-                      </div>
-                      <div className="text-red-600 font-medium mt-2">⚠️ No transferir a cuenta RUT</div>
-                    </div>
+                    ) : (
+                      <>
+                        <h3 className="font-medium text-gray-800 mb-2 text-sm">Datos para transferencia:</h3>
+                        <div className="space-y-1 text-xs text-gray-600">
+                          <div>
+                            <span className="font-medium">Titular:</span> Francisco Soto Hevia
+                          </div>
+                          <div>
+                            <span className="font-medium">RUT:</span> 15.682.774-6
+                          </div>
+                          <div>
+                            <span className="font-medium">Banco:</span> SANTANDER
+                          </div>
+                          <div>
+                            <span className="font-medium">Tipo:</span> CUENTA CORRIENTE
+                          </div>
+                          <div>
+                            <span className="font-medium">N° Cuenta:</span> 0000 7905 8750
+                          </div>
+                          <div className="text-red-600 font-medium mt-2">⚠️ No transferir a cuenta RUT</div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </>
             )}
           </div>
         </div>
- 
         {/* Sección unificada: códigos de descuento */}
         <div className="border-t border-gray-200 bg-gray-50">
           {/* Botón/pestaña para abrir el panel */}

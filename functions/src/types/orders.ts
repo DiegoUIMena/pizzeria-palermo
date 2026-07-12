@@ -43,6 +43,27 @@ export interface OrderAddress {
   lng?: number;
 }
 
+export type PaymentProviderType = 'webpay' | 'khipu';
+
+export type PaymentStatus = 
+  | 'pending'      // Pago creado, esperando acción del cliente
+  | 'processing'   // Pago en proceso en la pasarela externa
+  | 'paid'         // Pago confirmado y validado con éxito
+  | 'failed'       // Pago fallido o rechazado
+  | 'expired'      // Pago expirado por límite de tiempo
+  | 'cancelled'    // Pago abortado por el usuario
+  | 'refunded';    // Transacción devuelta (soporte futuro de devoluciones)
+
+export interface PaymentDetails {
+  provider: PaymentProviderType;
+  providerPaymentId: string;       // ID entregado por la pasarela (ej. token de Webpay, paymentId de Khipu)
+  paymentReference: string;        // Identificador interno propio del sistema (UUID/Correlativo)
+  providerStatus: string;          // Estado nativo retornado por el proveedor
+  updatedAt: string;               // Timestamp en formato ISO
+  paymentExpiresAt?: string;       // Timestamp en formato ISO para la expiración del pago (opcional)
+  providerMetadata?: Record<string, string | number | boolean>; // Datos mínimos estructurados
+}
+
 export interface ClientInfo {
   nombre: string;
   telefono: string;
@@ -62,9 +83,6 @@ export interface CreateOrderData {
     change?: number;
   };
   notas?: string;
-  voucherId?: string;
-  voucherCode?: string;
-  voucherDiscount?: number;
   discountCode?: string;
 }
 
@@ -80,6 +98,7 @@ export interface Order extends CreateOrderData {
     preparing?: string;
     ready?: string;
     delivered?: string;
+    paid?: string;
   };
   tiempoEstimado?: string;
   tiempoEstimadoMinutos?: number;
@@ -93,6 +112,8 @@ export interface Order extends CreateOrderData {
     lastFailedAttemptAt?: string;
     lastSuccessfulInitAt?: string;
   };
+  paymentStatus?: PaymentStatus;
+  paymentDetailsData?: PaymentDetails; // Renombrado para evitar conflicto de nombres con el paymentDetails heredado
 }
 
 export interface ValidationResult {

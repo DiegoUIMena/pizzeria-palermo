@@ -31,8 +31,6 @@ import {
   calculateOrderTotal,
 } from "./services/pricing.service";
 import {
-  createWebpayTransaction,
-  confirmWebpayTransaction as confirmWebpayService,
   refundWebpayTransaction,
 } from "./services/webpay.service";
 import {sendWelcomeEmail, sendRefundNotificationEmail} from "./services/email.service";
@@ -45,6 +43,9 @@ import {
 } from "./services/whatsapp.service";
 import {CreateOrderData} from "./types/orders";
 import {addPointsToUser} from "./utils/points-system";
+import { OrderProcessingService } from "./services/order.service";
+import { WebpayProvider } from "./services/payment/webpay-provider";
+import { KhipuProvider } from "./services/payment/khipu-provider";
 
 // Inicializar Firebase Admin (solo una vez)
 if (!admin.apps.length) {
@@ -385,7 +386,6 @@ export const createOrder = onCall(async (request) => {
 
   const requestUserId = request.auth?.uid;
   const normalizedUserId = requestUserId || orderData.userId || `guest_${Date.now()}`;
-  const isSyntheticGuestId = normalizedUserId.startsWith("guest_");
 
   logger.info("createOrder called", {
     userId: requestUserId || normalizedUserId,
@@ -506,44 +506,6 @@ export const createOrder = onCall(async (request) => {
         );
       }
 
-      // 5.4 Resolver voucherId desde voucherCode si viene solo código
-      // Esto blinda el flujo ante payloads incompletos del frontend.
-      if (
-        !orderData.voucherId &&
-        orderData.voucherCode &&
-        !isGuestOrder &&
-        !isSyntheticGuestId
-      ) {
-        const normalizedCode = String(orderData.voucherCode).trim().toUpperCase();
-        if (normalizedCode) {
-          const vouchersSnap = await transaction.get(
-            db.collection("users").doc(normalizedUserId).collection("vouchers")
-          );
-
-          const matched = vouchersSnap.docs.find((d) => {
-            const data = d.data();
-            const code = String(
-              data.code || d.id.replace(/[^a-zA-Z0-9]/g, "").slice(-8).toUpperCase()
-            ).toUpperCase();
-            return code === normalizedCode;
-          });
-
-          if (matched) {
-            orderData.voucherId = matched.id;
-            logger.info("Resolved voucherId from voucherCode", {
-              userId: normalizedUserId,
-              voucherCode: normalizedCode,
-              voucherId: matched.id,
-            });
-          } else {
-            logger.warn("Voucher code sent but not found for user", {
-              userId: normalizedUserId,
-              voucherCode: normalizedCode,
-            });
-          }
-        }
-      }
-
       // 5.6 Calcular precio real en el servidor
       logger.info("Calculating server-side price...");
       const priceCalculation = await calculateOrderTotal(
@@ -551,15 +513,6 @@ export const createOrder = onCall(async (request) => {
         orderData.tipoEntrega,
         orderData.direccion
       );
-
-      let voucherDiscount = 0;
-      let voucherRewardLabel: string | undefined;
-
-      const orderHasPromoOrCombo = orderData.items.some((item) => {
-        const itemName = String(item.nombre || "").toLowerCase();
-        const pizzaType = String(item.pizzaType || "").toLowerCase();
-        return itemName.includes("promo") || itemName.includes("combo") || pizzaType === "promo";
-      });
 
       let discountCode: string | undefined;
       let discountFromCode = 0;
@@ -598,13 +551,6 @@ export const createOrder = onCall(async (request) => {
           throw new HttpsError("failed-precondition", "Este código ha alcanzado su límite de usos");
         }
 
-        if (orderData.voucherId || orderData.voucherCode) {
-          throw new HttpsError(
-            "failed-precondition",
-            "No puedes combinar códigos de descuento con vouchers"
-          );
-        }
-
         discountCode = normalizedDiscountCode;
         orderData.discountCode = normalizedDiscountCode;
         if (promoData.type === 'percentage') {
@@ -614,86 +560,7 @@ export const createOrder = onCall(async (request) => {
         }
       }
 
-      // 5.7 Validar voucher si está presente (solo para usuarios autenticados)
-      // ⚠️ IMPORTANTE: Solo VALIDAMOS aquí, NO marcamos como usado
-      // El voucher se marcará como usado DESPUÉS de confirmar el pago exitosamente
-      if (orderData.voucherId && !isGuestOrder && !isSyntheticGuestId) {
-        if (orderHasPromoOrCombo) {
-          throw new HttpsError(
-            "failed-precondition",
-            "Los vouchers de Puntos Palermo no aplican junto a promociones o combos con descuento"
-          );
-        }
-
-        logger.info("Validating voucher (NOT marking as used yet)", { userId: normalizedUserId, voucherId: orderData.voucherId });
-        
-        const { validateVoucher, markVoucherAsUsed, calculateVoucherDiscountForSubtotal } = await import('./utils/points-system.js');
-        const voucherValidation = await validateVoucher(
-          normalizedUserId,
-          orderData.voucherId,
-          transaction
-        );
-        
-        if (!voucherValidation.success) {
-          logger.warn("Voucher validation failed", { 
-            userId: normalizedUserId, 
-            voucherId: orderData.voucherId,
-            error: voucherValidation.error 
-          });
-          throw new HttpsError(
-            "failed-precondition",
-            voucherValidation.error || "Voucher no válido"
-          );
-        }
-
-        if (!voucherValidation.voucher) {
-          throw new HttpsError(
-            "failed-precondition",
-            "No se pudo leer la configuración del voucher"
-          );
-        }
-
-        const voucherDiscountResult = calculateVoucherDiscountForSubtotal(
-          voucherValidation.voucher,
-          priceCalculation.subtotal
-        );
-
-        if (!voucherDiscountResult.success) {
-          throw new HttpsError(
-            "failed-precondition",
-            voucherDiscountResult.error || "El voucher no aplica para este pedido"
-          );
-        }
-
-        voucherDiscount = Math.max(0, Math.round(voucherDiscountResult.discount || 0));
-        voucherRewardLabel = voucherDiscountResult.rewardLabel;
-
-        // Para métodos no-Webpay, bloquear reutilización de inmediato.
-        // En Webpay se marca en confirmWebpayTransaction al aprobar pago.
-        const isWebpayOrder = orderData.metodoPago === "Webpay Plus";
-        if (!isWebpayOrder) {
-          const voucherMarkResult = await markVoucherAsUsed(
-            normalizedUserId,
-            orderData.voucherId,
-            transaction
-          );
-
-          if (!voucherMarkResult.success) {
-            throw new HttpsError(
-              "failed-precondition",
-              voucherMarkResult.error || "No se pudo reservar el voucher"
-            );
-          }
-
-          logger.info("Voucher marked as used in createOrder for non-webpay", {
-            userId: normalizedUserId,
-            voucherId: orderData.voucherId,
-            metodoPago: orderData.metodoPago,
-          });
-        }
-      }
-
-      const finalTotal = Math.max(0, priceCalculation.total - voucherDiscount - discountFromCode);
+      const finalTotal = Math.max(0, priceCalculation.total - discountFromCode);
 
       // 6. Generar número de pedido único
       const orderNumber = Math.floor(10000 + Math.random() * 90000);
@@ -741,13 +608,6 @@ export const createOrder = onCall(async (request) => {
         ...orderData,
         userId: normalizedUserId,
         customerType: isGuestOrder ? "guest" : "registered",
-        ...(
-          orderData.voucherId &&
-          orderData.metodoPago !== "Webpay Plus" && {
-            voucherProcessed: true,
-            voucherProcessedAt: now.toISOString(),
-          }
-        ),
         ...(isGuestOrder && {
           guestCheckout: {
             webpayTokenHash: guestAccessTokenHash,
@@ -776,10 +636,8 @@ export const createOrder = onCall(async (request) => {
         priceCalculation: {
           subtotal: priceCalculation.subtotal,
           deliveryFee: priceCalculation.deliveryFee,
-          voucherDiscount,
           ...(discountCode ? {discountCode} : {}),
           ...(discountFromCode ? {discountAmount: discountFromCode} : {}),
-          ...(voucherRewardLabel ? {voucherRewardLabel} : {}),
           total: finalTotal,
         },
       };
@@ -1303,26 +1161,36 @@ export const initWebpayTransaction = onCall(async (request) => {
 
     // 5. Crear transacción con Webpay
     const buyOrder = orderData.orderNumber.toString();
-    const sessionId = orderId;
     const amountToCharge = Math.round(Number(orderData.total || 0));
 
     if (!Number.isFinite(amountToCharge) || amountToCharge <= 0) {
       throw new HttpsError("failed-precondition", "Monto de pedido inválido");
     }
 
-    const transaction = await createWebpayTransaction(
-      buyOrder,
-      sessionId,
+    const provider = new WebpayProvider();
+    const paymentReference = buyOrder;
+    const transaction = await provider.createPayment(
+      orderId,
       amountToCharge,
-      returnUrl
+      returnUrl,
+      paymentReference
     );
 
     // 6. Guardar información de la transacción en el pedido
+    const now = new Date();
     const webpayUpdate: Record<string, any> = {
-      "webpay.token": transaction.token,
+      "webpay.token": transaction.providerPaymentId,
       "webpay.status": "pending",
       "webpay.createdAt": admin.firestore.FieldValue.serverTimestamp(),
       paymentStatus: "pending",
+      paymentDetailsData: {
+        provider: "webpay",
+        providerPaymentId: transaction.providerPaymentId,
+        paymentReference,
+        providerStatus: "INITIALIZED",
+        updatedAt: now.toISOString(),
+        paymentExpiresAt: new Date(now.getTime() + GUEST_WEBPAY_TOKEN_TTL_MS).toISOString()
+      }
     };
 
     if (isGuestOrder) {
@@ -1332,15 +1200,15 @@ export const initWebpayTransaction = onCall(async (request) => {
 
     await orderRef.update(webpayUpdate);
 
-    logger.info("Webpay transaction created", {
+    logger.info("Webpay transaction created with new provider structure", {
       orderId,
-      token: transaction.token,
+      token: transaction.providerPaymentId,
     });
 
     return {
       success: true,
-      token: transaction.token,
-      url: transaction.url,
+      token: transaction.providerPaymentId,
+      url: transaction.redirectUrl,
     };
   } catch (error) {
     logger.error("Error creating Webpay transaction:", error);
@@ -1431,422 +1299,85 @@ export const confirmWebpayTransaction = onCall(async (request) => {
 
   logger.info("confirmWebpayTransaction called", {token});
 
-  // 1. Validar parámetros
   if (!token) {
     throw new HttpsError("invalid-argument", "Token es requerido");
   }
 
   try {
-    // 2. Confirmar transacción con Webpay
-    const transactionResult = await confirmWebpayService(token);
+    const provider = new WebpayProvider();
+    const verification = await provider.verifyPayment(token);
 
-    logger.info("Webpay transaction result", {
+    logger.info("Webpay verification result", {
       token,
-      success: transactionResult.success,
-      responseCode: transactionResult.responseCode,
+      success: verification.success,
+      status: verification.providerStatus,
     });
 
-    // 3. Buscar el pedido por sessionId (orderId)
     const db = admin.firestore();
-    const orderId = transactionResult.sessionId;
+    const orderId = String(verification.rawResponse.sessionId || '');
+    
+    if (!orderId) {
+      throw new HttpsError("not-found", "ID de sesión no encontrado en la respuesta del pago");
+    }
+
     const orderRef = db.collection("orders").doc(orderId);
     const orderDoc = await orderRef.get();
-
+    
     if (!orderDoc.exists) {
-      logger.error("Order not found for transaction", {token, orderId});
       throw new HttpsError("not-found", "Pedido no encontrado");
     }
 
-    const orderData = orderDoc.data();
-
-    // Verificar si el pedido ya fue procesado (evitar doble confirmación)
-    if (orderData && orderData.paymentStatus === "paid") {
-      logger.info("Order already confirmed, skipping update", {orderId});
-      
-      // Aún así, generar token de seguimiento si es guest (por si lo necesita)
-      let trackingToken: string | undefined
-      if (orderData && orderData.customerType === 'guest' && orderData.cliente?.email && orderData.cliente?.telefono) {
-        const { generateGuestTrackingToken } = await import('./utils/guest-token.js')
-        trackingToken = generateGuestTrackingToken(
-          orderData.cliente.email,
-          orderData.cliente.telefono,
-          90
-        )
-      }
+    // Si la transacción no fue exitosa
+    if (!verification.success) {
+      await orderRef.update({
+        paymentStatus: "failed",
+        estado: "Pago Rechazado",
+        "webpay.status": "rejected",
+        "webpay.responseCode": verification.rawResponse.responseCode,
+        "webpay.confirmedAt": new Date().toISOString()
+      });
       
       return {
-        success: true,
+        success: false,
         orderId,
-        responseCode: transactionResult.responseCode,
-        authorizationCode: transactionResult.authorizationCode,
-        amount: transactionResult.amount,
-        cardDetail: transactionResult.cardDetail,
-        trackingToken: trackingToken,
-        isGuestOrder: orderData ? orderData.customerType === 'guest' : false,
+        responseCode: verification.rawResponse.responseCode,
       };
     }
 
-    // 4. Actualizar estado del pedido Y consumir inventario (si exitoso) en transacción atómica
-    await db.runTransaction(async (transaction) => {
-      // ✅ PASO 1: TODAS LAS LECTURAS PRIMERO (antes de cualquier escritura)
-      
-      // Re-read order dentro de la transacción para evitar condiciones de carrera
-      const freshOrderDoc = await transaction.get(orderRef);
-      
-      if (!freshOrderDoc.exists) {
-        throw new HttpsError("not-found", "Pedido no encontrado");
-      }
+    // Ejecutar la lógica de negocio post-pago unificada
+    const metadata = {
+      authorizationCode: String(verification.rawResponse.authorizationCode || ''),
+      cardDetail: String((verification.rawResponse.cardDetail as any)?.card_number || ''),
+      paymentTypeCode: String(verification.rawResponse.paymentTypeCode || '')
+    };
 
-      const freshOrderData = freshOrderDoc.data();
-
-      // Double-check: evitar doble procesamiento
-      if (freshOrderData && freshOrderData.paymentStatus === "paid") {
-        logger.warn("Order already paid within transaction", {orderId});
-        return;
-      }
-
-      // Si el pago fue exitoso, leer ingredientes e items_menu AHORA (antes de writes)
-      let inventorySnapshot: any = null;
-      let itemsMenuSnapshot: any = null;
-      let agregadosConfigSnapshot: any = null;
-      let voucherDoc: any = null;
-      
-      if (transactionResult.success && freshOrderData && freshOrderData.items) {
-        logger.info("Reading inventory and menu items for consumption...");
-        inventorySnapshot = await transaction.get(db.collection("ingredientes"));
-        itemsMenuSnapshot = await transaction.get(db.collection("items_menu"));
-        agregadosConfigSnapshot = await transaction.get(
-          db.collection("settings").doc("agregados_config")
-        );
-      }
-
-      // ✅ LEER VOUCHER AL PRINCIPIO si existe (ANTES de cualquier escritura)
-      if (freshOrderData?.voucherId && freshOrderData?.userId) {
-        logger.info("📱 Reading voucher at start of transaction", { 
-          userId: freshOrderData.userId, 
-          voucherId: freshOrderData.voucherId
-        });
-        const voucherRef = db.collection('users').doc(freshOrderData.userId).collection('vouchers').doc(freshOrderData.voucherId);
-        voucherDoc = await transaction.get(voucherRef);
-      }
-
-      const now = new Date();
-      const updateData: any = {
-        "webpay.confirmedAt": now.toISOString(),
-        "webpay.status": transactionResult.success ? "approved" : "rejected",
-        "webpay.responseCode": transactionResult.responseCode,
-        "webpay.authorizationCode": transactionResult.authorizationCode,
-        "webpay.amount": transactionResult.amount,
-        "webpay.cardDetail": transactionResult.cardDetail,
-        "webpay.transactionDate": transactionResult.transactionDate,
-        "webpay.paymentTypeCode": transactionResult.paymentTypeCode,
-      };
-
-      // ✅ PASO 2: TODAS LAS ESCRITURAS DESPUÉS
-      
-      if (transactionResult.success) {
-        // ✅ Pago exitoso - actualizar estado Y consumir inventario ATÓMICAMENTE
-        updateData.paymentStatus = "paid";
-        updateData["timestamps.paid"] = now.toISOString();
-        updateData.estado = "Pendiente";
-        updateData.inventoryProcessed = true;
-        updateData.inventoryStatus = "processed";
-
-        // ✅ MARCAR VOUCHER COMO USADO (si existe)
-        // Usamos el voucherDoc que ya fue leído al inicio
-        if (voucherDoc && voucherDoc.exists && freshOrderData?.voucherId && freshOrderData?.userId) {
-          logger.info("📱 Marking voucher as used after successful payment", { 
-            userId: freshOrderData.userId, 
-            voucherId: freshOrderData.voucherId,
-            orderId 
-          });
-          
-          const voucher = voucherDoc.data();
-          
-          // Validar que no está usado ya
-          if (voucher?.status === 'used') {
-            logger.warn('Voucher already used', { userId: freshOrderData.userId, voucherId: freshOrderData.voucherId })
-          } else {
-            // Marcar como usado
-            const voucherRef = db.collection('users').doc(freshOrderData.userId).collection('vouchers').doc(freshOrderData.voucherId);
-            transaction.update(voucherRef, {
-              status: 'used',
-              usedAt: admin.firestore.FieldValue.serverTimestamp(),
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            })
-            updateData.voucherProcessed = true;
-            updateData["voucherProcessedAt"] = now.toISOString();
-            
-            logger.info("✅ Voucher marked as used in transaction", {
-              userId: freshOrderData.userId,
-              voucherId: freshOrderData.voucherId,
-              orderId
-            })
-          }
-        }
-
-        // Actualizar pedido
-        transaction.update(orderRef, updateData);
-
-        // Consumir inventario usando los datos ya leídos
-        if (freshOrderData && freshOrderData.items && inventorySnapshot && itemsMenuSnapshot) {
-          logger.info("Processing inventory consumption with pre-read data...");
-          
-          // Procesar inventario sin hacer más lecturas
-          const inventory: Record<string, any> = {};
-          inventorySnapshot.forEach((doc: any) => {
-            const data = doc.data();
-            inventory[data.nombre.toLowerCase()] = {
-              ref: doc.ref,
-              stockActual: data.stockActual || 0,
-            };
-          });
-
-          const pizzasConReceta: Record<string, any> = {};
-          itemsMenuSnapshot.forEach((doc: any) => {
-            const data = doc.data();
-            const nombrePizza = (data.nombre || "").toLowerCase();
-            pizzasConReceta[nombrePizza] = {
-              nombre: data.nombre,
-              receta: data.receta || [],
-              recetaMediana: data.recetaMediana || data.receta || [],
-            };
-          });
-
-          // Calcular y aplicar consumo (lógica extraída de consumeInventoryForOrder)
-          const consumption: Record<string, number> = {};
-          let rollitosPacksToConsume = 0;
-          const agregadosConfigData = agregadosConfigSnapshot?.exists
-            ? (agregadosConfigSnapshot.data() || {})
-            : {};
-          const currentRollitosPackStock = Number.isFinite(Number(agregadosConfigData.rollitosPackStock))
-            ? Math.max(0, Math.floor(Number(agregadosConfigData.rollitosPackStock)))
-            : 99;
-
-          const normalizeText = (text: string) =>
-            (text || "")
-              .toLowerCase()
-              .normalize("NFD")
-              .replace(/[\u0300-\u036f]/g, "")
-              .trim();
-
-          const isRollitosLikeItem = (name: string) => {
-            const normalized = normalizeText(name);
-            return (
-              normalized.includes("canela") &&
-              (normalized.includes("roll") || normalized.includes("rol"))
-            );
-          };
-          
-          logger.info(`🍕 Processing ${freshOrderData.items.length} items for inventory consumption`);
-          
-          for (const item of freshOrderData.items) {
-            const itemNombreOriginal = item.nombre || "";
-            const cantidad = item.cantidad || 1;
-
-            if (isRollitosLikeItem(itemNombreOriginal)) {
-              rollitosPacksToConsume += cantidad;
-              logger.info(`🧁 Rollitos detected by name. Accounting ${cantidad} pack(s) and skipping ingredient recipe consumption.`);
-              continue;
-            }
-
-            // Limpiar el nombre quitando el tamaño entre paréntesis si existe
-            // Ejemplo: "amalfitana (familiar)" -> "amalfitana"
-            let itemNombre = (item.nombre || "").toLowerCase();
-            itemNombre = itemNombre.replace(/\s*\([^)]*\)\s*$/g, '').trim();
-            
-            const size = (item.size || "Familiar").toLowerCase();
-            
-            logger.info(`📦 Processing item: ${item.nombre} -> cleaned: "${itemNombre}", size: ${size}, cantidad: ${cantidad}, pizzaType: ${item.pizzaType}`);
-            
-            const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
-            
-            if (isDuoPizza) {
-              // Pizza Dúo: procesar ambas mitades al 50%
-              const pizza1Nombre = item.pizza1.toLowerCase();
-              const pizza2Nombre = item.pizza2.toLowerCase();
-              const pizza1 = pizzasConReceta[pizza1Nombre];
-              const pizza2 = pizzasConReceta[pizza2Nombre];
-              
-              if (pizza1 && pizza2) {
-                const receta1 = size === "mediana" ? pizza1.recetaMediana : pizza1.receta;
-                const receta2 = size === "mediana" ? pizza2.recetaMediana : pizza2.receta;
-                
-                if (receta1) {
-                  receta1.forEach((ing: any) => {
-                    const nombreIngrediente = ing.nombre.toLowerCase();
-                    const cantidadPorPizza = (ing.cantidad || 0) * 0.5;
-                    consumption[nombreIngrediente] = (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
-                  });
-                }
-                
-                if (receta2) {
-                  receta2.forEach((ing: any) => {
-                    const nombreIngrediente = ing.nombre.toLowerCase();
-                    const cantidadPorPizza = (ing.cantidad || 0) * 0.5;
-                    consumption[nombreIngrediente] = (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
-                  });
-                }
-              }
-            } else {
-              // Pizza normal
-              const pizzaEncontrada = pizzasConReceta[itemNombre];
-
-              const isRollitosOrderItem =
-                isRollitosLikeItem(itemNombreOriginal) ||
-                isRollitosLikeItem(String(pizzaEncontrada?.nombre || ""));
-
-              if (isRollitosOrderItem) {
-                rollitosPacksToConsume += cantidad;
-                logger.info(`🧁 Rollitos detected by menu/name match. Accounting ${cantidad} pack(s) and skipping ingredient recipe consumption.`);
-                continue;
-              }
-              
-              logger.info(`🔍 Buscando pizza "${itemNombre}" en menú. Encontrada: ${!!pizzaEncontrada}`);
-              
-              if (pizzaEncontrada) {
-                const receta = size === "mediana" ? pizzaEncontrada.recetaMediana : pizzaEncontrada.receta;
-                
-                logger.info(`📋 Receta para ${pizzaEncontrada.nombre} (${size}): ${receta ? receta.length : 0} ingredientes`);
-                
-                if (receta) {
-                  receta.forEach((ing: any) => {
-                    const nombreIngrediente = ing.nombre.toLowerCase();
-                    const cantidadPorPizza = ing.cantidad || 0;
-                    consumption[nombreIngrediente] = (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
-                    logger.info(`  ➕ ${nombreIngrediente}: +${cantidadPorPizza * cantidad}gr`);
-                  });
-                } else {
-                  logger.warn(`⚠️ Pizza ${pizzaEncontrada.nombre} no tiene receta para tamaño ${size}`);
-                }
-              } else {
-                logger.warn(`⚠️ Pizza "${itemNombre}" no encontrada en menú. Pizzas disponibles: ${Object.keys(pizzasConReceta).join(', ')}`);
-              }
-            }
-          }
-
-          logger.info(`📊 Total consumption calculated: ${JSON.stringify(consumption)}`);
-          logger.info(`📊 Total unique ingredients to update: ${Object.keys(consumption).length}`);
-
-          // Aplicar actualizaciones de inventario
-          Object.entries(consumption).forEach(([ingredientName, quantity]) => {
-            const invItem = inventory[ingredientName];
-            if (invItem) {
-              const newStock = invItem.stockActual - quantity;
-              logger.info(`Updating ${ingredientName}: ${invItem.stockActual}gr -> ${newStock}gr (-${quantity}gr)`);
-              
-              transaction.update(invItem.ref, {
-                stockActual: newStock,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              });
-            } else {
-              logger.warn(`Ingredient not found in inventory: ${ingredientName}`);
-            }
-          });
-
-          if (rollitosPacksToConsume > 0) {
-            if (currentRollitosPackStock < rollitosPacksToConsume) {
-              throw new HttpsError(
-                "failed-precondition",
-                `Stock insuficiente de Rollitos de Canela: requerido ${rollitosPacksToConsume}, disponible ${currentRollitosPackStock}`
-              );
-            }
-
-            const newRollitosStock = currentRollitosPackStock - rollitosPacksToConsume;
-            const agregadosRef = db.collection("settings").doc("agregados_config");
-            transaction.set(
-              agregadosRef,
-              {
-                rollitosPackStock: newRollitosStock,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-              },
-              {merge: true}
-            );
-
-            logger.info(`✅ Rollitos packs updated in Webpay flow: ${currentRollitosPackStock} -> ${newRollitosStock} (-${rollitosPacksToConsume})`);
-          }
-
-          // 📦 Descontar cajas al procesar pago webpay exitoso en transacción atómica
-          processBoxesInventory(db, freshOrderData.items, transaction, false);
-
-          logger.info("✅ Inventory consumption processed successfully");
-        }
-      } else {
-        // Pago rechazado
-        updateData.paymentStatus = "failed";
-        updateData.estado = "Pago Rechazado";
-        transaction.update(orderRef, updateData);
-      }
-    });
-
-    logger.info("Order payment and inventory updated atomically", {
+    const processResult = await OrderProcessingService.processPaymentSuccess(
       orderId,
-      success: transactionResult.success,
-    });
+      'webpay',
+      token,
+      String(verification.rawResponse.buyOrder || ''),
+      verification.providerStatus,
+      metadata,
+      verification.rawResponse
+    );
 
-    // Sumar puntos si es un usuario registrado (no guest) y el pago fue exitoso
-    if (transactionResult.success && orderData && orderData.customerType !== 'guest' && orderData.userId) {
-      try {
-        // Usar el total guardado en la orden (incluye descuentos de voucher)
-        const orderTotal = orderData.total || transactionResult.amount || 0
-        logger.info('📊 Adding points to user after successful payment', { 
-          userId: orderData.userId, 
-          orderId,
-          orderTotal,
-          source: orderData.total ? 'order.total' : 'webpay.amount'
-        })
-        await addPointsToUser(orderData.userId, orderTotal, orderId)
-        
-        // ✅ Marcar en la orden que puntos ya fueron sumados
-        await orderRef.update({
-          pointsAdded: true,
-          pointsAddedAt: new Date().toISOString()
-        })
-        
-        logger.info('✅ Points added to user account', { 
-          userId: orderData.userId, 
-          orderId,
-          amount: orderTotal
-        })
-      } catch (error) {
-        logger.error('❌ Error adding points to user (non-critical):', error)
-        // No lanzamos error porque el pago ya se procesó exitosamente
-      }
-    }
-
-    // Generar token de seguimiento si es un pedido guest
-    let trackingToken: string | undefined
-    if (orderData && orderData.customerType === 'guest' && orderData.cliente?.email && orderData.cliente?.telefono) {
-      const { generateGuestTrackingToken } = await import('./utils/guest-token.js')
-      trackingToken = generateGuestTrackingToken(
-        orderData.cliente.email,
-        orderData.cliente.telefono,
-        90 // válido por 90 días
-      )
-      logger.info('Generated guest tracking token', { orderId, email: orderData.cliente.email })
-    }
-
+    // Retornar misma estructura esperada por el frontend para retrocompatibilidad
     return {
-      success: transactionResult.success,
+      success: true,
       orderId,
-      responseCode: transactionResult.responseCode,
-      authorizationCode: transactionResult.authorizationCode,
-      amount: transactionResult.amount,
-      cardDetail: transactionResult.cardDetail,
-      trackingToken: trackingToken, // Token para seguimiento invitado
-      isGuestOrder: orderData ? orderData.customerType === 'guest' : false, // Flag para saber si mostrar otro flujo
+      responseCode: verification.rawResponse.responseCode,
+      authorizationCode: verification.rawResponse.authorizationCode,
+      amount: verification.amount,
+      cardDetail: verification.rawResponse.cardDetail,
+      trackingToken: processResult.trackingToken,
+      isGuestOrder: processResult.isGuestOrder
     };
   } catch (error) {
     logger.error("Error confirming Webpay transaction:", error);
-
     if (error instanceof HttpsError) {
       throw error;
     }
-
-    throw new HttpsError(
-      "internal",
-      "Error al confirmar transacción con Webpay"
-    );
+    throw new HttpsError("internal", "Error al confirmar transacción con Webpay");
   }
 });
 
@@ -2741,5 +2272,357 @@ export const redeemCatalogProduct = onCall({ cors: true }, async (request) => {
     }
     const errMsg = error instanceof Error ? error.message : String(error);
     throw new HttpsError("internal", "Error al procesar el canje de puntos: " + errMsg);
+  }
+});
+
+// ==================================================
+// FUNCTION: Iniciar Transacción Khipu
+// ==================================================
+export const initKhipuTransaction = onCall(async (request) => {
+  await enforceIpRateLimit(request, "initWebpayTransaction");
+
+  const {orderId, returnUrl, guestAccessToken} = request.data;
+  const isAuthenticatedRequest = !!request.auth?.uid;
+
+  logger.info("initKhipuTransaction called", {
+    orderId,
+    userId: request.auth?.uid || null,
+    isAuthenticatedRequest,
+  });
+
+  if (!orderId || !returnUrl) {
+    throw new HttpsError("invalid-argument", "orderId y returnUrl son requeridos");
+  }
+
+  if (!isValidReturnUrl(returnUrl)) {
+    throw new HttpsError("invalid-argument", "returnUrl inválida");
+  }
+
+  try {
+    const db = admin.firestore();
+    const orderRef = db.collection("orders").doc(orderId);
+    const orderDoc = await orderRef.get();
+
+    if (!orderDoc.exists) {
+      throw new HttpsError("not-found", "Pedido no encontrado");
+    }
+
+    const orderData = orderDoc.data() as any;
+    const isGuestOrder = orderData.customerType === "guest";
+
+    if (!isAuthenticatedRequest) {
+      if (!isGuestOrder) {
+        throw new HttpsError("unauthenticated", "Usuario no autenticado");
+      }
+      
+      const guestCheckout = orderData.guestCheckout || {};
+      if (!guestAccessToken || typeof guestAccessToken !== "string") {
+        throw new HttpsError("permission-denied", "Token de acceso inválido");
+      }
+      const tokenHash = guestCheckout.webpayTokenHash;
+      const receivedHash = hashGuestAccessToken(guestAccessToken);
+      const isValidToken = safeCompareHash(receivedHash, tokenHash || '');
+      if (!isValidToken) {
+        throw new HttpsError("permission-denied", "Token de acceso inválido");
+      }
+    }
+
+    if (orderData.paymentStatus === "paid") {
+      throw new HttpsError("failed-precondition", "Este pedido ya fue pagado");
+    }
+
+    // Reutilizar transacciones activas de Khipu no expiradas
+    const now = new Date();
+    if (
+      orderData.paymentDetailsData?.provider === "khipu" &&
+      orderData.paymentStatus === "pending" &&
+      orderData.paymentDetailsData.paymentExpiresAt &&
+      new Date(orderData.paymentDetailsData.paymentExpiresAt) > now &&
+      orderData.paymentDetailsData.providerPaymentId
+    ) {
+      logger.info("initKhipuTransaction: Reutilizando pago Khipu existente no expirado", {
+        orderId,
+        paymentId: orderData.paymentDetailsData.providerPaymentId
+      });
+
+      return {
+        success: true,
+        token: orderData.paymentDetailsData.providerPaymentId,
+        url: `https://khipu.com/payment/show/${orderData.paymentDetailsData.providerPaymentId}`
+      };
+    }
+
+    const amountToCharge = Math.round(Number(orderData.total || 0));
+    if (!Number.isFinite(amountToCharge) || amountToCharge <= 0) {
+      throw new HttpsError("failed-precondition", "Monto de pedido inválido");
+    }
+
+    const provider = new KhipuProvider();
+    const paymentReference = orderData.orderNumber.toString();
+    const transaction = await provider.createPayment(
+      orderId,
+      amountToCharge,
+      returnUrl,
+      paymentReference
+    );
+
+    const khipuUpdate: Record<string, any> = {
+      paymentStatus: "pending",
+      paymentDetailsData: {
+        provider: "khipu",
+        providerPaymentId: transaction.providerPaymentId,
+        paymentReference,
+        providerStatus: "INITIALIZED",
+        updatedAt: now.toISOString(),
+        paymentExpiresAt: new Date(now.getTime() + GUEST_WEBPAY_TOKEN_TTL_MS).toISOString()
+      }
+    };
+
+    await orderRef.update(khipuUpdate);
+
+    logger.info("Khipu transaction created", {
+      orderId,
+      paymentId: transaction.providerPaymentId,
+    });
+
+    return {
+      success: true,
+      token: transaction.providerPaymentId,
+      url: transaction.redirectUrl,
+    };
+  } catch (error) {
+    logger.error("Error creating Khipu transaction:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", "Error al iniciar transacción con Khipu");
+  }
+});
+
+// ==================================================
+// FUNCTION: Webhook de Notificación Khipu (Público)
+// ==================================================
+export const khipuWebhook = onRequest({ cors: true }, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).send("Method Not Allowed");
+    return;
+  }
+
+  const payload = req.body || {};
+  const headers: Record<string, string> = {};
+  Object.entries(req.headers).forEach(([k, v]) => {
+    headers[k] = String(v);
+  });
+
+  logger.info("khipuWebhook: Recibida notificacion de Khipu", { payload });
+
+  try {
+    const provider = new KhipuProvider();
+    const validation = await provider.validateWebhook(payload, headers);
+
+    if (!validation.isValid) {
+      logger.warn("khipuWebhook: Notificacion invalida o sin firma valida", { payload });
+      res.status(400).send("Invalid notification signature or payload");
+      return;
+    }
+
+    if (validation.status === "paid") {
+      const db = admin.firestore();
+      const orderQuery = db.collection("orders").where("orderNumber", "==", Number(validation.orderId)).limit(1);
+      const orderSnap = await orderQuery.get();
+
+      if (orderSnap.empty) {
+        logger.error("khipuWebhook: Orden no encontrada por orderNumber", { orderNumber: validation.orderId });
+        res.status(404).send("Order not found");
+        return;
+      }
+
+      const orderDoc = orderSnap.docs[0];
+      const orderId = orderDoc.id;
+
+      await OrderProcessingService.processPaymentSuccess(
+        orderId,
+        "khipu",
+        validation.providerPaymentId,
+        validation.orderId,
+        "APPROVED",
+        {},
+        validation.rawEvent
+      );
+
+      logger.info("khipuWebhook: Pago procesado exitosamente por webhook", { orderId, orderNumber: validation.orderId });
+    } else {
+      logger.info("khipuWebhook: Notificacion recibida con estado no aprobado", { status: validation.status });
+    }
+
+    res.status(200).send("OK");
+  } catch (error) {
+    logger.error("khipuWebhook: Error procesando notificacion de Khipu", { error });
+    res.status(500).send("Internal Server Error");
+  }
+});
+
+// ==================================================
+// FUNCTION: Verificar Transacción Khipu manualmente en retorno
+// ==================================================
+export const verifyKhipuPayment = onCall(async (request) => {
+  const {paymentId} = request.data;
+
+  logger.info("verifyKhipuPayment called", {paymentId});
+
+  if (!paymentId) {
+    throw new HttpsError("invalid-argument", "paymentId es requerido");
+  }
+
+  try {
+    const provider = new KhipuProvider();
+    const verification = await provider.verifyPayment(paymentId);
+
+    const db = admin.firestore();
+    const orderQuery = db.collection("orders")
+      .where("paymentDetailsData.providerPaymentId", "==", paymentId)
+      .limit(1);
+    
+    const orderSnap = await orderQuery.get();
+    if (orderSnap.empty) {
+      throw new HttpsError("not-found", "Orden asociada al pago no encontrada");
+    }
+
+    const orderDoc = orderSnap.docs[0];
+    const orderId = orderDoc.id;
+    const orderData = orderDoc.data() as any;
+
+    if (!verification.success) {
+      if (verification.providerStatus.toLowerCase() === 'rejected' || verification.providerStatus.toLowerCase() === 'failed') {
+        await orderDoc.ref.update({
+          paymentStatus: "failed",
+          estado: "Pago Rechazado",
+          "paymentDetailsData.providerStatus": verification.providerStatus,
+          "paymentDetailsData.updatedAt": new Date().toISOString()
+        });
+      }
+      return {
+        success: false,
+        orderId,
+        status: verification.providerStatus
+      };
+    }
+
+    const processResult = await OrderProcessingService.processPaymentSuccess(
+      orderId,
+      "khipu",
+      paymentId,
+      orderData.orderNumber.toString(),
+      verification.providerStatus,
+      {},
+      verification.rawResponse
+    );
+
+    return {
+      success: true,
+      orderId,
+      trackingToken: processResult.trackingToken,
+      isGuestOrder: processResult.isGuestOrder
+    };
+  } catch (error) {
+    logger.error("Error verifying Khipu transaction:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", "Error al verificar transacción con Khipu");
+  }
+});
+
+// ==================================================
+// FUNCTION: Conciliación Automática Programada (Cada 10 minutos)
+// ==================================================
+export const cleanupAndVerifyPayments = onSchedule({
+  schedule: "every 10 minutes",
+  timeZone: "America/Santiago",
+  region: "us-central1",
+}, async (event) => {
+  logger.info("cleanupAndVerifyPayments: Iniciando conciliacion automatica...");
+
+  try {
+    const db = admin.firestore();
+    const now = new Date();
+    const threeMinutesAgo = new Date(now.getTime() - 3 * 60 * 1000);
+    const twentyFiveMinutesAgo = new Date(now.getTime() - 25 * 60 * 1000);
+
+    const pendingOrdersQuery = db
+      .collection("orders")
+      .where("paymentStatus", "==", "pending")
+      .where("timestamps.created", ">=", twentyFiveMinutesAgo.toISOString())
+      .where("timestamps.created", "<=", threeMinutesAgo.toISOString());
+
+    const snapshot = await pendingOrdersQuery.get();
+
+    if (snapshot.empty) {
+      logger.info("cleanupAndVerifyPayments: No hay pagos pendientes para conciliar");
+      return;
+    }
+
+    logger.info(`cleanupAndVerifyPayments: Encontradas ${snapshot.size} ordenes pendientes para verificar`);
+
+    const khipu = new KhipuProvider();
+    const webpay = new WebpayProvider();
+
+    for (const doc of snapshot.docs) {
+      const orderId = doc.id;
+      const orderData = doc.data() as any;
+      
+      const paymentDetails = orderData.paymentDetailsData;
+      if (!paymentDetails || !paymentDetails.providerPaymentId) {
+        continue;
+      }
+
+      try {
+        logger.info(`cleanupAndVerifyPayments: Conciliando orden ${orderId}`, {
+          provider: paymentDetails.provider,
+          paymentId: paymentDetails.providerPaymentId
+        });
+
+        if (paymentDetails.provider === "khipu") {
+          const verification = await khipu.verifyPayment(paymentDetails.providerPaymentId);
+          if (verification.success) {
+            await OrderProcessingService.processPaymentSuccess(
+              orderId,
+              "khipu",
+              paymentDetails.providerPaymentId,
+              paymentDetails.paymentReference,
+              verification.providerStatus,
+              {},
+              verification.rawResponse
+            );
+            logger.info(`cleanupAndVerifyPayments: Orden ${orderId} conciliada con EXITO (Khipu)`);
+          } else if (verification.providerStatus.toLowerCase() === 'expired' || verification.providerStatus.toLowerCase() === 'rejected') {
+            await doc.ref.update({
+              paymentStatus: verification.providerStatus.toLowerCase() === 'expired' ? 'expired' : 'failed',
+              estado: "Cancelado",
+              cancelReason: `Conciliacion: Pago ${verification.providerStatus}`
+            });
+            logger.info(`cleanupAndVerifyPayments: Orden ${orderId} marcada como expirada/fallida por conciliacion`);
+          }
+        } else if (paymentDetails.provider === "webpay") {
+          const verification = await webpay.verifyPayment(paymentDetails.providerPaymentId);
+          if (verification.success) {
+            await OrderProcessingService.processPaymentSuccess(
+              orderId,
+              "webpay",
+              paymentDetails.providerPaymentId,
+              paymentDetails.paymentReference,
+              verification.providerStatus,
+              {},
+              verification.rawResponse
+            );
+            logger.info(`cleanupAndVerifyPayments: Orden ${orderId} conciliada con EXITO (Webpay)`);
+          }
+        }
+      } catch (err) {
+        logger.error(`cleanupAndVerifyPayments: Error al conciliar orden ${orderId}`, { err });
+      }
+    }
+  } catch (error) {
+    logger.error("cleanupAndVerifyPayments: Error en conciliacion", { error });
   }
 });
