@@ -565,14 +565,16 @@ export const createOrder = onCall(async (request) => {
       // 6. Generar número de pedido único
       const orderNumber = Math.floor(10000 + Math.random() * 90000);
 
-      // 7. Determinar el estado inicial según el método de pago
-      const initialEstado = orderData.metodoPago === "Webpay Plus" 
+      // 7. Determinar el estado inicial según el método de pago (Webpay y Khipu son pasarelas en línea)
+      const isOnlinePayment = orderData.metodoPago === "Webpay Plus" || 
+        (orderData.metodoPago === "Transferencia" && orderData.isKhipu === true);
+
+      const initialEstado = isOnlinePayment 
         ? "Pago Pendiente" 
         : "Pendiente";
 
-      // Para Webpay, el consumo se hace al confirmar el pago.
-      // Para otros métodos, se descuenta inmediatamente al vender.
-      const shouldConsumeInventoryOnCreate = orderData.metodoPago !== "Webpay Plus";
+      // Para pasarelas en línea, el consumo del inventario se difiere hasta que el pago es confirmado con éxito.
+      const shouldConsumeInventoryOnCreate = !isOnlinePayment;
 
       // 8. AHORA: Hacer todas las escrituras
       const now = new Date();
@@ -2466,9 +2468,9 @@ export const khipuWebhook = onRequest({ cors: true }, async (req, res) => {
 // FUNCTION: Verificar Transacción Khipu manualmente en retorno
 // ==================================================
 export const verifyKhipuPayment = onCall(async (request) => {
-  const {paymentId} = request.data;
+  const {paymentId, orderId: requestOrderId} = request.data;
 
-  logger.info("verifyKhipuPayment called", {paymentId});
+  logger.info("verifyKhipuPayment called", {paymentId, orderId: requestOrderId});
 
   if (!paymentId) {
     throw new HttpsError("invalid-argument", "paymentId es requerido");
@@ -2476,21 +2478,42 @@ export const verifyKhipuPayment = onCall(async (request) => {
 
   try {
     const provider = new KhipuProvider();
-    const verification = await provider.verifyPayment(paymentId);
 
-    const db = admin.firestore();
-    const orderQuery = db.collection("orders")
-      .where("paymentDetailsData.providerPaymentId", "==", paymentId)
-      .limit(1);
-    
-    const orderSnap = await orderQuery.get();
-    if (orderSnap.empty) {
-      throw new HttpsError("not-found", "Orden asociada al pago no encontrada");
+    // Un solo intento rápido — el polling lo maneja el frontend.
+    // Así cada llamada responde en ~1-2s en vez de ~10s.
+    const verification = await provider.verifyPayment(paymentId);
+    logger.info("verifyKhipuPayment: Estado de Khipu", { status: verification.providerStatus, success: verification.success });
+
+    if (!verification) {
+      throw new HttpsError("internal", "No se pudo obtener el estado de verificación del pago");
     }
 
-    const orderDoc = orderSnap.docs[0];
-    const orderId = orderDoc.id;
-    const orderData = orderDoc.data() as any;
+    const db = admin.firestore();
+    let orderDoc;
+    let orderId = requestOrderId;
+    let orderData: any;
+
+    if (requestOrderId) {
+      const docRef = db.collection("orders").doc(requestOrderId);
+      const docSnap = await docRef.get();
+      if (!docSnap.exists) {
+        throw new HttpsError("not-found", "Orden asociada al pago no encontrada por ID");
+      }
+      orderDoc = docSnap;
+      orderData = docSnap.data();
+    } else {
+      const orderQuery = db.collection("orders")
+        .where("paymentDetailsData.providerPaymentId", "==", paymentId)
+        .limit(1);
+      
+      const orderSnap = await orderQuery.get();
+      if (orderSnap.empty) {
+        throw new HttpsError("not-found", "Orden asociada al pago no encontrada");
+      }
+      orderDoc = orderSnap.docs[0];
+      orderId = orderDoc.id;
+      orderData = orderDoc.data();
+    }
 
     if (!verification.success) {
       if (verification.providerStatus.toLowerCase() === 'rejected' || verification.providerStatus.toLowerCase() === 'failed') {
@@ -2532,6 +2555,61 @@ export const verifyKhipuPayment = onCall(async (request) => {
     throw new HttpsError("internal", "Error al verificar transacción con Khipu");
   }
 });
+
+// ==================================================
+// FUNCTION: Cancelar Transacción Khipu (Abortada por el usuario)
+// ==================================================
+export const cancelKhipuTransaction = onCall(async (request) => {
+  const { paymentId, orderId } = request.data;
+
+  logger.info("cancelKhipuTransaction called", { paymentId, orderId });
+
+  if (!orderId) {
+    throw new HttpsError("invalid-argument", "orderId es requerido");
+  }
+
+  try {
+    const db = admin.firestore();
+    const orderRef = db.collection("orders").doc(orderId);
+    
+    await db.runTransaction(async (transaction) => {
+      const orderDoc = await transaction.get(orderRef);
+
+      if (!orderDoc.exists) {
+        throw new HttpsError("not-found", "Pedido no encontrado");
+      }
+
+      const orderData = orderDoc.data();
+
+      // Si el pedido ya está pagado o cancelado, no hacemos nada
+      if (orderData?.paymentStatus === "paid" || orderData?.estado === "Cancelado") {
+        logger.info("El pedido ya está pagado o cancelado, ignorando", { orderId, estado: orderData?.estado });
+        return;
+      }
+
+      const now = new Date();
+      // Marcar como cancelado
+      transaction.update(orderRef, {
+        paymentStatus: "failed",
+        estado: "Cancelado",
+        cancelReason: "Cancelado por el usuario (retorno sin pagar)",
+        canceledAt: now.toISOString(),
+        canceledBy: "user",
+        "paymentDetailsData.providerStatus": "CANCELED",
+        "paymentDetailsData.updatedAt": now.toISOString()
+      });
+    });
+
+    logger.info("Pedido cancelado exitosamente por abandono en Khipu", { orderId });
+    return { success: true };
+  } catch (error) {
+    logger.error("Error al cancelar transacción Khipu:", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", "Error interno al cancelar el pedido");
+  }
+});
+
+
 
 // ==================================================
 // FUNCTION: Conciliación Automática Programada (Cada 10 minutos)

@@ -136,7 +136,10 @@ export default function FloatingOrderTracker() {
     }
   }, [activeOrder, playedSound])
 
-  if (isAdminRoute || !activeOrder) return null
+  const isPaymentProcessingRoute = pathname?.startsWith('/pago')
+
+  if (isAdminRoute || isPaymentProcessingRoute || !activeOrder) return null
+
 
   const isReady = (activeOrder.tipoEntrega === 'Retiro' && activeOrder.estado === 'Pedido Listo') || 
                   (activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino')

@@ -41,6 +41,9 @@ const imageMap: Record<string, string> = {
   'chicken bbq': 'chicken bbq',
   '4 quesos': '4 quesos',
   'coca cola lata': 'coca_cola_lata',
+  'coca cola lata zero': 'coca_cola_lata_zero',
+  'coca cola lata 350cc': 'coca_cola_lata',
+  'coca cola lata 350cc zero': 'coca_cola_lata_zero',
   'coca cola zero lata 350cc': 'coca_cola_lata_zero',
   'coca cola 1.5 litro': 'coca_cola_1.5_litro',
   'coca cola zero 1.5 litro': 'coca_cola_1.5_litro_zero',
@@ -105,15 +108,22 @@ export const getImagePath = (itemName: string, defaultImage?: string): string =>
   }
   
   // 3. Fallbacks estrictos por nombre si no hay imagen en BD (como último recurso)
+  
+  // Primero intentar con el nombre COMPLETO (sin strip de Zero/Tradicional)
+  const fullNormalizedName = normalizeText(
+    itemName.replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '').toLowerCase().trim()
+  )
+  
+  // Luego con nombre limpio (sin Zero, Tradicional al final)
   const cleanName = itemName
     .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '')
     .replace(/\s*(Tradicional|Zero)$/gi, '')
     .toLowerCase()
     .trim()
   
-  // Buscar en el mapeo
-  const normalizedName = normalizeText(cleanName)
-  const mappedName = imageMap[normalizedName] || normalizedName
+  // Buscar en el mapeo: primero nombre completo, luego nombre limpio
+  const normalizedName = imageMap[fullNormalizedName] ? fullNormalizedName : normalizeText(cleanName)
+  const mappedName = imageMap[fullNormalizedName] || imageMap[normalizeText(cleanName)] || normalizeText(cleanName)
   
   const isBebidaFallback = ['coca_cola_lata', 'coca_cola_lata_zero', 'coca_cola_1.5_litro', 'coca_cola_1.5_litro_zero', 'lipton_lata', 'lipton_botella'].includes(mappedName) || 
                            normalizedName.includes('coca') || normalizedName.includes('sprite') || normalizedName.includes('fanta') || normalizedName.includes('jugo') || normalizedName.includes('bebida') || normalizedName.includes('lata') || normalizedName.includes('botella');

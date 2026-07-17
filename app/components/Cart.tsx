@@ -29,8 +29,11 @@ interface CartProps {
   onClose?: () => void
 }
 
+// Caché global de imágenes precargadas para prevenir la recolección de basura (Garbage Collection)
+const preloadedImagesCache: Record<string, HTMLImageElement> = {};
+
 // Feature Flag para activar la integración automatizada de transferencias con Khipu
-const IS_KHIPU_ENABLED = false;
+const IS_KHIPU_ENABLED = true;
 
 const Cart = ({ onClose }: CartProps) => {
   const { items, removeItem, getTotal, updateQuantity, updateItem, clearCart, createOrder, addItem } = useCart()
@@ -40,7 +43,7 @@ const Cart = ({ onClose }: CartProps) => {
   const [inventoryErrorDetails, setInventoryErrorDetails] = useState<any[] | undefined>(undefined)
   const [isInventoryErrorModalOpen, setIsInventoryErrorModalOpen] = useState(false)
   const [showInventoryError, setShowInventoryError] = useState(false)
-  
+
   // Estados para desplegables de upselling
   const [expandedUpsell, setExpandedUpsell] = useState({
     salsas: false,
@@ -59,6 +62,7 @@ const Cart = ({ onClose }: CartProps) => {
   const [paymentMethod, setPaymentMethod] = useState("webpay")
   const [isProcessing, setIsProcessing] = useState(false)
   const [isRedirectingToWebpay, setIsRedirectingToWebpay] = useState(false)
+  const [redirectingProvider, setRedirectingProvider] = useState<'webpay' | 'khipu' | null>(null)
   const [orderNumber, setOrderNumber] = useState(Math.floor(Math.random() * 100000))
   const [confirmedTotal, setConfirmedTotal] = useState(0)
   const [guestTrackingUrl, setGuestTrackingUrl] = useState("")
@@ -73,14 +77,38 @@ const Cart = ({ onClose }: CartProps) => {
     cocaBotellaTradicional: true,
     cocaBotellaZero: true,
   })
-  
-  // Crear overlay directamente en el DOM cuando se activa WebPay
+
+  // Crear overlay directamente en el DOM cuando se activa WebPay o Khipu
   useEffect(() => {
-    console.log("🎨 Estado isRedirectingToWebpay cambió a:", isRedirectingToWebpay)
-    
-    if (isRedirectingToWebpay) {
-      console.log("🎨 Creando overlay directamente en el DOM")
-      
+    console.log("🎨 Estado isRedirectingToWebpay cambió a:", isRedirectingToWebpay, "con proveedor:", redirectingProvider)
+
+    if (isRedirectingToWebpay && redirectingProvider) {
+      console.log("🎨 Creando overlay directamente en el DOM. Proveedor detectado:", redirectingProvider)
+
+      // Eliminar el overlay si ya existe para evitar duplicados en el DOM
+      const existingOverlay = document.getElementById('webpay-redirect-overlay')
+      if (existingOverlay) {
+        existingOverlay.remove()
+      }
+
+      // Evaluar textos e ícono ANTES de construir el HTML
+      const isKhipu = redirectingProvider === 'khipu'
+      const titulo = isKhipu ? 'Redirigiendo a Khipu' : 'Procesando pago'
+      const descripcion = isKhipu
+        ? 'Estás siendo redirigido a Khipu para completar tu transferencia bancaria de forma segura'
+        : 'Estás siendo redirigido a Webpay Plus para completar tu pago de forma segura'
+
+      // Ícono: banco para Khipu, tarjeta para Webpay
+      const iconoSvg = isKhipu
+        ? `<svg style="width:3rem;height:3rem;margin:0 auto;color:#ec4899;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+             <path stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+               d="M3 21h18M3 10h18M3 7l9-4 9 4M4 10v11M8 10v11M12 10v11M16 10v11M20 10v11"/>
+           </svg>`
+        : `<svg style="width:3rem;height:3rem;margin:0 auto;color:#ec4899;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+             <rect x="2" y="5" width="20" height="14" rx="2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+             <line x1="2" y1="10" x2="22" y2="10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+           </svg>`
+
       // Crear el overlay
       const overlay = document.createElement('div')
       overlay.id = 'webpay-redirect-overlay'
@@ -93,7 +121,7 @@ const Cart = ({ onClose }: CartProps) => {
         justify-content: center;
         z-index: 99999;
       `
-      
+
       overlay.innerHTML = `
         <div style="
           background-color: white;
@@ -108,37 +136,33 @@ const Cart = ({ onClose }: CartProps) => {
           <!-- Spinner animado -->
           <div style="margin-bottom: 1.25rem; display: flex; justify-content: center;">
             <div style="position: relative; width: 4rem; height: 4rem;">
-              <div style="width: 4rem; height: 4rem; border: 3px solid #fbcfe8; border-radius: 9999px;"></div>
-              <div style="
-                width: 4rem; 
-                height: 4rem; 
-                border: 3px solid #ec4899; 
-                border-top-color: transparent; 
-                border-radius: 9999px; 
-                animation: spin 1s linear infinite;
+              <div style="position: absolute; top: 0; left: 0; width: 4rem; height: 4rem; border: 3px solid #fbcfe8; border-radius: 9999px;"></div>
+              <div class="khipu-spinner" style="
                 position: absolute;
                 top: 0;
                 left: 0;
+                width: 4rem;
+                height: 4rem;
+                border: 3px solid transparent;
+                border-top-color: #ec4899;
+                border-radius: 9999px;
               "></div>
             </div>
           </div>
           
-          <!-- Icono de tarjeta -->
+          <!-- Icono del método de pago -->
           <div style="margin-bottom: 0.875rem;">
-            <svg style="width: 3rem; height: 3rem; margin: 0 auto; color: #ec4899;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <rect x="2" y="5" width="20" height="14" rx="2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              <line x1="2" y1="10" x2="22" y2="10" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            ${iconoSvg}
           </div>
           
-          <!-- Mensaje -->
+          <!-- Título -->
           <h3 style="font-size: 1.25rem; font-weight: bold; color: #1f2937; margin-bottom: 0.5rem; line-height: 1.3;">
-            Procesando pago
+            ${titulo}
           </h3>
+
+          <!-- Descripción -->
           <p style="color: #4b5563; margin-bottom: 1rem; font-size: 0.9rem; line-height: 1.4;">
-            {paymentMethod === 'transferencia'
-              ? 'Estás siendo redirigido a Khipu para completar tu transferencia bancaria de forma segura'
-              : 'Estás siendo redirigido a Webpay Plus para completar tu pago de forma segura'}
+            ${descripcion}
           </p>
           
           <!-- Barra de progreso -->
@@ -150,12 +174,11 @@ const Cart = ({ onClose }: CartProps) => {
             margin-bottom: 0.875rem;
             overflow: hidden;
           ">
-            <div style="
+            <div class="khipu-progress" style="
               background: linear-gradient(to right, #f9a8d4, #ec4899);
               height: 0.4rem;
               border-radius: 9999px;
               width: 70%;
-              animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
             "></div>
           </div>
           
@@ -164,36 +187,53 @@ const Cart = ({ onClose }: CartProps) => {
           </p>
         </div>
       `
-      
-      // Agregar animaciones
-      if (!document.getElementById('webpay-overlay-styles')) {
-        const style = document.createElement('style')
-        style.id = 'webpay-overlay-styles'
-        style.textContent = `
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-          }
-        `
-        document.head.appendChild(style)
+
+      // Eliminar el style tag si ya existe para asegurar que se actualicen las reglas CSS
+      const existingStyle = document.getElementById('webpay-overlay-styles')
+      if (existingStyle) {
+        existingStyle.remove()
       }
-      
+
+      // Agregar animaciones CSS usando clases para garantizar compatibilidad
+      const style = document.createElement('style')
+      style.id = 'webpay-overlay-styles'
+      style.textContent = `
+        @keyframes khipu-spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        @keyframes khipu-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+        .khipu-spinner {
+          animation: khipu-spin 0.8s linear infinite !important;
+        }
+        .khipu-progress {
+          animation: khipu-pulse 1.5s ease-in-out infinite !important;
+        }
+      `
+      document.head.appendChild(style)
+
       document.body.appendChild(overlay)
       console.log("✅ Overlay agregado al DOM")
-      
-      // Cleanup: remover el overlay cuando el componente se desmonte o el estado cambie
+
+      // Cleanup: remover el overlay y el style tag cuando el componente se desmonte o el estado cambie
       return () => {
         const existingOverlay = document.getElementById('webpay-redirect-overlay')
         if (existingOverlay) {
           existingOverlay.remove()
           console.log("🗑️ Overlay removido del DOM")
         }
+        const styleTag = document.getElementById('webpay-overlay-styles')
+        if (styleTag) {
+          styleTag.remove()
+          console.log("🗑️ Estilos del overlay removidos")
+        }
       }
     }
-  }, [isRedirectingToWebpay])
+  }, [isRedirectingToWebpay, redirectingProvider])
+
 
   useEffect(() => {
     const unsubscribe = subscribeAgregadosConfig((config) => {
@@ -202,9 +242,26 @@ const Cart = ({ onClose }: CartProps) => {
 
     return () => unsubscribe()
   }, [])
-  
+
+  // Precargar imágenes del carrito de manera proactiva e instantánea en segundo plano
+  useEffect(() => {
+    if (typeof window !== "undefined" && items && items.length > 0) {
+      items.forEach((item: any) => {
+        if (item.image) {
+          const url = getStorageUrl(item.image);
+          if (!preloadedImagesCache[url]) {
+            const img = new window.Image();
+            img.src = url;
+            preloadedImagesCache[url] = img; // Retener referencia en memoria
+          }
+        }
+      });
+    }
+  }, [items]);
+
+
   const [estimatedTime, setEstimatedTime] = useState("20-25 minutos")
-  
+
   // Cargar zonas de delivery desde Firestore
   const { zones: deliveryZones, loading: loadingZones } = useDeliveryZones()
 
@@ -236,16 +293,16 @@ const Cart = ({ onClose }: CartProps) => {
     if (!path) return "/placeholder.svg?height=200&width=200";
     if (path.startsWith('http')) return path;
 
-    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.firebasestorage.app';
-    
+    const bucket = process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'pizzeria-palermo-17f6d.appspot.com';
+
     // Interceptar de manera resiliente rutas antiguas persistidas o genéricas
     // y redirigirlas a la URL real con timestamp de la Doble Muzza
-    if (path.includes('pizza-premium-bg') || 
-        path.includes('pizza-promo-bg') || 
-        path.includes('pizza-duo-bg') || 
-        path.includes('doble muzza.jpg') || 
-        path.includes('doble_muzza.jpg') || 
-        path.includes('palermo.jpg')) {
+    if (path.includes('pizza-premium-bg') ||
+      path.includes('pizza-promo-bg') ||
+      path.includes('pizza-duo-bg') ||
+      path.includes('doble muzza.jpg') ||
+      path.includes('doble_muzza.jpg') ||
+      path.includes('palermo.jpg')) {
       return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/pizzas%2F1781109313438_doble_muzza.jpg?alt=media`;
     }
 
@@ -374,24 +431,24 @@ const Cart = ({ onClose }: CartProps) => {
   // Función de validación para pago en efectivo
   const validateCashAmount = (amount: string) => {
     setCashAmountError("")
-    
+
     if (!amount || amount.trim() === "") {
       setCashAmountError("Por favor ingresa el monto con el que vas a pagar")
       return false
     }
-    
+
     const numericAmount = parseFloat(amount)
-    
+
     if (isNaN(numericAmount) || numericAmount <= 0) {
       setCashAmountError("Ingresa un monto válido")
       return false
     }
-    
+
     if (numericAmount < totalFinal) {
       setCashAmountError(`El monto debe ser mayor o igual a $${totalFinal.toLocaleString()}`)
       return false
     }
-    
+
     return true
   }
 
@@ -432,17 +489,17 @@ const Cart = ({ onClose }: CartProps) => {
 
       if (!hasGuestName || !hasGuestPhone || !hasValidGuestEmail) return true
     }
-    
+
     // Si es pago en efectivo, validar que el monto sea correcto (solo si total es mayor a $0)
     if (paymentMethod === "efectivo" && totalFinal > 0) {
       if (!cashAmount || cashAmount.trim() === "") return true
       if (cashAmountError !== "") return true
-      
+
       const numericAmount = parseFloat(cashAmount)
       if (isNaN(numericAmount) || numericAmount <= 0) return true
       if (numericAmount < totalFinal) return true
     }
-    
+
     return false
   }
 
@@ -468,28 +525,28 @@ const Cart = ({ onClose }: CartProps) => {
         const orderItems = items.map(item => {
           const inferredMenuName = !item.selectedMenuPizza && /^pizza\s+/i.test(item.name)
             ? item.name
-                .replace(/^pizza\s+/i, '')
-                .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
-                .trim()
+              .replace(/^pizza\s+/i, '')
+              .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
+              .trim()
             : item.selectedMenuPizza
           const normalizedPizzaType = inferredMenuName && item.pizzaType === 'promo' ? 'premium' : item.pizzaType
 
           return {
-          nombre: item.name,
-          cantidad: item.quantity,
-          precio: item.price,
-          size: item.size,
-          ingredients: item.ingredients,
-          premiumIngredients: item.premiumIngredients,
-          sauces: item.sauces,
-          drinks: item.drinks,
-          extras: item.extras,
-          comments: item.comments,
+            nombre: item.name,
+            cantidad: item.quantity,
+            precio: item.price,
+            size: item.size,
+            ingredients: item.ingredients,
+            premiumIngredients: item.premiumIngredients,
+            sauces: item.sauces,
+            drinks: item.drinks,
+            extras: item.extras,
+            comments: item.comments,
             pizzaType: normalizedPizzaType,
-          pizza1: item.pizza1,
-          pizza2: item.pizza2,
-          half1: item.half1,
-          half2: item.half2,
+            pizza1: item.pizza1,
+            pizza2: item.pizza2,
+            half1: item.half1,
+            half2: item.half2,
             selectedMenuPizza: inferredMenuName,
           }
         })
@@ -599,7 +656,7 @@ const Cart = ({ onClose }: CartProps) => {
       })
       return
     }
-    
+
     if (items.length > 0) {
       if (!validateBeverageStock()) {
         return
@@ -650,7 +707,7 @@ const Cart = ({ onClose }: CartProps) => {
     console.log(`🔵 User name:`, user?.name)
     console.log(`🔵 User phone:`, user?.phone)
     console.log(`🔵 User email:`, user?.email)
-    
+
     // VALIDACIÓN CRÍTICA: Verificar horario comercial ANTES de cualquier otra validación
     if (!isOpen) {
       const horario = config ? `${config.openingTime} - ${config.closingTime}` : "18:00 - 23:30"
@@ -673,19 +730,19 @@ const Cart = ({ onClose }: CartProps) => {
         setCashAmountError("Por favor ingresa el monto con el que vas a pagar")
         return
       }
-      
+
       const numericAmount = parseFloat(cashAmount)
       if (isNaN(numericAmount) || numericAmount <= 0) {
         setCashAmountError("Ingresa un monto válido")
         return
       }
-      
+
       if (numericAmount < totalFinal) {
         setCashAmountError(`El monto debe ser mayor o igual a $${totalFinal.toLocaleString()}`)
         return
       }
     }
-    
+
     // Validaciones adicionales específicas de delivery respecto a zonas activas
     if (isDelivery) {
       // Si no hay info de delivery aún, bloquear
@@ -698,19 +755,19 @@ const Cart = ({ onClose }: CartProps) => {
         return
       }
       // Si la zona existe pero está inactiva
-    if (deliveryInfo.zone && !deliveryInfo.disponible) {
+      if (deliveryInfo.zone && !deliveryInfo.disponible) {
         toast({
           title: "Zona inactiva",
-      description: `La zona "${deliveryInfo.zone.nombre}" no está activa para delivery actualmente. Elige otra ubicación dentro de una zona disponible.`,
+          description: `La zona "${deliveryInfo.zone.nombre}" no está activa para delivery actualmente. Elige otra ubicación dentro de una zona disponible.`,
           variant: "destructive"
         })
         return
       }
-    // Si no hay zona definida (aunque el fallback marque disponible) bloquear
-    if (!deliveryInfo.zone) {
+      // Si no hay zona definida (aunque el fallback marque disponible) bloquear
+      if (!deliveryInfo.zone) {
         toast({
           title: "Fuera de cobertura",
-      description: "Tu ubicación no pertenece a ninguna de las zonas de delivery configuradas. Ajusta el punto dentro de la cobertura.",
+          description: "Tu ubicación no pertenece a ninguna de las zonas de delivery configuradas. Ajusta el punto dentro de la cobertura.",
           variant: "destructive"
         })
         return
@@ -718,12 +775,13 @@ const Cart = ({ onClose }: CartProps) => {
     }
 
     setIsProcessing(true)
-    
+
     // Si el método de pago es Webpay, mostrar indicador de redirección ANTES de procesar
     if (paymentMethod === "webpay") {
       console.log("🔄 Mostrando indicador de redirección a WebPay")
+      setRedirectingProvider("webpay")
       setIsRedirectingToWebpay(true)
-      
+
       // Usar requestAnimationFrame para asegurar que el navegador pinte el overlay
       // antes de continuar con el procesamiento
       await new Promise(resolve => {
@@ -735,7 +793,7 @@ const Cart = ({ onClose }: CartProps) => {
       })
       console.log("🎨 Overlay debería estar visible ahora")
     }
-    
+
     try {
       // Crear el pedido en Firestore
       console.log(`🔵 === CREANDO PEDIDO ===`)
@@ -748,10 +806,10 @@ const Cart = ({ onClose }: CartProps) => {
       }
       const customerData = hasAuthenticatedUser
         ? {
-            nombre: user?.name || 'Usuario Anónimo',
-            telefono: user?.phone || '',
-            email: user?.email || ''
-          }
+          nombre: user?.name || 'Usuario Anónimo',
+          telefono: user?.phone || '',
+          email: user?.email || ''
+        }
         : guestCliente
 
       if (!validateGuestCheckoutData()) {
@@ -773,10 +831,11 @@ const Cart = ({ onClose }: CartProps) => {
           email: customerData.email
         },
         tipoEntrega: isDelivery ? "Delivery" as const : "Retiro" as const,
-        metodoPago: paymentMethod === "efectivo" ? "Efectivo" as const : 
-                   paymentMethod === "webpay" ? "Webpay Plus" as const : "Transferencia" as const
+        metodoPago: paymentMethod === "efectivo" ? "Efectivo" as const :
+          paymentMethod === "webpay" ? "Webpay Plus" as const : "Transferencia" as const,
+        isKhipu: IS_KHIPU_ENABLED
       }
-      
+
       console.log(`🔵 OrderData preparado:`, JSON.stringify(orderData, null, 2))
 
       // Solo agregar tiempo estimado si no es undefined
@@ -801,28 +860,28 @@ const Cart = ({ onClose }: CartProps) => {
         const orderItems = items.map(item => {
           const inferredMenuName = !item.selectedMenuPizza && /^pizza\s+/i.test(item.name)
             ? item.name
-                .replace(/^pizza\s+/i, '')
-                .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
-                .trim()
+              .replace(/^pizza\s+/i, '')
+              .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
+              .trim()
             : item.selectedMenuPizza
           const normalizedPizzaType = inferredMenuName && item.pizzaType === 'promo' ? 'premium' : item.pizzaType
 
           return {
-          nombre: item.name,
-          cantidad: item.quantity,
-          precio: item.price,
-          size: item.size,
-          ingredients: item.ingredients,
-          premiumIngredients: item.premiumIngredients,
-          sauces: item.sauces,
-          drinks: item.drinks,
-          extras: item.extras,
-          comments: item.comments,
+            nombre: item.name,
+            cantidad: item.quantity,
+            precio: item.price,
+            size: item.size,
+            ingredients: item.ingredients,
+            premiumIngredients: item.premiumIngredients,
+            sauces: item.sauces,
+            drinks: item.drinks,
+            extras: item.extras,
+            comments: item.comments,
             pizzaType: normalizedPizzaType,
-          pizza1: item.pizza1,
-          pizza2: item.pizza2,
-          half1: item.half1,
-          half2: item.half2,
+            pizza1: item.pizza1,
+            pizza2: item.pizza2,
+            half1: item.half1,
+            half2: item.half2,
             selectedMenuPizza: inferredMenuName,
           }
         })
@@ -913,7 +972,7 @@ const Cart = ({ onClose }: CartProps) => {
         if (result.error === 'INVENTORY_UNAVAILABLE') {
           console.log('🚨 Error de inventario detectado')
           console.log('Validation details disponibles:', result.validationDetails)
-          
+
           // Mostrar mensaje detallado en el carrito (sin toast redundante)
           if (result.validationDetails) {
             console.log('Detalles de inventario insuficiente:', result.validationDetails)
@@ -921,7 +980,7 @@ const Cart = ({ onClose }: CartProps) => {
             setShowInventoryError(true)
             setCurrentView("cart") // Asegurarse de que el usuario vea el carrito
           }
-          
+
           setIsProcessing(false)
           return
         } else {
@@ -932,25 +991,25 @@ const Cart = ({ onClose }: CartProps) => {
             variant: "destructive",
             duration: 5000,
           })
-          
+
           setIsProcessing(false)
           return
         }
       }
-      
+
       console.log('Pedido creado exitosamente:', result)
-      
+
       // Si el método de pago es Webpay, iniciar transacción
       if (paymentMethod === "webpay") {
         try {
           console.log('🔵 Iniciando proceso de pago Webpay...')
           console.log('🔵 Order ID:', result.id)
           console.log('🔵 Total Final:', totalFinal)
-          
+
           // Construir la URL de retorno
           const returnUrl = `${window.location.origin}/pago/webpay-return`
           console.log('🔵 Return URL:', returnUrl)
-          
+
           // Llamar a la Cloud Function para iniciar transacción Webpay
           console.log('🔵 Llamando a initWebpayTransaction...')
           const initWebpayFunction = httpsCallable(functions, "initWebpayTransaction")
@@ -965,20 +1024,20 @@ const Cart = ({ onClose }: CartProps) => {
             returnUrl,
             guestAccessToken: guestWebpayToken
           })
-          
+
           console.log('🔵 Respuesta de initWebpayTransaction:', webpayResponse)
           const webpayData = webpayResponse.data as any
           console.log('🔵 Webpay data:', webpayData)
-          
+
           if (webpayData.success && webpayData.url && webpayData.token) {
             console.log('🔵 Transacción iniciada exitosamente')
             console.log('🔵 Token:', webpayData.token)
             console.log('🔵 URL:', webpayData.url)
-            
+
             // Guardar información antes de redireccionar
             localStorage.setItem('pendingOrderId', result.id)
             localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
-            
+
             console.log('🔵 Redireccionando a Webpay...')
             // Redireccionar a Webpay
             window.location.href = `${webpayData.url}?token_ws=${webpayData.token}`
@@ -992,14 +1051,15 @@ const Cart = ({ onClose }: CartProps) => {
           console.error('🔴 Error completo:', JSON.stringify(webpayError, null, 2))
           console.error('🔴 Error message:', webpayError.message)
           console.error('🔴 Error code:', webpayError.code)
-          
+
           setIsRedirectingToWebpay(false)
-          
+          setRedirectingProvider(null)
+
           // Mostrar mensaje de error más detallado
-          const errorMessage = webpayError.message || 
-                             webpayError.code || 
-                             "No se pudo iniciar el pago. El pedido fue creado pero debes contactarnos para completar el pago."
-          
+          const errorMessage = webpayError.message ||
+            webpayError.code ||
+            "No se pudo iniciar el pago. El pedido fue creado pero debes contactarnos para completar el pago."
+
           toast({
             title: "Error con Webpay",
             description: errorMessage,
@@ -1014,11 +1074,12 @@ const Cart = ({ onClose }: CartProps) => {
           console.log('🔵 Iniciando proceso de pago Khipu...')
           console.log('🔵 Order ID:', result.id)
           console.log('🔵 Total Final:', totalFinal)
+          setRedirectingProvider("khipu")
           setIsRedirectingToWebpay(true)
-          
+
           const returnUrl = `${window.location.origin}/pago/khipu-return`
           console.log('🔵 Return URL:', returnUrl)
-          
+
           console.log('🔵 Llamando a initKhipuTransaction...')
           const initKhipuFunction = httpsCallable(functions, "initKhipuTransaction")
           const guestKhipuToken = !isAuthenticated ? result.guestAccessToken : undefined
@@ -1032,18 +1093,18 @@ const Cart = ({ onClose }: CartProps) => {
             returnUrl,
             guestAccessToken: guestKhipuToken
           })
-          
+
           console.log('🔵 Respuesta de initKhipuTransaction:', khipuResponse)
           const khipuData = khipuResponse.data as any
           console.log('🔵 Khipu data:', khipuData)
-          
+
           if (khipuData.success && khipuData.url && khipuData.token) {
             console.log('🔵 Transacción de Khipu iniciada exitosamente')
-            
+
             localStorage.setItem('pendingOrderId', result.id)
             localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
             localStorage.setItem('pendingPaymentProvider', 'khipu')
-            
+
             console.log('🔵 Redireccionando a Khipu...')
             window.location.href = khipuData.url
             return
@@ -1054,11 +1115,12 @@ const Cart = ({ onClose }: CartProps) => {
         } catch (khipuError: any) {
           console.error('🔴 Error iniciando Khipu:', khipuError)
           setIsRedirectingToWebpay(false)
-          
-          const errorMessage = khipuError.message || 
-                             khipuError.code || 
-                             "No se pudo iniciar el pago por transferencia automática. Intenta de nuevo o selecciona otro método."
-          
+          setRedirectingProvider(null)
+
+          const errorMessage = khipuError.message ||
+            khipuError.code ||
+            "No se pudo iniciar el pago por transferencia automática. Intenta de nuevo o selecciona otro método."
+
           toast({
             title: "Error con Khipu",
             description: errorMessage,
@@ -1069,7 +1131,7 @@ const Cart = ({ onClose }: CartProps) => {
           return
         }
       }
-      
+
       // Para otros métodos de pago (efectivo, transferencia), continuar con flujo normal
       // Usamos el número de pedido real devuelto por Firestore
       setOrderNumber(result.orderNumber)
@@ -1087,13 +1149,13 @@ const Cart = ({ onClose }: CartProps) => {
         // Disparar evento para que el tracker flotante se entere inmediatamente
         window.dispatchEvent(new Event('guestOrderCreated'))
       }
-      
+
       // Guardar el total confirmado antes de cambiar de vista
       setConfirmedTotal(verifiedTotal)
-      
+
       // Cambiamos a la vista de confirmación
       setCurrentView("confirmation")
-      
+
       // Limpiamos el carrito DESPUÉS del tiempo mostrado en el mensaje (10 segundos)
       setTimeout(() => {
         clearCart()
@@ -1108,16 +1170,17 @@ const Cart = ({ onClose }: CartProps) => {
           onClose?.()
         }, 300)
       }, 10000) // 10 segundos para que el usuario pueda ver la confirmación
-      
+
       // Limpiar datos de efectivo
       setCashAmount("")
       setCashAmountError("")
     } catch (error) {
       console.error("🔴 Error al crear el pedido:", error)
-      
+
       // Ocultar overlay de Webpay si estaba visible
       setIsRedirectingToWebpay(false)
-      
+      setRedirectingProvider(null)
+
       // Mostrar error al usuario
       toast({
         title: "Error al procesar el pedido",
@@ -1129,6 +1192,7 @@ const Cart = ({ onClose }: CartProps) => {
       setIsProcessing(false)
       // Asegurar que el overlay se oculte siempre
       setIsRedirectingToWebpay(false)
+      setRedirectingProvider(null)
     }
   }
 
@@ -1155,7 +1219,7 @@ const Cart = ({ onClose }: CartProps) => {
   // Montar/desmontar el selector de ubicación para forzar recarga
   const [mapKey, setMapKey] = useState<number>(0)
   const [hasInitializedMap, setHasInitializedMap] = useState(false)
-  
+
   // Inicializar el mapa una sola vez cuando se muestra la vista de dirección
   useEffect(() => {
     if (currentView === "address" && isDelivery && !hasInitializedMap) {
@@ -1163,13 +1227,13 @@ const Cart = ({ onClose }: CartProps) => {
       setMapKey(1); // Establecer en 1 para que se renderice
       setHasInitializedMap(true);
     }
-    
+
     // Resetear cuando se sale de la vista de dirección
     if (currentView !== "address") {
       setHasInitializedMap(false);
     }
   }, [currentView, isDelivery, hasInitializedMap]);
-  
+
   // Limpieza del mapa cuando el usuario abandona la vista de dirección
   useEffect(() => {
     if (currentView !== "address" && document) {
@@ -1274,14 +1338,14 @@ const Cart = ({ onClose }: CartProps) => {
 
     // Usar precios desde Firebase
     if (size === "Mediana") {
-      return { 
-        simple: preciosConfig.pizzaSizes.mediana.simpleExtraPrice, 
-        premium: preciosConfig.pizzaSizes.mediana.premiumExtraPrice 
+      return {
+        simple: preciosConfig.pizzaSizes.mediana.simpleExtraPrice,
+        premium: preciosConfig.pizzaSizes.mediana.premiumExtraPrice
       }
     } else {
-      return { 
-        simple: preciosConfig.pizzaSizes.familiar.simpleExtraPrice, 
-        premium: preciosConfig.pizzaSizes.familiar.premiumExtraPrice 
+      return {
+        simple: preciosConfig.pizzaSizes.familiar.simpleExtraPrice,
+        premium: preciosConfig.pizzaSizes.familiar.premiumExtraPrice
       }
     }
   }
@@ -1301,15 +1365,15 @@ const Cart = ({ onClose }: CartProps) => {
               <CheckCircle className="h-20 w-20 text-green-600" strokeWidth={1.5} />
             </div>
           </div>
-          
+
           <h2 className="text-2xl font-bold text-green-600 mb-6">¡Pedido Confirmado!</h2>
-          
+
           {/* Número de pedido destacado */}
           <div className="bg-pink-50 py-6 px-6 rounded-lg border-2 border-pink-300 mb-6 shadow-md">
             <h3 className="text-sm uppercase tracking-wider font-medium text-gray-600 mb-3">Número de Pedido</h3>
             <div className="text-5xl font-extrabold text-pink-600">#{orderNumber}</div>
           </div>
-          
+
           {/* Instrucciones para seguimiento */}
           <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
             <h3 className="font-medium text-gray-800 mb-2 flex items-center justify-center">
@@ -1318,7 +1382,7 @@ const Cart = ({ onClose }: CartProps) => {
             </h3>
             {isAuthenticated ? (
               <p className="text-gray-700">
-                Sigue el estado de tu pedido en la sección de 
+                Sigue el estado de tu pedido en la sección de
                 <Link href="/pedidos" className="font-bold text-blue-600 hover:underline mx-1">
                   "Mis Pedidos"
                 </Link>
@@ -1334,17 +1398,17 @@ const Cart = ({ onClose }: CartProps) => {
               </div>
             )}
           </div>
-          
+
           <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4">
             <h3 className="font-medium text-gray-800 mb-2">Tiempo Estimado</h3>
             <p className="text-xl font-bold text-pink-600">{estimatedTime}</p>
           </div>
-          
+
           <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
             <h3 className="font-medium text-gray-800 mb-2">Total Pagado</h3>
             <p className="text-xl font-bold text-blue-600">${confirmedTotal.toLocaleString()}</p>
           </div>
-          
+
           {isDelivery && deliveryInfo.zone && (
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mb-4">
               <h3 className="font-medium text-gray-800 mb-2">Información de Delivery</h3>
@@ -1352,7 +1416,7 @@ const Cart = ({ onClose }: CartProps) => {
               <p className="text-sm text-gray-600">Costo: ${deliveryInfo.tarifa.toLocaleString()}</p>
             </div>
           )}
-          
+
           <p className="text-xs text-gray-500 mt-4 mb-4">El carrito se limpiará automáticamente en 10 segundos...</p>
         </div>
       </div>
@@ -1405,7 +1469,7 @@ const Cart = ({ onClose }: CartProps) => {
             </div>
             <div className="space-y-4">
               <h3 className="font-medium text-gray-800">Detalles de la Dirección</h3>
-              
+
               {/* Resumen de ubicación seleccionada */}
               {selectedLocation && (
                 <div className={`p-3 rounded-lg mb-4 border-2 ${deliveryInfo.disponible ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}>
@@ -1418,7 +1482,7 @@ const Cart = ({ onClose }: CartProps) => {
                   {deliveryInfo.zone && (
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
                       <div className="text-sm text-gray-700">
-                        Zona: <span style={{color: deliveryInfo.zone.color}} className="font-semibold">{deliveryInfo.zone.nombre}</span>
+                        Zona: <span style={{ color: deliveryInfo.zone.color }} className="font-semibold">{deliveryInfo.zone.nombre}</span>
                       </div>
                       {deliveryInfo.disponible && (
                         <div className={`px-3 py-1 rounded-md ${deliveryInfo.disponible ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
@@ -1435,7 +1499,7 @@ const Cart = ({ onClose }: CartProps) => {
                   )}
                 </div>
               )}
-              
+
               {/* Grid responsivo con mejor manejo para móviles */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1452,10 +1516,10 @@ const Cart = ({ onClose }: CartProps) => {
                   <Label htmlFor="numero" className="text-sm font-medium">
                     Número <span className="text-red-500">*</span>
                   </Label>
-                  <Input 
-                    id="numero" 
-                    value={numero} 
-                    onChange={(e) => setNumero(e.target.value)} 
+                  <Input
+                    id="numero"
+                    value={numero}
+                    onChange={(e) => setNumero(e.target.value)}
                     placeholder="123"
                     className={`h-9 ${!numero ? 'border-2 border-yellow-400 focus:border-yellow-500 bg-yellow-50' : ''}`}
                   />
@@ -1470,10 +1534,10 @@ const Cart = ({ onClose }: CartProps) => {
                   <Label htmlFor="depto" className="text-sm font-medium">
                     Depto/Casa <span className="text-red-500">*</span>
                   </Label>
-                  <Input 
-                    id="depto" 
-                    value={depto} 
-                    onChange={(e) => setDepto(e.target.value)} 
+                  <Input
+                    id="depto"
+                    value={depto}
+                    onChange={(e) => setDepto(e.target.value)}
                     placeholder="Depto 42 o Casa 5"
                     className={`h-9 ${!depto ? 'border-2 border-yellow-400 focus:border-yellow-500 bg-yellow-50' : ''}`}
                   />
@@ -1523,7 +1587,7 @@ const Cart = ({ onClose }: CartProps) => {
               </p>
             </div>
           ) : null}
-          
+
           <Button
             onClick={handleAddressSubmit}
             disabled={!calle || !numero || !depto || !comuna || !selectedLocation || !deliveryInfo.disponible || !deliveryInfo.zone}
@@ -1699,7 +1763,7 @@ const Cart = ({ onClose }: CartProps) => {
                     </Label>
                   </div>
                 </RadioGroup>
-                
+
                 {paymentMethod === "efectivo" && (
                   <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 mt-3">
                     <h3 className="font-medium text-gray-800 mb-2 text-sm">¿Con cuánto vas a pagar?</h3>
@@ -1783,18 +1847,16 @@ const Cart = ({ onClose }: CartProps) => {
                 </span>
               )}
             </div>
-            <ChevronDown 
-              className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${
-                isDiscountPanelOpen ? 'rotate-180' : ''
-              }`} 
+            <ChevronDown
+              className={`h-5 w-5 text-gray-500 transition-transform duration-200 ${isDiscountPanelOpen ? 'rotate-180' : ''
+                }`}
             />
           </button>
- 
+
           {/* Panel desplegable */}
-          <div 
-            className={`transition-all duration-500 ease-in-out overflow-hidden ${
-              isDiscountPanelOpen ? 'max-h-[300px] opacity-100' : 'max-h-0 opacity-0'
-            }`}
+          <div
+            className={`transition-all duration-500 ease-in-out overflow-hidden ${isDiscountPanelOpen ? 'max-h-[300px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
             style={{
               transition: 'max-height 0.5s ease-in-out, opacity 0.3s ease-in-out'
             }}
@@ -1807,7 +1869,7 @@ const Cart = ({ onClose }: CartProps) => {
                     <Tag className="h-4 w-4 text-pink-600" />
                     <p className="text-sm font-semibold text-pink-900">Código promocional</p>
                   </div>
- 
+
                   {appliedDiscount ? (
                     <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-green-200">
                       <div>
@@ -1862,18 +1924,17 @@ const Cart = ({ onClose }: CartProps) => {
           <Button
             onClick={handlePayment}
             disabled={isPaymentButtonDisabled()}
-            className={`w-full font-bold py-3 rounded-lg transition-colors ${
-              isPaymentButtonDisabled() 
-                ? 'bg-gray-400 text-gray-600 cursor-not-allowed hover:bg-gray-400' 
-                : 'bg-pink-600 text-white hover:bg-pink-700'
-            }`}
+            className={`w-full font-bold py-3 rounded-lg transition-colors ${isPaymentButtonDisabled()
+              ? 'bg-gray-400 text-gray-600 cursor-not-allowed hover:bg-gray-400'
+              : 'bg-pink-600 text-white hover:bg-pink-700'
+              }`}
           >
-            {isProcessing 
-              ? "Procesando..." 
-              : showCalculatingTotal 
-                ? "Calculando total..." 
-                : totalFinal === 0 
-                  ? "Confirmar pedido" 
+            {isProcessing
+              ? "Procesando..."
+              : showCalculatingTotal
+                ? "Calculando total..."
+                : totalFinal === 0
+                  ? "Confirmar pedido"
                   : `Confirmar Pago - $${totalFinal.toLocaleString()}`}
           </Button>
         </div>
@@ -1888,898 +1949,891 @@ const Cart = ({ onClose }: CartProps) => {
           <h2 className="text-xl font-bold text-gray-800">Tu Carrito ({items.length})</h2>
         </div>
 
-      {/* Mensaje de error de inventario */}
-      {showInventoryError && inventoryErrorDetails && inventoryErrorDetails.length > 0 && (
-        <div className="p-4 mb-2 bg-red-50 border-b border-red-200">
-          <div className="flex items-center gap-2 text-red-600 mb-2">
-            <AlertCircle className="h-5 w-5" />
-            <h3 className="font-bold">¡Atención! No podemos procesar tu pedido</h3>
-          </div>
-          <p className="text-sm text-red-700 mb-3">
-            No hay suficiente stock de los siguientes ingredientes:
-          </p>
-          
-          <div className="bg-white p-3 border border-red-200 rounded-md shadow-sm mb-3">
-            <ul className="text-sm space-y-2">
-              {inventoryErrorDetails.map((item, index) => (
-                <li key={index} className="text-gray-700 flex items-start gap-2">
-                  <span className="text-red-500 mt-1">•</span>
-                  <span>
-                    <span className="font-semibold text-red-700">{item.ingrediente || item.item}</span>
-                    {item.requerido && (
-                      <>
-                        {': '}
-                        necesario <span className="font-medium text-red-600">{item.requerido}gr</span>, 
-                        disponible <span className="text-gray-600">{item.disponible}gr</span>
-                      </>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          
-          <div className="bg-yellow-50 p-3 rounded-md border border-yellow-200 mb-3 text-sm">
-            <p className="text-gray-700">
-              Por favor, modifica tu pedido eliminando o cambiando los productos que contienen estos ingredientes.
+        {/* Mensaje de error de inventario */}
+        {showInventoryError && inventoryErrorDetails && inventoryErrorDetails.length > 0 && (
+          <div className="p-4 mb-2 bg-red-50 border-b border-red-200">
+            <div className="flex items-center gap-2 text-red-600 mb-2">
+              <AlertCircle className="h-5 w-5" />
+              <h3 className="font-bold">¡Atención! No podemos procesar tu pedido</h3>
+            </div>
+            <p className="text-sm text-red-700 mb-3">
+              No hay suficiente stock de los siguientes ingredientes:
             </p>
-          </div>
-          
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => setShowInventoryError(false)} 
-            className="text-gray-600 border-gray-300 mr-2"
-          >
-            <X className="h-4 w-4 mr-1" />
-            Cerrar
-          </Button>
-        </div>
-      )}
 
-      <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4">
-        {items.map((item) => {
-          // Solo agrupar items que fueron creados desde botones de variantes (tienen propiedad 'variant')
-          const isVariantItem = item.variant === "Tradicional" || item.variant === "Zero"
-          const isLipton = item.name?.toLowerCase().includes("lipton") || false
-          const shouldGroup = isVariantItem && !isLipton
-          
-          let displayItem = item
-          let variantInfo: Array<{ variant: string; quantity: number }> = []
-          let totalQuantity = item.quantity
-          
-          if (shouldGroup) {
-            // Buscar la variante Tradicional y Zero del mismo producto
-            const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
-            
-            const tradicional = items.find(i => 
-              i.variant === "Tradicional" && 
-              i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
-            )
-            const zero = items.find(i => 
-              i.variant === "Zero" && 
-              i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
-            )
-            
-            // Si es "Zero" pero existe "Tradicional", no renderizar aquí (se mostrará agrupado desde "Tradicional")
-            // Si es "Zero" y NO existe "Tradicional", renderizar normalmente
-            if (item.variant === "Zero" && tradicional) {
-              return null
-            }
-            
-            // Si es "Tradicional" o "Zero" sin su contraparte, procesar normalmente
-            totalQuantity = 0
-            if (tradicional) {
-              variantInfo.push({ variant: "Tradicional", quantity: tradicional.quantity })
-              totalQuantity += tradicional.quantity
-            }
-            if (zero) {
-              variantInfo.push({ variant: "Zero", quantity: zero.quantity })
-              totalQuantity += zero.quantity
-            }
-            
-            // Usar el Tradicional como base para displayItem, o el primero disponible
-            const baseItem = tradicional || zero
-            displayItem = baseItem ? { ...baseItem, quantity: totalQuantity } : item
-          }
-          
-          const extraIngredients = calculateExtraIngredients(displayItem)
-          const ingredientPrices = getIngredientPrices(displayItem.size || "Familiar")
-          const isExpanded = expandedItems[displayItem.id] || false
+            <div className="bg-white p-3 border border-red-200 rounded-md shadow-sm mb-3">
+              <ul className="text-sm space-y-2">
+                {inventoryErrorDetails.map((item, index) => (
+                  <li key={index} className="text-gray-700 flex items-start gap-2">
+                    <span className="text-red-500 mt-1">•</span>
+                    <span>
+                      <span className="font-semibold text-red-700">{item.ingrediente || item.item}</span>
+                      {item.requerido && (
+                        <>
+                          {': '}
+                          necesario <span className="font-medium text-red-600">{item.requerido}gr</span>,
+                          disponible <span className="text-gray-600">{item.disponible}gr</span>
+                        </>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
 
-          const finalImageUrl = getStorageUrl(displayItem.image);
+            <div className="bg-yellow-50 p-3 rounded-md border border-yellow-200 mb-3 text-sm">
+              <p className="text-gray-700">
+                Por favor, modifica tu pedido eliminando o cambiando los productos que contienen estos ingredientes.
+              </p>
+            </div>
 
-          return (
-            <div
-              key={displayItem.id}
-              className="bg-gray-50 rounded-lg sm:rounded-xl p-2 sm:p-4 border border-gray-200 hover:shadow-md transition-shadow"
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowInventoryError(false)}
+              className="text-gray-600 border-gray-300 mr-2"
             >
-              <div className="flex items-start space-x-2 sm:space-x-3">
-                <img
-                  src={finalImageUrl}
-                  loading="lazy"
-                  decoding="async"
-                  alt={displayItem.name}
-                  className="rounded-lg object-cover flex-shrink-0 w-[50px] h-[50px] sm:w-[60px] sm:h-[60px]"
-                  onError={(e: any) => {
-                    const currentSrc = e.currentTarget.src;
-                    
-                    // Sistema de auto-recuperación de enlaces rotos por Case Sensitivity o Extensión
-                    if (currentSrc.includes('.jpg') && !currentSrc.includes('_retry1')) {
-                      e.currentTarget.src = currentSrc.replace('.jpg', '.png') + '&_retry1=true';
-                    } 
-                    else if (currentSrc.includes('.png') && !currentSrc.includes('_retry2')) {
-                      const urlBase = currentSrc.split('&_retry')[0].replace('.png', '.jpg');
-                      const urlMayuscula = urlBase.replace(/%2F([a-z])/g, (match: string, p1: string) => `%2F${p1.toUpperCase()}`);
-                      e.currentTarget.src = urlMayuscula + '&_retry2=true';
-                    }
-                    else if (!currentSrc.includes("placeholder.svg")) {
-                      e.currentTarget.src = "/placeholder.svg"
-                    }
-                  }}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between mb-1 sm:mb-2">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight flex flex-row items-center gap-2">
-                        <span>{shouldGroup ? displayItem.name.replace(/ (Tradicional|Zero)$/, "") : displayItem.name}</span>
-                        {displayItem.isCanje && (
-                          <img
-                            src="/iconos/puntos.png"
-                            alt="Puntos Palermo"
-                            className="w-8 h-8 sm:w-[50px] sm:h-[50px] object-contain flex-shrink-0"
-                            title="Canje por Puntos Palermo"
-                          />
+              <X className="h-4 w-4 mr-1" />
+              Cerrar
+            </Button>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4">
+          {items.map((item) => {
+            // Solo agrupar items que fueron creados desde botones de variantes (tienen propiedad 'variant')
+            const isVariantItem = item.variant === "Tradicional" || item.variant === "Zero"
+            const isLipton = item.name?.toLowerCase().includes("lipton") || false
+            const shouldGroup = isVariantItem && !isLipton
+
+            let displayItem = item
+            let variantInfo: Array<{ variant: string; quantity: number }> = []
+            let totalQuantity = item.quantity
+
+            if (shouldGroup) {
+              // Buscar la variante Tradicional y Zero del mismo producto
+              const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
+
+              const tradicional = items.find(i =>
+                i.variant === "Tradicional" &&
+                i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
+              )
+              const zero = items.find(i =>
+                i.variant === "Zero" &&
+                i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
+              )
+
+              // Si es "Zero" pero existe "Tradicional", no renderizar aquí (se mostrará agrupado desde "Tradicional")
+              // Si es "Zero" y NO existe "Tradicional", renderizar normalmente
+              if (item.variant === "Zero" && tradicional) {
+                return null
+              }
+
+              // Si es "Tradicional" o "Zero" sin su contraparte, procesar normalmente
+              totalQuantity = 0
+              if (tradicional) {
+                variantInfo.push({ variant: "Tradicional", quantity: tradicional.quantity })
+                totalQuantity += tradicional.quantity
+              }
+              if (zero) {
+                variantInfo.push({ variant: "Zero", quantity: zero.quantity })
+                totalQuantity += zero.quantity
+              }
+
+              // Usar el Tradicional como base para displayItem, o el primero disponible
+              const baseItem = tradicional || zero
+              displayItem = baseItem ? { ...baseItem, quantity: totalQuantity } : item
+            }
+
+            const extraIngredients = calculateExtraIngredients(displayItem)
+            const ingredientPrices = getIngredientPrices(displayItem.size || "Familiar")
+            const isExpanded = expandedItems[displayItem.id] || false
+
+            const finalImageUrl = getStorageUrl(displayItem.image);
+
+            return (
+              <div
+                key={displayItem.id}
+                className="bg-gray-50 rounded-lg sm:rounded-xl p-2 sm:p-4 border border-gray-200 hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start space-x-2 sm:space-x-3">
+                  <img
+                    src={finalImageUrl}
+                    loading="eager"
+                    decoding="sync"
+                    alt={displayItem.name}
+                    className="rounded-lg object-cover flex-shrink-0 w-[50px] h-[50px] sm:w-[60px] sm:h-[60px]"
+                    onError={(e: any) => {
+                      const currentSrc = e.currentTarget.src;
+
+                      // Sistema de auto-recuperación de enlaces rotos por Case Sensitivity o Extensión
+                      if (currentSrc.includes('.jpg') && !currentSrc.includes('_retry1')) {
+                        e.currentTarget.src = currentSrc.replace('.jpg', '.png') + '&_retry1=true';
+                      }
+                      else if (currentSrc.includes('.png') && !currentSrc.includes('_retry2')) {
+                        const urlBase = currentSrc.split('&_retry')[0].replace('.png', '.jpg');
+                        const urlMayuscula = urlBase.replace(/%2F([a-z])/g, (match: string, p1: string) => `%2F${p1.toUpperCase()}`);
+                        e.currentTarget.src = urlMayuscula + '&_retry2=true';
+                      }
+                      else if (!currentSrc.includes("placeholder.svg")) {
+                        e.currentTarget.src = "/placeholder.svg"
+                      }
+                    }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between mb-1 sm:mb-2">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight flex flex-row items-center gap-2">
+                          <span>{shouldGroup ? displayItem.name.replace(/ (Tradicional|Zero)$/, "") : displayItem.name}</span>
+                          {displayItem.isCanje && (
+                            <img
+                              src="/iconos/puntos.png"
+                              alt="Puntos Palermo"
+                              className="w-8 h-8 sm:w-[50px] sm:h-[50px] object-contain flex-shrink-0"
+                              title="Canje por Puntos Palermo"
+                            />
+                          )}
+                        </h3>
+                        {shouldGroup && variantInfo.length > 0 && (
+                          <div className="text-[10px] sm:text-xs text-gray-600 mt-0.5 sm:mt-1">
+                            {variantInfo.map((vi, idx) => (
+                              <span key={idx} className="inline-block mr-2">
+                                <span className="font-medium">{vi.quantity}x {vi.variant}</span>
+                              </span>
+                            ))}
+                          </div>
                         )}
-                      </h3>
-                      {shouldGroup && variantInfo.length > 0 && (
-                        <div className="text-[10px] sm:text-xs text-gray-600 mt-0.5 sm:mt-1">
-                          {variantInfo.map((vi, idx) => (
-                            <span key={idx} className="inline-block mr-2">
-                              <span className="font-medium">{vi.quantity}x {vi.variant}</span>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {displayItem.size && !shouldGroup && (
-                        <span className="text-[10px] sm:text-xs text-pink-600 font-medium bg-pink-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full inline-block mt-0.5 sm:mt-1">
-                          {displayItem.size}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex space-x-0.5 sm:space-x-1 ml-1 sm:ml-2 flex-shrink-0">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 sm:p-1 h-auto"
-                        onClick={() => {
-                          if (shouldGroup && variantInfo.length > 0) {
-                            // Eliminar ambas variantes (Tradicional y Zero)
-                            const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
-                            items.forEach(i => {
-                              if ((i.variant === "Tradicional" || i.variant === "Zero") && 
-                                  i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison) {
-                                removeItem(i.id)
-                              }
-                            })
-                          } else {
-                            removeItem(displayItem.id)
-                          }
-                          setShowInventoryError(false)
-                        }}
-                        title="Eliminar pedido"
-                      >
-                        <Trash className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Botón para expandir/contraer detalles - solo para pizzas personalizadas (excepto DUO) */}
-                  {displayItem.pizzaType !== 'duo' && ((displayItem.ingredients && displayItem.ingredients.length > 0) || 
-                   (displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0) || 
-                   (displayItem.sauces && displayItem.sauces.length > 0) || 
-                   (displayItem.drinks && displayItem.drinks.length > 0) || 
-                   (displayItem.extras && displayItem.extras.length > 0)) ? (
-                    <div className="mb-1.5 sm:mb-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleItemExpansion(displayItem.id.toString())}
-                        className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-1 sm:p-2 h-auto text-[10px] sm:text-xs"
-                      >
-                        <span className="mr-0.5 sm:mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
-                        {isExpanded ? <ChevronUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> : <ChevronDown className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
-                      </Button>
-                    </div>
-                  ) : null}
-
-                  {/* Desglose de precios con ingredientes individuales */}
-                  {isExpanded && (
-                    <div className="space-y-2 mb-3 animate-in slide-in-from-top-2 duration-200">
-                      <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs space-y-1">
-                        <div className="font-medium text-gray-700 mb-2">Desglose de Precio:</div>
-
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">
-                            {displayItem.name.includes("DUO") 
-                              ? `Pizza DUO (${displayItem.size}):` 
-                              : displayItem.selectedMenuPizza && displayItem.selectedMenuPizza !== 'base'
-                                ? `Pizza base ${displayItem.selectedMenuPizza} (${displayItem.size}):`
-                                : `Pizza base (${displayItem.size}):`}
+                        {displayItem.size && !shouldGroup && (
+                          <span className="text-[10px] sm:text-xs text-pink-600 font-medium bg-pink-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full inline-block mt-0.5 sm:mt-1">
+                            {displayItem.size}
                           </span>
-                          <span>${(displayItem.basePrice || 0).toLocaleString()}</span>
-                        </div>
-
-                        {/* Ingredientes simples individuales */}
-                        {displayItem.ingredients && displayItem.ingredients.length > 0 && (
-                          <>
-                            {displayItem.ingredients.map((ingredient, index) => {
-                              // En Promo: los primeros 2 están incluidos en la base, no mostrarlos
-                              // En Premium: todos los ingredientes se cobran, mostrar todos
-                              if (displayItem.name.includes("Promo") && index < 2) return null
-                              
-                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                              const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
-                              const ingredientName = match ? match[1] : ingredient
-                              const quantity = match ? parseInt(match[2]) : 1
-                              const totalPrice = ingredientPrices.simple * quantity
-                              
-                              return (
-                                <div key={`ingredient-${index}`} className="flex justify-between">
-                                  <span className="text-gray-600">{ingredient}:</span>
-                                  <span>+${totalPrice.toLocaleString()}</span>
-                                </div>
-                              )
-                            })}
-                          </>
                         )}
-
-                        {/* Ingredientes premium individuales */}
-                        {displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0 && (
-                          <>
-                            {displayItem.premiumIngredients.map((ingredient, index) => {
-                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                              const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
-                              const ingredientName = match ? match[1] : ingredient
-                              const quantity = match ? parseInt(match[2]) : 1
-                              const totalPrice = ingredientPrices.premium * quantity
-                              
-                              return (
-                                <div key={`premium-${index}`} className="flex justify-between">
-                                  <span className="text-gray-600">{ingredient}:</span>
-                                  <span>+${totalPrice.toLocaleString()}</span>
-                                </div>
-                              )
-                            })}
-                          </>
-                        )}
-
-                        {/* Salsas individuales */}
-                        {displayItem.sauces && displayItem.sauces.length > 0 && (
-                          <>
-                            {displayItem.sauces.map((sauce, index) => {
-                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                              const match = sauce.match(/^(.+?)\s*\((\d+)\)$/)
-                              const sauceName = match ? match[1] : sauce
-                              const quantity = match ? parseInt(match[2]) : 1
-                              const unitPrice = getExtraPrice(sauceName)
-                              const totalPrice = unitPrice * quantity
-                              
-                              return (
-                                <div key={`sauce-${index}`} className="flex justify-between">
-                                  <span className="text-green-600">{sauce}:</span>
-                                  <span className="text-green-600">+${totalPrice.toLocaleString()}</span>
-                                </div>
-                              )
-                            })}
-                          </>
-                        )}
-
-                        {/* Bebidas individuales */}
-                        {displayItem.drinks && displayItem.drinks.length > 0 && (
-                          <>
-                            {displayItem.drinks.map((drink, index) => {
-                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                              const match = drink.match(/^(.+?)\s*\((\d+)\)$/)
-                              const drinkName = match ? match[1] : drink
-                              const quantity = match ? parseInt(match[2]) : 1
-                              const unitPrice = getExtraPrice(drinkName)
-                              const totalPrice = unitPrice * quantity
-                              
-                              return (
-                                <div key={`drink-${index}`} className="flex justify-between">
-                                  <span className="text-blue-600">{drink}:</span>
-                                  <span className="text-blue-600">+${totalPrice.toLocaleString()}</span>
-                                </div>
-                              )
-                            })}
-                          </>
-                        )}
-
-                        {/* Agregados individuales */}
-                        {displayItem.extras && displayItem.extras.length > 0 && (
-                          <>
-                            {displayItem.extras.map((extra, index) => {
-                              // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                              const match = extra.match(/^(.+?)\s*\((\d+)\)$/)
-                              const extraName = match ? match[1] : extra
-                              const quantity = match ? parseInt(match[2]) : 1
-                              const unitPrice = getExtraPrice(extraName)
-                              const totalPrice = unitPrice * quantity
-                              
-                              return (
-                                <div key={`extra-${index}`} className="flex justify-between">
-                                  <span className="text-purple-600">{extra}:</span>
-                                  <span className="text-purple-600">+${totalPrice.toLocaleString()}</span>
-                                </div>
-                              )
-                            })}
-                          </>
-                        )}
-
-                        <div className="flex justify-between font-medium border-t pt-2 mt-2 text-pink-600">
-                          <span>Subtotal unitario:</span>
-                          <span>${item.price.toLocaleString()}</span>
-                        </div>
+                      </div>
+                      <div className="flex space-x-0.5 sm:space-x-1 ml-1 sm:ml-2 flex-shrink-0">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 sm:p-1 h-auto"
+                          onClick={() => {
+                            if (shouldGroup && variantInfo.length > 0) {
+                              // Eliminar ambas variantes (Tradicional y Zero)
+                              const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
+                              items.forEach(i => {
+                                if ((i.variant === "Tradicional" || i.variant === "Zero") &&
+                                  i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison) {
+                                  removeItem(i.id)
+                                }
+                              })
+                            } else {
+                              removeItem(displayItem.id)
+                            }
+                            setShowInventoryError(false)
+                          }}
+                          title="Eliminar pedido"
+                        >
+                          <Trash className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        </Button>
                       </div>
                     </div>
-                  )}
 
-                  {/* Opciones de Personalización - Solo para pizzas reales */}
-                  {(() => {
-                    const itemNameLower = displayItem.name.toLowerCase()
-                    // Excluir salsas, bebidas, gauchitos y rollitos
-                    const excludedItems = ['salsa', 'coca', 'lipton', 'sprite', 'fanta', 'agua', 'jugo', 'gauchitos', 'rollitos']
-                    const isExcluded = excludedItems.some(excluded => itemNameLower.includes(excluded))
-                    
-                    // Mostrar para todo excepto los productos excluidos y bebidas agrupadas
-                    return !isExcluded && !shouldGroup
-                  })() && (
-                  <div className="mt-2 mb-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateItem({
-                          ...item,
-                          sinOregano: !item.sinOregano
-                        })
-                      }}
-                      className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
-                        item.sinOregano 
-                          ? 'bg-pink-600 text-white border-pink-600 font-semibold' 
-                          : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
-                      }`}
-                    >
-                      Sin Orégano
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateItem({
-                          ...item,
-                          sinQueso: !item.sinQueso
-                        })
-                      }}
-                      className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
-                        item.sinQueso 
-                          ? 'bg-pink-600 text-white border-pink-600 font-semibold' 
-                          : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
-                      }`}
-                    >
-                      Sin Queso
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => {
-                        updateItem({
-                          ...item,
-                          sinSalsaTomate: !item.sinSalsaTomate
-                        })
-                      }}
-                      className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${
-                        item.sinSalsaTomate 
-                          ? 'bg-pink-600 text-white border-pink-600 font-semibold' 
-                          : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
-                      }`}
-                    >
-                      Sin Salsa Tomate
-                    </button>
-                  </div>
-                  )}
-
-                  {/* Controles de cantidad */}
-                  <div className="flex items-center justify-between">
-                    {displayItem.isCanje ? (
-                      <div className="text-xs text-pink-700 font-extrabold bg-pink-50 border border-pink-100 px-3 py-1.5 rounded-xl shadow-sm">
-                        Cantidad: {displayItem.quantity}
+                    {/* Botón para expandir/contraer detalles - solo para pizzas personalizadas (excepto DUO) */}
+                    {displayItem.pizzaType !== 'duo' && ((displayItem.ingredients && displayItem.ingredients.length > 0) ||
+                      (displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0) ||
+                      (displayItem.sauces && displayItem.sauces.length > 0) ||
+                      (displayItem.drinks && displayItem.drinks.length > 0) ||
+                      (displayItem.extras && displayItem.extras.length > 0)) ? (
+                      <div className="mb-1.5 sm:mb-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleItemExpansion(displayItem.id.toString())}
+                          className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-1 sm:p-2 h-auto text-[10px] sm:text-xs"
+                        >
+                          <span className="mr-0.5 sm:mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
+                          {isExpanded ? <ChevronUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> : <ChevronDown className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
+                        </Button>
                       </div>
-                    ) : (
-                      <div className="flex items-center space-x-1.5 sm:space-x-2">
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
-                          onClick={() => {
-                            if (shouldGroup) {
-                              updateQuantity(item.id, Math.max(0, item.quantity - 1))
-                            } else {
-                              updateQuantity(displayItem.id, Math.max(0, displayItem.quantity - 1))
-                            }
-                            setShowInventoryError(false)
-                          }}
-                        >
-                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                        <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{displayItem.quantity}</span>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
-                          onClick={() => {
-                            if (shouldGroup) {
-                              updateQuantity(item.id, item.quantity + 1)
-                            } else {
-                              updateQuantity(displayItem.id, displayItem.quantity + 1)
-                            }
-                            setShowInventoryError(false)
-                          }}
-                        >
-                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
+                    ) : null}
+
+                    {/* Desglose de precios con ingredientes individuales */}
+                    {isExpanded && (
+                      <div className="space-y-2 mb-3 animate-in slide-in-from-top-2 duration-200">
+                        <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs space-y-1">
+                          <div className="font-medium text-gray-700 mb-2">Desglose de Precio:</div>
+
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">
+                              {displayItem.name.includes("DUO")
+                                ? `Pizza DUO (${displayItem.size}):`
+                                : displayItem.selectedMenuPizza && displayItem.selectedMenuPizza !== 'base'
+                                  ? `Pizza base ${displayItem.selectedMenuPizza} (${displayItem.size}):`
+                                  : `Pizza base (${displayItem.size}):`}
+                            </span>
+                            <span>${(displayItem.basePrice || 0).toLocaleString()}</span>
+                          </div>
+
+                          {/* Ingredientes simples individuales */}
+                          {displayItem.ingredients && displayItem.ingredients.length > 0 && (
+                            <>
+                              {displayItem.ingredients.map((ingredient, index) => {
+                                // En Promo: los primeros 2 están incluidos en la base, no mostrarlos
+                                // En Premium: todos los ingredientes se cobran, mostrar todos
+                                if (displayItem.name.includes("Promo") && index < 2) return null
+
+                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                                const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
+                                const ingredientName = match ? match[1] : ingredient
+                                const quantity = match ? parseInt(match[2]) : 1
+                                const totalPrice = ingredientPrices.simple * quantity
+
+                                return (
+                                  <div key={`ingredient-${index}`} className="flex justify-between">
+                                    <span className="text-gray-600">{ingredient}:</span>
+                                    <span>+${totalPrice.toLocaleString()}</span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
+
+                          {/* Ingredientes premium individuales */}
+                          {displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0 && (
+                            <>
+                              {displayItem.premiumIngredients.map((ingredient, index) => {
+                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                                const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
+                                const ingredientName = match ? match[1] : ingredient
+                                const quantity = match ? parseInt(match[2]) : 1
+                                const totalPrice = ingredientPrices.premium * quantity
+
+                                return (
+                                  <div key={`premium-${index}`} className="flex justify-between">
+                                    <span className="text-gray-600">{ingredient}:</span>
+                                    <span>+${totalPrice.toLocaleString()}</span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
+
+                          {/* Salsas individuales */}
+                          {displayItem.sauces && displayItem.sauces.length > 0 && (
+                            <>
+                              {displayItem.sauces.map((sauce, index) => {
+                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                                const match = sauce.match(/^(.+?)\s*\((\d+)\)$/)
+                                const sauceName = match ? match[1] : sauce
+                                const quantity = match ? parseInt(match[2]) : 1
+                                const unitPrice = getExtraPrice(sauceName)
+                                const totalPrice = unitPrice * quantity
+
+                                return (
+                                  <div key={`sauce-${index}`} className="flex justify-between">
+                                    <span className="text-green-600">{sauce}:</span>
+                                    <span className="text-green-600">+${totalPrice.toLocaleString()}</span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
+
+                          {/* Bebidas individuales */}
+                          {displayItem.drinks && displayItem.drinks.length > 0 && (
+                            <>
+                              {displayItem.drinks.map((drink, index) => {
+                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                                const match = drink.match(/^(.+?)\s*\((\d+)\)$/)
+                                const drinkName = match ? match[1] : drink
+                                const quantity = match ? parseInt(match[2]) : 1
+                                const unitPrice = getExtraPrice(drinkName)
+                                const totalPrice = unitPrice * quantity
+
+                                return (
+                                  <div key={`drink-${index}`} className="flex justify-between">
+                                    <span className="text-blue-600">{drink}:</span>
+                                    <span className="text-blue-600">+${totalPrice.toLocaleString()}</span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
+
+                          {/* Agregados individuales */}
+                          {displayItem.extras && displayItem.extras.length > 0 && (
+                            <>
+                              {displayItem.extras.map((extra, index) => {
+                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
+                                const match = extra.match(/^(.+?)\s*\((\d+)\)$/)
+                                const extraName = match ? match[1] : extra
+                                const quantity = match ? parseInt(match[2]) : 1
+                                const unitPrice = getExtraPrice(extraName)
+                                const totalPrice = unitPrice * quantity
+
+                                return (
+                                  <div key={`extra-${index}`} className="flex justify-between">
+                                    <span className="text-purple-600">{extra}:</span>
+                                    <span className="text-purple-600">+${totalPrice.toLocaleString()}</span>
+                                  </div>
+                                )
+                              })}
+                            </>
+                          )}
+
+                          <div className="flex justify-between font-medium border-t pt-2 mt-2 text-pink-600">
+                            <span>Subtotal unitario:</span>
+                            <span>${item.price.toLocaleString()}</span>
+                          </div>
+                        </div>
                       </div>
                     )}
-                    <div className="text-right">
-                      {displayItem.isCanje ? (
-                        <>
-                          <div className="font-bold text-sm sm:text-base text-pink-600">$0 (Canje)</div>
-                          <div className="text-[9px] sm:text-[10px] text-gray-500 font-semibold">{displayItem.canjePoints?.toLocaleString('es-CL')} pts</div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="font-bold text-sm sm:text-base text-gray-800">${(displayItem.price * displayItem.quantity).toLocaleString()}</div>
-                          {displayItem.quantity > 1 && (
-                            <div className="text-[10px] sm:text-xs text-gray-500">${displayItem.price.toLocaleString()} c/u</div>
-                          )}
-                        </>
+
+                    {/* Opciones de Personalización - Solo para pizzas reales */}
+                    {(() => {
+                      const itemNameLower = displayItem.name.toLowerCase()
+                      // Excluir salsas, bebidas, gauchitos y rollitos
+                      const excludedItems = ['salsa', 'coca', 'lipton', 'sprite', 'fanta', 'agua', 'jugo', 'gauchitos', 'rollitos']
+                      const isExcluded = excludedItems.some(excluded => itemNameLower.includes(excluded))
+
+                      // Mostrar para todo excepto los productos excluidos y bebidas agrupadas
+                      return !isExcluded && !shouldGroup
+                    })() && (
+                        <div className="mt-2 mb-2 flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateItem({
+                                ...item,
+                                sinOregano: !item.sinOregano
+                              })
+                            }}
+                            className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${item.sinOregano
+                              ? 'bg-pink-600 text-white border-pink-600 font-semibold'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                              }`}
+                          >
+                            Sin Orégano
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateItem({
+                                ...item,
+                                sinQueso: !item.sinQueso
+                              })
+                            }}
+                            className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${item.sinQueso
+                              ? 'bg-pink-600 text-white border-pink-600 font-semibold'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                              }`}
+                          >
+                            Sin Queso
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateItem({
+                                ...item,
+                                sinSalsaTomate: !item.sinSalsaTomate
+                              })
+                            }}
+                            className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${item.sinSalsaTomate
+                              ? 'bg-pink-600 text-white border-pink-600 font-semibold'
+                              : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
+                              }`}
+                          >
+                            Sin Salsa Tomate
+                          </button>
+                        </div>
                       )}
+
+                    {/* Controles de cantidad */}
+                    <div className="flex items-center justify-between">
+                      {displayItem.isCanje ? (
+                        <div className="text-xs text-pink-700 font-extrabold bg-pink-50 border border-pink-100 px-3 py-1.5 rounded-xl shadow-sm">
+                          Cantidad: {displayItem.quantity}
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-1.5 sm:space-x-2">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                            onClick={() => {
+                              if (shouldGroup) {
+                                updateQuantity(item.id, Math.max(0, item.quantity - 1))
+                              } else {
+                                updateQuantity(displayItem.id, Math.max(0, displayItem.quantity - 1))
+                              }
+                              setShowInventoryError(false)
+                            }}
+                          >
+                            <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                          </Button>
+                          <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{displayItem.quantity}</span>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                            onClick={() => {
+                              if (shouldGroup) {
+                                updateQuantity(item.id, item.quantity + 1)
+                              } else {
+                                updateQuantity(displayItem.id, displayItem.quantity + 1)
+                              }
+                              setShowInventoryError(false)
+                            }}
+                          >
+                            <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                          </Button>
+                        </div>
+                      )}
+                      <div className="text-right">
+                        {displayItem.isCanje ? (
+                          <>
+                            <div className="font-bold text-sm sm:text-base text-pink-600">$0 (Canje)</div>
+                            <div className="text-[9px] sm:text-[10px] text-gray-500 font-semibold">{displayItem.canjePoints?.toLocaleString('es-CL')} pts</div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="font-bold text-sm sm:text-base text-gray-800">${(displayItem.price * displayItem.quantity).toLocaleString()}</div>
+                            {displayItem.quantity > 1 && (
+                              <div className="text-[10px] sm:text-xs text-gray-500">${displayItem.price.toLocaleString()} c/u</div>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
             )
           })}
         </div>
 
-      {/* Secciones de Upselling */}
-      {/* Funciones auxiliares para detectar categorías en el carrito */}
-      {(() => {
-        const hasSalsas = items.some(item => 
-          ['17', '18', '19', '20'].includes(String(item.id)) || 
-          item.name?.toLowerCase().includes('salsa')
-        )
-        const hasBebidas = items.some(item => {
-          const itemName = item.name?.toLowerCase() || ''
-          const itemIdStr = String(item.id)
-          return itemIdStr.includes('401') || itemIdStr.includes('402') ||
-            itemName.includes('coca') ||
-            itemName.includes('bebida') ||
-            itemName.includes('lipton') ||
-            itemName.includes('sprite') ||
-            itemName.includes('fanta') ||
-            itemName.includes('agua') ||
-            itemName.includes('jugo')
-        })
-        const hasSnacks = items.some(item => 
-          ['15', '16'].includes(String(item.id)) ||
-          item.name?.toLowerCase().includes('gauchito') ||
-          item.name?.toLowerCase().includes('rollito')
-        )
-        
-        return (
-          <div className="px-2 sm:px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-3">
-            {/* Sección 1: Salsas - Solo mostrar si NO hay salsas en el carrito */}
-            {!hasSalsas && (
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setExpandedUpsell(prev => ({ ...prev, salsas: !prev.salsas }))}
-            className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
-          >
-            <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregas Salsas?</span>
-            {expandedUpsell.salsas ? (
-              <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-            ) : (
-              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-            )}
-          </button>
-          
-          {expandedUpsell.salsas && (
-            <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-              {[
-                { id: 17, name: "Salsa de Ajo", price: 700, image: "/acompañamientos/salsa_de_ajo.jpg" },
-                { id: 18, name: "Salsa Chimichurri", price: 700, image: "/acompañamientos/salsa_chimichurri.jpg" },
-                { id: 19, name: "Salsa BBQ", price: 700, image: "/acompañamientos/salsa_bbq.jpg" },
-                { id: 20, name: "Salsa Pesto", price: 1000, image: "/acompañamientos/salsa_pesto.jpg" },
-              ].map(salsa => {
-                const cartItem = items.find(item => item.id === String(salsa.id))
-                const isInCart = !!cartItem
-                const quantity = cartItem?.quantity || 1
+        {/* Secciones de Upselling */}
+        {/* Funciones auxiliares para detectar categorías en el carrito */}
+        {(() => {
+          const hasSalsas = items.some(item =>
+            ['17', '18', '19', '20'].includes(String(item.id)) ||
+            item.name?.toLowerCase().includes('salsa')
+          )
+          const hasBebidas = items.some(item => {
+            const itemName = item.name?.toLowerCase() || ''
+            const itemIdStr = String(item.id)
+            return itemIdStr.includes('401') || itemIdStr.includes('402') ||
+              itemName.includes('coca') ||
+              itemName.includes('bebida') ||
+              itemName.includes('lipton') ||
+              itemName.includes('sprite') ||
+              itemName.includes('fanta') ||
+              itemName.includes('agua') ||
+              itemName.includes('jugo')
+          })
+          const hasSnacks = items.some(item =>
+            ['15', '16'].includes(String(item.id)) ||
+            item.name?.toLowerCase().includes('gauchito') ||
+            item.name?.toLowerCase().includes('rollito')
+          )
 
-                return (
-                  <div key={salsa.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                    <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
-                      <input
-                        type="checkbox"
-                        checked={isInCart}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            addItem({
-                              id: String(salsa.id),
-                              name: salsa.name,
-                              price: salsa.price,
-                              quantity: 1,
-                              image: getStorageUrl(salsa.image)
-                            })
-                          } else {
-                            removeItem(String(salsa.id))
-                          }
-                        }}
-                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                      />
-                      <span className="text-xs sm:text-sm text-gray-700">{salsa.name}</span>
-                      <span className="text-xs sm:text-sm text-gray-500">${salsa.price.toLocaleString()}</span>
-                    </label>
-                    
-                    {isInCart && (
-                      <div className="flex items-center gap-1 sm:gap-2">
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                          onClick={() => updateQuantity(String(salsa.id), Math.max(0, quantity - 1))}
-                        >
-                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                        <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                          onClick={() => updateQuantity(String(salsa.id), quantity + 1)}
-                        >
-                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                      </div>
+          return (
+            <div className="px-2 sm:px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-3">
+              {/* Sección 1: Salsas - Solo mostrar si NO hay salsas en el carrito */}
+              {!hasSalsas && (
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedUpsell(prev => ({ ...prev, salsas: !prev.salsas }))}
+                    className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregas Salsas?</span>
+                    {expandedUpsell.salsas ? (
+                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
                     )}
-                  </div>
-                )
-              })}
+                  </button>
+
+                  {expandedUpsell.salsas && (
+                    <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
+                      {[
+                        { id: 17, name: "Salsa de Ajo", price: 700, image: "/acompañamientos/salsa_de_ajo.jpg" },
+                        { id: 18, name: "Salsa Chimichurri", price: 700, image: "/acompañamientos/salsa_chimichurri.jpg" },
+                        { id: 19, name: "Salsa BBQ", price: 700, image: "/acompañamientos/salsa_bbq.jpg" },
+                        { id: 20, name: "Salsa Pesto", price: 1000, image: "/acompañamientos/salsa_pesto.jpg" },
+                      ].map(salsa => {
+                        const cartItem = items.find(item => item.id === String(salsa.id))
+                        const isInCart = !!cartItem
+                        const quantity = cartItem?.quantity || 1
+
+                        return (
+                          <div key={salsa.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                            <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isInCart}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    addItem({
+                                      id: String(salsa.id),
+                                      name: salsa.name,
+                                      price: salsa.price,
+                                      quantity: 1,
+                                      image: getStorageUrl(salsa.image)
+                                    })
+                                  } else {
+                                    removeItem(String(salsa.id))
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                              />
+                              <span className="text-xs sm:text-sm text-gray-700">{salsa.name}</span>
+                              <span className="text-xs sm:text-sm text-gray-500">${salsa.price.toLocaleString()}</span>
+                            </label>
+
+                            {isInCart && (
+                              <div className="flex items-center gap-1 sm:gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                                  onClick={() => updateQuantity(String(salsa.id), Math.max(0, quantity - 1))}
+                                >
+                                  <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </Button>
+                                <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                                  onClick={() => updateQuantity(String(salsa.id), quantity + 1)}
+                                >
+                                  <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sección 2: Bebidas - Solo mostrar si NO hay bebidas en el carrito */}
+              {!hasBebidas && (
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedUpsell(prev => ({ ...prev, bebidas: !prev.bebidas }))}
+                    className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregar Bebida?</span>
+                    {expandedUpsell.bebidas ? (
+                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                    )}
+                  </button>
+
+                  {expandedUpsell.bebidas && (
+                    <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
+                      {([
+                        { id: 'lipton-lata', name: 'Lipton Lata', price: 1500, image: '/bebidas/lipton_lata.jpg', availabilityKey: 'liptonLata' as const },
+                        { id: 'lipton-botella', name: 'Lipton Botella', price: 2900, image: '/bebidas/lipton_botella.jpg', availabilityKey: 'liptonBotella' as const },
+                        { id: 'coca-lata-tradicional', name: 'Coca Cola Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata.jpg', availabilityKey: 'cocaLataTradicional' as const },
+                        { id: 'coca-lata-zero', name: 'Coca Cola Zero Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata_zero.jpg', availabilityKey: 'cocaLataZero' as const },
+                        { id: 'coca-botella-tradicional', name: 'Coca Cola 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro.jpg', availabilityKey: 'cocaBotellaTradicional' as const },
+                        { id: 'coca-botella-zero', name: 'Coca Cola Zero 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro_zero.jpg', availabilityKey: 'cocaBotellaZero' as const },
+                      ] as const).map((bebida) => {
+                        const cartItem = items.find(item => item.id === bebida.id)
+                        const isInCart = !!cartItem
+                        const quantity = cartItem?.quantity || 1
+                        const isAvailable = bebidasDisponibles[bebida.availabilityKey]
+
+                        return (
+                          <div key={bebida.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                            <label className={`flex items-center gap-1.5 sm:gap-2 flex-1 ${isAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+                              <input
+                                type="checkbox"
+                                checked={isInCart}
+                                disabled={!isAvailable}
+                                onChange={(e) => {
+                                  if (!isAvailable) {
+                                    toast({
+                                      title: 'Producto sin stock',
+                                      description: `${bebida.name} no tiene stock disponible.`,
+                                      variant: 'destructive',
+                                    })
+                                    return
+                                  }
+
+                                  if (e.target.checked) {
+                                    addItem({
+                                      id: bebida.id,
+                                      name: bebida.name,
+                                      price: bebida.price,
+                                      quantity: 1,
+                                      image: getStorageUrl(bebida.image),
+                                    })
+                                  } else {
+                                    removeItem(bebida.id)
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                              />
+                              <span className="text-xs sm:text-sm text-gray-700">{bebida.name}</span>
+                              <span className={`text-xs sm:text-sm ${isAvailable ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
+                                {isAvailable ? `$${bebida.price.toLocaleString()}` : 'Sin Stock'}
+                              </span>
+                            </label>
+
+                            {isInCart && (
+                              <div className="flex items-center gap-1 sm:gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                                  onClick={() => updateQuantity(bebida.id, Math.max(0, quantity - 1))}
+                                >
+                                  <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </Button>
+                                <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                                  onClick={() => updateQuantity(bebida.id, quantity + 1)}
+                                >
+                                  <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sección 3: Gauchitos y Rollitos - Solo mostrar si NO hay snacks en el carrito */}
+              {!hasSnacks && (
+                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedUpsell(prev => ({ ...prev, snacks: !prev.snacks }))}
+                    className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agrega Gauchitos o Rollitos Canela?</span>
+                    {expandedUpsell.snacks ? (
+                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                    )}
+                  </button>
+
+                  {expandedUpsell.snacks && (
+                    <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
+                      {[
+                        { id: 15, name: "Rollitos de Canela", price: 4900, image: "/pizzas/canela.jpg" },
+                        { id: 16, name: "Gauchitos", price: 4000, image: "/pizzas/gauchitos.jpg" },
+                      ].map(snack => {
+                        const cartItem = items.find(item => item.id === String(snack.id))
+                        const isInCart = !!cartItem
+                        const quantity = cartItem?.quantity || 1
+
+                        return (
+                          <div key={snack.id} className="flex items-center justify-between py-1.5 sm:py-2">
+                            <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                checked={isInCart}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    const imageMap: Record<string, string> = {
+                                      "Rollitos de Canela": "/pizzas/canela.jpg",
+                                      "Gauchitos": "/pizzas/gauchitos.jpg"
+                                    };
+                                    addItem({
+                                      id: String(snack.id),
+                                      name: snack.name,
+                                      price: snack.price,
+                                      quantity: 1,
+                                      image: getStorageUrl(imageMap[snack.name] || "/placeholder.svg?height=200&width=200")
+                                    })
+                                  } else {
+                                    removeItem(String(snack.id))
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
+                              />
+                              <span className="text-xs sm:text-sm text-gray-700">{snack.name}</span>
+                              <span className="text-xs sm:text-sm text-gray-500">${snack.price.toLocaleString()}</span>
+                            </label>
+
+                            {isInCart && (
+                              <div className="flex items-center gap-1.5 sm:gap-2">
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                                  onClick={() => updateQuantity(String(snack.id), Math.max(0, quantity - 1))}
+                                >
+                                  <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </Button>
+                                <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
+                                <Button
+                                  size="icon"
+                                  variant="outline"
+                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
+                                  onClick={() => updateQuantity(String(snack.id), quantity + 1)}
+                                >
+                                  <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
+          )
+        })()}
+
+        <div className="p-2 sm:p-4 border-t border-gray-200 space-y-2 sm:space-y-4 bg-gray-50">
+          {/* Resumen de totales */}
+          <div className="space-y-1 sm:space-y-2">
+            <div className="flex justify-between text-xs sm:text-sm text-gray-700">
+              <span>Subtotal</span>
+              <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `$${subtotal.toLocaleString()}`}</span>
+            </div>
+            {isDelivery && deliveryCost > 0 && (
+              <div className="flex justify-between text-xs sm:text-sm text-blue-600">
+                <span>Delivery</span>
+                <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `+$${deliveryCost.toLocaleString()}`}</span>
+              </div>
+            )}
+            {appliedDiscount && discountFromCode > 0 && (
+              <div className="flex justify-between text-xs sm:text-sm text-green-600">
+                <span>Descuento ({appliedDiscount.code})</span>
+                <span className="font-medium">-${discountFromCode.toLocaleString()}</span>
               </div>
             )}
 
-            {/* Sección 2: Bebidas - Solo mostrar si NO hay bebidas en el carrito */}
-            {!hasBebidas && (
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setExpandedUpsell(prev => ({ ...prev, bebidas: !prev.bebidas }))}
-            className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
-          >
-            <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregar Bebida?</span>
-            {expandedUpsell.bebidas ? (
-              <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-            ) : (
-              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-            )}
-          </button>
-          
-          {expandedUpsell.bebidas && (
-            <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-              {([
-                { id: 'lipton-lata', name: 'Lipton Lata', price: 1500, image: '/bebidas/lipton_lata.jpg', availabilityKey: 'liptonLata' as const },
-                { id: 'lipton-botella', name: 'Lipton Botella', price: 2900, image: '/bebidas/lipton_botella.jpg', availabilityKey: 'liptonBotella' as const },
-                { id: 'coca-lata-tradicional', name: 'Coca Cola Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata.jpg', availabilityKey: 'cocaLataTradicional' as const },
-                { id: 'coca-lata-zero', name: 'Coca Cola Zero Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata_zero.jpg', availabilityKey: 'cocaLataZero' as const },
-                { id: 'coca-botella-tradicional', name: 'Coca Cola 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro.jpg', availabilityKey: 'cocaBotellaTradicional' as const },
-                { id: 'coca-botella-zero', name: 'Coca Cola Zero 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro_zero.jpg', availabilityKey: 'cocaBotellaZero' as const },
-              ] as const).map((bebida) => {
-                const cartItem = items.find(item => item.id === bebida.id)
-                const isInCart = !!cartItem
-                const quantity = cartItem?.quantity || 1
-                const isAvailable = bebidasDisponibles[bebida.availabilityKey]
-
-                return (
-                  <div key={bebida.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                    <label className={`flex items-center gap-1.5 sm:gap-2 flex-1 ${isAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
-                      <input
-                        type="checkbox"
-                        checked={isInCart}
-                        disabled={!isAvailable}
-                        onChange={(e) => {
-                          if (!isAvailable) {
-                            toast({
-                              title: 'Producto sin stock',
-                              description: `${bebida.name} no tiene stock disponible.`,
-                              variant: 'destructive',
-                            })
-                            return
-                          }
-
-                          if (e.target.checked) {
-                            addItem({
-                              id: bebida.id,
-                              name: bebida.name,
-                              price: bebida.price,
-                              quantity: 1,
-                              image: getStorageUrl(bebida.image),
-                            })
-                          } else {
-                            removeItem(bebida.id)
-                          }
-                        }}
-                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                      />
-                      <span className="text-xs sm:text-sm text-gray-700">{bebida.name}</span>
-                      <span className={`text-xs sm:text-sm ${isAvailable ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
-                        {isAvailable ? `$${bebida.price.toLocaleString()}` : 'Sin Stock'}
-                      </span>
-                    </label>
-                    
-                    {isInCart && (
-                      <div className="flex items-center gap-1 sm:gap-2">
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                          onClick={() => updateQuantity(bebida.id, Math.max(0, quantity - 1))}
-                        >
-                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                        <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                          onClick={() => updateQuantity(bebida.id, quantity + 1)}
-                        >
-                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+            <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
+              <span>Total</span>
+              <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>
             </div>
-          )}
-              </div>
-            )}
-
-            {/* Sección 3: Gauchitos y Rollitos - Solo mostrar si NO hay snacks en el carrito */}
-            {!hasSnacks && (
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <button
-            onClick={() => setExpandedUpsell(prev => ({ ...prev, snacks: !prev.snacks }))}
-            className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
-          >
-            <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agrega Gauchitos o Rollitos Canela?</span>
-            {expandedUpsell.snacks ? (
-              <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-            ) : (
-              <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-            )}
-          </button>
-          
-          {expandedUpsell.snacks && (
-            <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-              {[
-                { id: 15, name: "Rollitos de Canela", price: 4900, image: "/pizzas/canela.jpg" },
-                { id: 16, name: "Gauchitos", price: 4000, image: "/pizzas/gauchitos.jpg" },
-              ].map(snack => {
-                const cartItem = items.find(item => item.id === String(snack.id))
-                const isInCart = !!cartItem
-                const quantity = cartItem?.quantity || 1
-
-                return (
-                  <div key={snack.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                    <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
-                      <input
-                        type="checkbox"
-                        checked={isInCart}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            const imageMap: Record<string, string> = {
-                              "Rollitos de Canela": "/pizzas/canela.jpg",
-                              "Gauchitos": "/pizzas/gauchitos.jpg"
-                            };
-                            addItem({
-                              id: String(snack.id),
-                              name: snack.name,
-                              price: snack.price,
-                              quantity: 1,
-                              image: getStorageUrl(imageMap[snack.name] || "/placeholder.svg?height=200&width=200")
-                            })
-                          } else {
-                            removeItem(String(snack.id))
-                          }
-                        }}
-                        className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                      />
-                      <span className="text-xs sm:text-sm text-gray-700">{snack.name}</span>
-                      <span className="text-xs sm:text-sm text-gray-500">${snack.price.toLocaleString()}</span>
-                    </label>
-                    
-                    {isInCart && (
-                      <div className="flex items-center gap-1.5 sm:gap-2">
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                          onClick={() => updateQuantity(String(snack.id), Math.max(0, quantity - 1))}
-                        >
-                          <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                        <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                          onClick={() => updateQuantity(String(snack.id), quantity + 1)}
-                        >
-                          <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-              </div>
+            {serverCalcError && (
+              <div className="text-xs text-red-600 text-center mt-2">{serverCalcError}</div>
             )}
           </div>
-        )
-      })()}
 
-      <div className="p-2 sm:p-4 border-t border-gray-200 space-y-2 sm:space-y-4 bg-gray-50">
-        {/* Resumen de totales */}
-        <div className="space-y-1 sm:space-y-2">
-          <div className="flex justify-between text-xs sm:text-sm text-gray-700">
-            <span>Subtotal</span>
-            <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `$${subtotal.toLocaleString()}`}</span>
-          </div>
-          {isDelivery && deliveryCost > 0 && (
-            <div className="flex justify-between text-xs sm:text-sm text-blue-600">
-              <span>Delivery</span>
-              <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `+$${deliveryCost.toLocaleString()}`}</span>
-            </div>
-          )}
-          {appliedDiscount && discountFromCode > 0 && (
-            <div className="flex justify-between text-xs sm:text-sm text-green-600">
-              <span>Descuento ({appliedDiscount.code})</span>
-              <span className="font-medium">-${discountFromCode.toLocaleString()}</span>
-            </div>
-          )}
-
-          <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
-            <span>Total</span>
-            <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>
-          </div>
-          {serverCalcError && (
-            <div className="text-xs text-red-600 text-center mt-2">{serverCalcError}</div>
-          )}
-        </div>
-
-        {/* Botones para elegir entre Retirar y Delivery */}
-        <div className="bg-white rounded-lg p-2 sm:p-4 border border-gray-200">
-          <div className="grid grid-cols-2 gap-2 sm:gap-3">
-            {/* Botón Retirar */}
-            <button
-              onClick={() => setIsDelivery(false)}
-              className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg border-2 transition-all ${
-                isDelivery === false
+          {/* Botones para elegir entre Retirar y Delivery */}
+          <div className="bg-white rounded-lg p-2 sm:p-4 border border-gray-200">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3">
+              {/* Botón Retirar */}
+              <button
+                onClick={() => setIsDelivery(false)}
+                className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg border-2 transition-all ${isDelivery === false
                   ? "border-pink-600 bg-pink-50 shadow-md"
                   : "border-gray-300 bg-white hover:border-pink-300 hover:bg-pink-50/50"
-              }`}
-            >
-              <Store className={`w-6 h-6 sm:w-8 sm:h-8 mb-1 sm:mb-2 ${isDelivery === false ? "text-pink-600" : "text-gray-400"}`} />
-              <span className={`font-bold text-sm sm:text-base ${isDelivery === false ? "text-pink-600" : "text-gray-600"}`}>
-                Retirar
-              </span>
-              <span className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">
-                Gratis
-              </span>
-            </button>
+                  }`}
+              >
+                <Store className={`w-6 h-6 sm:w-8 sm:h-8 mb-1 sm:mb-2 ${isDelivery === false ? "text-pink-600" : "text-gray-400"}`} />
+                <span className={`font-bold text-sm sm:text-base ${isDelivery === false ? "text-pink-600" : "text-gray-600"}`}>
+                  Retirar
+                </span>
+                <span className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">
+                  Gratis
+                </span>
+              </button>
 
-            {/* Botón Delivery */}
-            <button
-              onClick={() => setIsDelivery(true)}
-              className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg border-2 transition-all ${
-                isDelivery === true
+              {/* Botón Delivery */}
+              <button
+                onClick={() => setIsDelivery(true)}
+                className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-lg border-2 transition-all ${isDelivery === true
                   ? "border-pink-600 bg-pink-50 shadow-md"
                   : "border-gray-300 bg-white hover:border-pink-300 hover:bg-pink-50/50"
-              }`}
-            >
-              <Truck className={`w-6 h-6 sm:w-8 sm:h-8 mb-1 sm:mb-2 ${isDelivery === true ? "text-pink-600" : "text-gray-400"}`} />
-              <span className={`font-bold text-sm sm:text-base ${isDelivery === true ? "text-pink-600" : "text-gray-600"}`}>
-                Delivery
-              </span>
-              <span className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">
-                Según zona
-              </span>
-            </button>
-          </div>
-          
-          {/* Mensaje cuando no ha seleccionado */}
-          {isDelivery === null && (
-            <div className="mt-2 sm:mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-2 sm:p-3 flex items-start">
-              <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-600 mr-1.5 sm:mr-2 flex-shrink-0 mt-0.5" />
-              <p className="text-[10px] sm:text-xs text-yellow-700">
-                Debes seleccionar una opción para continuar
-              </p>
+                  }`}
+              >
+                <Truck className={`w-6 h-6 sm:w-8 sm:h-8 mb-1 sm:mb-2 ${isDelivery === true ? "text-pink-600" : "text-gray-400"}`} />
+                <span className={`font-bold text-sm sm:text-base ${isDelivery === true ? "text-pink-600" : "text-gray-600"}`}>
+                  Delivery
+                </span>
+                <span className="text-[10px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1 text-center">
+                  Según zona
+                </span>
+              </button>
             </div>
-          )}
-        </div>
 
-        {/* Botones condicionales */}
-        {isAuthenticated ? (
-          <Button
-            className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-sm sm:text-base ${
-              !isOpen || isDelivery === null
+            {/* Mensaje cuando no ha seleccionado */}
+            {isDelivery === null && (
+              <div className="mt-2 sm:mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-2 sm:p-3 flex items-start">
+                <AlertCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-600 mr-1.5 sm:mr-2 flex-shrink-0 mt-0.5" />
+                <p className="text-[10px] sm:text-xs text-yellow-700">
+                  Debes seleccionar una opción para continuar
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Botones condicionales */}
+          {isAuthenticated ? (
+            <Button
+              className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-sm sm:text-base ${!isOpen || isDelivery === null
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
-            }`}
-            onClick={handleContinue}
-            disabled={!isOpen || isDelivery === null}
-          >
-            {!isOpen 
-              ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}` 
-              : "Continuar"}
-          </Button>
-        ) : (
-          <div className="space-y-2">
-            <Button
-              className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-sm sm:text-base ${
-                !isOpen || isDelivery === null
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
-              }`}
+                }`}
               onClick={handleContinue}
               disabled={!isOpen || isDelivery === null}
             >
               {!isOpen
                 ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}`
-                : "Continuar como invitado"}
+                : "Continuar"}
             </Button>
+          ) : (
+            <div className="space-y-2">
+              <Button
+                className={`w-full font-bold py-2.5 sm:py-3 rounded-lg shadow-md transition-all text-sm sm:text-base ${!isOpen || isDelivery === null
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-pink-600 text-white hover:bg-pink-700 hover:shadow-lg"
+                  }`}
+                onClick={handleContinue}
+                disabled={!isOpen || isDelivery === null}
+              >
+                {!isOpen
+                  ? `Cerrado - Abre a las ${config?.openingTime || '18:00'}`
+                  : "Continuar como invitado"}
+              </Button>
 
-            <Button
-              variant="outline"
-              className="w-full font-semibold py-2.5 sm:py-3 text-xs sm:text-sm border-pink-300 text-pink-700 hover:bg-pink-50"
-              onClick={!isOpen ? undefined : handleLoginRedirect}
-              disabled={!isOpen}
-            >
-              Iniciar sesión (opcional)
-            </Button>
-          </div>
-        )}
-      </div>
-      
-      {/* Modal de error de inventario - mantener por compatibilidad pero no mostrarlo automáticamente */}
-      <InventoryErrorModal
-        isOpen={false} // Cambiado a false para usar nuestra implementación directamente en el carrito
-        onClose={() => {
-          setIsInventoryErrorModalOpen(false);
-          setShowInventoryError(false);
-        }}
-        validationDetails={inventoryErrorDetails}
-        onModifyCart={() => {
-          setIsInventoryErrorModalOpen(false);
-          setShowInventoryError(false);
-          setCurrentView("cart");
-        }}
-      />
+              <Button
+                variant="outline"
+                className="w-full font-semibold py-2.5 sm:py-3 text-xs sm:text-sm border-pink-300 text-pink-700 hover:bg-pink-50"
+                onClick={!isOpen ? undefined : handleLoginRedirect}
+                disabled={!isOpen}
+              >
+                Iniciar sesión (opcional)
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Modal de error de inventario - mantener por compatibilidad pero no mostrarlo automáticamente */}
+        <InventoryErrorModal
+          isOpen={false} // Cambiado a false para usar nuestra implementación directamente en el carrito
+          onClose={() => {
+            setIsInventoryErrorModalOpen(false);
+            setShowInventoryError(false);
+          }}
+          validationDetails={inventoryErrorDetails}
+          onModifyCart={() => {
+            setIsInventoryErrorModalOpen(false);
+            setShowInventoryError(false);
+            setCurrentView("cart");
+          }}
+        />
       </div>
     </>
   )

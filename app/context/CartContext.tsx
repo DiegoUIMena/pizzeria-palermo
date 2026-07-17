@@ -93,6 +93,7 @@ interface CreateOrderData {
     referencia?: string
   }
   metodoPago: "Efectivo" | "Webpay Plus" | "Transferencia"
+  isKhipu?: boolean
   paymentDetails?: {
     cashAmount?: number
     change?: number
@@ -325,6 +326,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         items: orderItems,
         total: getTotal(),
         metodoPago: orderData.metodoPago,
+        isKhipu: orderData.isKhipu,
         voucherId: orderData.voucherId,
         voucherCode: orderData.voucherCode,
         voucherDiscount: orderData.voucherDiscount,

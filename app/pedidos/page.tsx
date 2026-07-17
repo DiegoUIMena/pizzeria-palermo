@@ -281,12 +281,29 @@ export default function PedidosPage() {
     const cleanPizzaName = originalName
       .replace(/^pizza\s+/i, "")
       .replace(/\s*\((Familiar|Mediana|Personal|Grande)\)/gi, '').trim();
-    
+
+    // Normalizar nombre para comparación flexible (quita acentos, tamaños, "cc", etc.)
+    const normalizeName = (n: string) =>
+      n.toLowerCase()
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s*(350cc|1\.5\s*litro|zero|tradicional|lata|botella)\b/gi, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
     let menuItem = null;
     if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
       menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === item.selectedMenuPizza.toLowerCase());
     } else {
+      // 1. Exacto
       menuItem = itemsMenu.find((m: any) => m.nombre?.toLowerCase() === cleanPizzaName.toLowerCase());
+      // 2. Fuzzy: comparar nombres normalizados (ignora tamaño, Zero, 350cc, etc.)
+      if (!menuItem) {
+        const normClean = normalizeName(cleanPizzaName);
+        menuItem = itemsMenu.find((m: any) => {
+          const normMenu = normalizeName(m.nombre || "");
+          return normMenu === normClean || normMenu.includes(normClean) || normClean.includes(normMenu);
+        });
+      }
     }
     
     if (menuItem && menuItem.imagen && menuItem.imagen.includes('firebasestorage.googleapis.com')) {
@@ -298,7 +315,9 @@ export default function PedidosPage() {
     } else if ((lowerName.includes("promo") || lowerName.includes("personalizada")) && cleanPizzaName.toLowerCase().includes("promo")) {
       finalImage = "/pizzas/palermo.jpg";
     } else {
-      finalImage = getImagePath(cleanPizzaName);
+      // Pasar el nombre original (con "Zero", "350cc", etc.) para que getImagePath
+      // use su propio mapeo de bebidas/acompañamientos correctamente
+      finalImage = getImagePath(originalName, item.image || item.imagen);
     }
 
     const { image, imagen, name, nombre, ...cleanItem } = item;
@@ -310,6 +329,7 @@ export default function PedidosPage() {
       image: finalImage,
     } as any);
   };
+
 
   // Usar el hook para obtener pedidos del usuario
   const { orders, isLoading, error } = useFormattedOrders(user?.id)

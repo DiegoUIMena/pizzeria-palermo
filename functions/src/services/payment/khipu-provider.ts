@@ -54,7 +54,7 @@ export class KhipuProvider implements PaymentProvider {
   }
 
   private getApiUrl(): string {
-    return process.env.KHIPU_API_URL || 'https://khipu.com/api/3.0';
+    return process.env.KHIPU_API_URL || 'https://payment-api.khipu.com/v3';
   }
 
   /**
@@ -74,15 +74,19 @@ export class KhipuProvider implements PaymentProvider {
     // Tiempo de expiración recomendado: 15 minutos en formato ISO
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
+    const notifyUrl = process.env.KHIPU_NOTIFY_URL || 'https://khipuwebhook-rjfb7smrsa-uc.a.run.app';
+
     const payload = {
       amount,
       subject: `Pedido #${paymentReference}`,
       currency: 'CLP',
-      returnUrl,
-      cancelUrl: returnUrl, // Se puede retornar a la misma URL para manejar la cancelación
-      transactionId: paymentReference,
+      return_url: returnUrl,
+      cancel_url: returnUrl.includes('?') ? `${returnUrl}&cancel=true` : `${returnUrl}?cancel=true`,
+      transaction_id: paymentReference,
       body: `Pago de pedido Pizzería Palermo`,
-      expiresAt
+      expires_at: expiresAt,
+      notify_url: notifyUrl,
+      notify_api_version: '3.0'
     };
 
     try {
@@ -102,9 +106,10 @@ export class KhipuProvider implements PaymentProvider {
       }
 
       const responseData = await response.json() as Record<string, unknown>;
+      logger.info('KhipuProvider.createPayment: Respuesta cruda de la API de Khipu:', responseData);
       
-      const providerPaymentId = String(responseData.paymentId || '');
-      const redirectUrl = String(responseData.paymentUrl || responseData.redirectUrl || '');
+      const providerPaymentId = String(responseData.paymentId || responseData.payment_id || '');
+      const redirectUrl = String(responseData.payment_url || responseData.paymentUrl || responseData.transfer_url || responseData.simplifiedTransferUrl || responseData.redirectUrl || '');
 
       if (!providerPaymentId || !redirectUrl) {
         throw new Error('Respuesta incompleta de la API de Khipu');
@@ -152,7 +157,8 @@ export class KhipuProvider implements PaymentProvider {
       // Mapear los estados nativos de Khipu a nuestro esquema común
       // Estados típicos de Khipu: 'pending', 'verifying', 'approved', 'rejected'
       const rawStatus = String(responseData.status || responseData.paymentStatus || 'UNKNOWN');
-      const isApproved = rawStatus.toLowerCase() === 'approved' || rawStatus.toLowerCase() === 'paid';
+      const statusLower = rawStatus.toLowerCase();
+      const isApproved = statusLower === 'approved' || statusLower === 'paid' || statusLower === 'done';
       const amount = Number(responseData.amount || 0);
 
       return {
@@ -202,7 +208,7 @@ export class KhipuProvider implements PaymentProvider {
       // Mapear estado
       let paymentStatus: PaymentStatus = 'pending';
       const statusLower = verification.providerStatus.toLowerCase();
-      if (statusLower === 'approved' || statusLower === 'paid') {
+      if (statusLower === 'approved' || statusLower === 'paid' || statusLower === 'done') {
         paymentStatus = 'paid';
       } else if (statusLower === 'rejected' || statusLower === 'failed') {
         paymentStatus = 'failed';

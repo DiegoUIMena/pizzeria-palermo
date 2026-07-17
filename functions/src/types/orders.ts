@@ -78,6 +78,7 @@ export interface CreateOrderData {
   direccion?: OrderAddress;
   items: OrderItem[];
   metodoPago: "Efectivo" | "Webpay Plus" | "Transferencia";
+  isKhipu?: boolean;
   paymentDetails?: {
     cashAmount?: number;
     change?: number;
