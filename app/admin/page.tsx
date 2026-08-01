@@ -21,6 +21,7 @@ import BusinessHoursManager from "./components/BusinessHoursManager"
 import ReposicionConfigManager from "./components/ReposicionConfigManager"
 import PromoCodesManager from "./components/PromoCodesManager"
 import BannersManager from "./components/BannersManager"
+import PromotionsManager from "./components/PromotionsManager"
 
 // Tipos para el dashboard
 // Tipos ahora provienen del hook
@@ -299,6 +300,11 @@ export default function AdminDashboard() {
       {/* Gestión de Códigos Promocionales */}
       <div className="mt-8">
         <PromoCodesManager />
+      </div>
+
+      {/* Gestión de Promociones y Combos */}
+      <div className="mt-8">
+        <PromotionsManager />
       </div>
     </div>
   )

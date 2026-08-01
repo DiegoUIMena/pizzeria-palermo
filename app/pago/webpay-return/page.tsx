@@ -47,6 +47,9 @@ function WebpayReturnContent() {
             orderId: tbkIdSesion 
           })
           
+          localStorage.removeItem("pendingOrderId")
+          localStorage.removeItem("pendingOrderNumber")
+          localStorage.removeItem("guestTrackingData")
           setError("El pago ha sido cancelado. Tu pedido no fue procesado.")
           setLoading(false)
           return

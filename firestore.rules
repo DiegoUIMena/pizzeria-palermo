@@ -191,6 +191,17 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA PROMOCIONES Y COMBOS (NUEVO)
+    // ============================================
+    match /promos/{promoId} {
+      // Todos pueden leer las promociones activas
+      allow read: if true;
+      
+      // Solo admin puede crear/modificar/eliminar promociones
+      allow write: if isAdmin();
+    }
+    
+    // ============================================
     // REGLAS PARA CHATBOT (Multi-tenant)
     // ============================================
     

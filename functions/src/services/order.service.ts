@@ -4,6 +4,29 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { PaymentProviderType, PaymentDetails, Order } from '../types/orders';
 import { addPointsToUser } from '../utils/points-system';
 
+// Helper para aplanar los items de promociones y combos en sus subproductos constituyentes
+export function flattenOrderItems(items: any[]): any[] {
+  if (!items) return [];
+  const flattened: any[] = [];
+  items.forEach((item: any) => {
+    if (item.isPromo && Array.isArray(item.productos)) {
+      item.productos.forEach((subProd: any) => {
+        flattened.push({
+          ...subProd,
+          nombre: subProd.nombre || subProd.name || "",
+          cantidad: (subProd.cantidad || 1) * (item.cantidad || item.quantity || 1),
+          size: subProd.size,
+          variant: subProd.variant,
+          pizzaType: subProd.categoria?.toLowerCase() === "pizzas" ? "normal" : undefined,
+        });
+      });
+    } else {
+      flattened.push(item);
+    }
+  });
+  return flattened;
+}
+
 /**
  * Procesa el inventario de cajas de empaque de forma similar al flujo original
  */
@@ -14,7 +37,8 @@ export function processBoxesInventory(
   isRestore: boolean = false
 ): void {
   let familiar = 0, mediana = 0, individual = 0;
-  items.forEach((item: any) => {
+  const flattenedItems = flattenOrderItems(items);
+  flattenedItems.forEach((item: any) => {
     const nombre = String(item.nombre || "").toLowerCase();
     const size = String(item.size || "").toLowerCase();
     const cantidad = Number(item.cantidad || 1);
@@ -240,7 +264,9 @@ export class OrderProcessingService {
           return normalized.includes("canela") && (normalized.includes("roll") || normalized.includes("rol"));
         };
 
-        for (const item of freshOrderData.items) {
+        const flattenedItems = flattenOrderItems(freshOrderData.items);
+
+        for (const item of flattenedItems) {
           const itemNombreOriginal = item.nombre || "";
           const cantidad = item.cantidad || 1;
 

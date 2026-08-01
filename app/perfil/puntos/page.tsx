@@ -286,7 +286,7 @@ export default function PuntosPage() {
             <img
               src="/iconos/puntos_palermo.svg"
               alt="Icono Puntos Palermo"
-              className="w-[299px] h-auto sm:w-[377px] lg:w-[422px] object-contain hover:scale-105 transition-transform duration-300"
+              className="w-full max-w-[280px] sm:max-w-[377px] lg:max-w-[422px] h-auto object-contain hover:scale-105 transition-transform duration-300"
             />
           </div>
 

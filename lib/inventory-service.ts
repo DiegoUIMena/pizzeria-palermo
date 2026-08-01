@@ -165,6 +165,29 @@ const getBeverageConfigKey = (item: any): keyof AgregadosConfig['bebidasDisponib
   return null
 }
 
+// Helper para aplanar los items de promociones y combos en sus subproductos constituyentes
+export function flattenOrderItems(items: any[]): any[] {
+  if (!items) return []
+  const flattened: any[] = []
+  items.forEach((item: any) => {
+    if (item.isPromo && Array.isArray(item.productos)) {
+      item.productos.forEach((subProd: any) => {
+        flattened.push({
+          ...subProd,
+          nombre: subProd.nombre || subProd.name || "",
+          cantidad: (subProd.cantidad || 1) * (item.cantidad || item.quantity || 1),
+          size: subProd.size,
+          variant: subProd.variant,
+          pizzaType: subProd.categoria?.toLowerCase() === 'pizzas' ? 'normal' : undefined
+        })
+      })
+    } else {
+      flattened.push(item)
+    }
+  })
+  return flattened
+}
+
 // Helper para procesar recetas de pizzas Duo según la lógica especificada:
 // IMPORTANTE: Las recetas ya vienen con cantidades divididas por 2 (mitades)
 // 1. Para ingredientes comunes: sumar cantidades (ya divididas previamente)
@@ -413,11 +436,12 @@ const buildRecipeLinesFromIngredients = (
 // Validar si hay suficiente stock para un pedido
 export async function validateInventoryForOrder(orderItems: any[]): Promise<ValidationResult> {
   try {
+    const flattenedItems = flattenOrderItems(orderItems)
     const { itemsMenu, ingredientsById, ingredientesByName } = await getCachedData()
     const agregadosConfig = await getAgregadosConfig()
     const insufficientItems: any[] = []
 
-    for (const item of orderItems) {
+    for (const item of flattenedItems) {
       const qty = item.cantidad || item.quantity || 1
       const itemName = (item.nombre || item.name || '').toLowerCase().trim()
 
@@ -858,6 +882,7 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
     // 2. Obtener datos de ingredientes y recetas
     const { itemsMenu, ingredientsById, ingredientesByName } = await getCachedData()
     const agregadosConfig = await getAgregadosConfig()
+    const flattenedItems = flattenOrderItems(orderItems)
     
     // 3. Registrar la transacción para auditoría (como "en proceso")
     const transactionDoc = await addDoc(collection(db, 'inventory_transactions'), {
@@ -894,7 +919,7 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
         await runTransaction(db, async (transaction) => {
         
         // PRIMERA FASE: Realizar todas las lecturas
-        for (const item of orderItems) {
+        for (const item of flattenedItems) {
           const qty = item.cantidad || item.quantity || 1
           const itemName = (item.nombre || item.name || '').toLowerCase().trim()
 
@@ -1324,7 +1349,7 @@ export async function consumeInventoryForOrder(orderItems: any[], orderId: strin
         console.log("Ejecutando en modo de simulación - no se modificará el inventario");
         
         // Recopilar los mismos datos que en modo normal pero sin modificar la BD
-        for (const item of orderItems) {
+        for (const item of flattenedItems) {
           const qty = item.cantidad || item.quantity || 1;
           const itemName = (item.nombre || item.name || '').toLowerCase().trim();
           

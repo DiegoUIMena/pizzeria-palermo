@@ -198,6 +198,29 @@ function normalizePhoneForLookup(value: string): string {
   return String(value || "").replace(/\D/g, "");
 }
 
+// Helper para aplanar los items de promociones y combos en sus subproductos constituyentes
+export function flattenOrderItems(items: any[]): any[] {
+  if (!items) return [];
+  const flattened: any[] = [];
+  items.forEach((item: any) => {
+    if (item.isPromo && Array.isArray(item.productos)) {
+      item.productos.forEach((subProd: any) => {
+        flattened.push({
+          ...subProd,
+          nombre: subProd.nombre || subProd.name || "",
+          cantidad: (subProd.cantidad || 1) * (item.cantidad || item.quantity || 1),
+          size: subProd.size,
+          variant: subProd.variant,
+          pizzaType: subProd.categoria?.toLowerCase() === "pizzas" ? "normal" : undefined,
+        });
+      });
+    } else {
+      flattened.push(item);
+    }
+  });
+  return flattened;
+}
+
 // ==================================================
 // FUNCION AUXILIAR: Procesar cajas de empaque
 // ==================================================
@@ -208,7 +231,8 @@ function processBoxesInventory(
   isRestore: boolean = false
 ) {
   let familiar = 0, mediana = 0, individual = 0;
-  items.forEach((item: any) => {
+  const flattenedItems = flattenOrderItems(items);
+  flattenedItems.forEach((item: any) => {
     const nombre = String(item.nombre || "").toLowerCase();
     const size = String(item.size || "").toLowerCase();
     const cantidad = Number(item.cantidad || 1);
@@ -2544,6 +2568,10 @@ export const verifyKhipuPayment = onCall(async (request) => {
     return {
       success: true,
       orderId,
+      orderNumber: orderData.orderNumber,
+      amount: orderData.total,
+      email: orderData.cliente?.email || "",
+      phone: orderData.cliente?.telefono || orderData.cliente?.phone || "",
       trackingToken: processResult.trackingToken,
       isGuestOrder: processResult.isGuestOrder
     };

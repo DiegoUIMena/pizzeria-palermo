@@ -531,16 +531,16 @@ export default function AdminInventario() {
     <div className="min-h-screen bg-white dark:bg-gray-900">
       <main className="container mx-auto px-4 py-8">
         <div className="mb-8">
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Gestión de Inventario</h1>
               <p className="text-gray-600 dark:text-gray-400">Administra el stock de ingredientes y materias primas</p>
             </div>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap gap-2 w-full md:w-auto">
               <Button
                 onClick={handleReposicion}
                 disabled={isSendingReposicion}
-                className="bg-green-600 text-white hover:bg-green-700"
+                className="flex-1 md:flex-initial bg-green-600 text-white hover:bg-green-700"
               >
                 {isSendingReposicion ? (
                   "Enviando..."
@@ -567,14 +567,14 @@ export default function AdminInventario() {
                   })
                   setShowModal(true)
                 }}
-                className="bg-pink-600 text-white hover:bg-pink-700"
+                className="flex-1 md:flex-initial bg-pink-600 text-white hover:bg-pink-700"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Agregar Ingrediente
               </Button>
               <Button 
                 onClick={() => setShowAddPizzaModal(true)} 
-                className="bg-blue-600 text-white hover:bg-blue-700"
+                className="flex-1 md:flex-initial bg-blue-600 text-white hover:bg-blue-700"
               >
                 <Plus className="w-4 h-4 mr-2" />
                 Agregar Pizza
@@ -638,7 +638,7 @@ export default function AdminInventario() {
         </div>
 
         {/* Filtros y Búsqueda */}
-        <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex flex-col lg:flex-row gap-4 mb-6">
           <div className="flex-1">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
@@ -650,33 +650,38 @@ export default function AdminInventario() {
               />
             </div>
           </div>
-          <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4 text-gray-500" />
-            <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filtrar por categoría" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todas">Todas las categorías</SelectItem>
-                {categorias.map((categoria) => (
-                  <SelectItem key={categoria} value={categoria}>
-                    {categoria}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={filtroEstado} onValueChange={setFiltroEstado}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filtrar por estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos los estados</SelectItem>
-                <SelectItem value="Disponible">Disponible</SelectItem>
-                <SelectItem value="Stock Bajo">Stock Bajo</SelectItem>
-                <SelectItem value="Agotado">Agotado</SelectItem>
-                <SelectItem value="Vencido">Vencido</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full lg:w-auto">
+            <div className="flex items-center gap-2 text-gray-500 shrink-0">
+              <Filter className="w-4 h-4" />
+              <span className="text-xs font-semibold uppercase tracking-wider">Filtros:</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 flex-grow lg:flex-grow-0">
+              <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+                <SelectTrigger className="w-full sm:w-48 text-xs">
+                  <SelectValue placeholder="Categoría" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todas">Todas las categorías</SelectItem>
+                  {categorias.map((categoria) => (
+                    <SelectItem key={categoria} value={categoria}>
+                      {categoria}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={filtroEstado} onValueChange={setFiltroEstado}>
+                <SelectTrigger className="w-full sm:w-48 text-xs">
+                  <SelectValue placeholder="Estado" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos los estados</SelectItem>
+                  <SelectItem value="Disponible">Disponible</SelectItem>
+                  <SelectItem value="Stock Bajo">Stock Bajo</SelectItem>
+                  <SelectItem value="Agotado">Agotado</SelectItem>
+                  <SelectItem value="Vencido">Vencido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 

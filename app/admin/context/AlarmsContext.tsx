@@ -29,6 +29,7 @@ export const useAlarms = () => {
 export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [alarmaActiva, setAlarmaActiva] = useState(false);
   const intervaloAlarmaRef = useRef<number | null>(null);
+  const workerRef = useRef<Worker | null>(null);
   
   // Referencias a los audios HTML5 pre-cargados
   const audioNuevoPedidoRef = useRef<HTMLAudioElement | null>(null);
@@ -214,29 +215,62 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Función para iniciar la alarma repetitiva
   const iniciarAlarmaRepetitiva = useCallback(() => {
-    if (intervaloAlarmaRef.current !== null) {
+    if (workerRef.current !== null || intervaloAlarmaRef.current !== null) {
       return; // La alarma ya está activa
     }
     
-    console.log("🔔 Iniciando alarma repetitiva");
+    console.log("🔔 Iniciando alarma repetitiva (con soporte de Web Worker para segundo plano)");
     setAlarmaActiva(true);
     
     // Ejecutar la alarma inmediatamente la primera vez
     reproducirAlarmaNuevoPedido();
     
-    // Configurar intervalo para repetir la alarma cada 5 segundos
-    intervaloAlarmaRef.current = window.setInterval(() => {
-      reproducirAlarmaNuevoPedido();
-    }, 5000);
+    // Intentar inicializar un Web Worker inline para el intervalo
+    // Esto asegura que la pestaña reciba el trigger de alarma cada 5 segundos
+    // sin verse afectada por el estrangulamiento (throttling) del navegador en segundo plano.
+    try {
+      const code = `
+        let timer = null;
+        self.onmessage = function(e) {
+          if (e.data === 'start') {
+            if (timer) clearInterval(timer);
+            timer = setInterval(() => {
+              self.postMessage('tick');
+            }, 5000);
+          } else if (e.data === 'stop') {
+            if (timer) clearInterval(timer);
+          }
+        }
+      `;
+      const blob = new Blob([code], { type: 'application/javascript' });
+      workerRef.current = new Worker(URL.createObjectURL(blob));
+      workerRef.current.onmessage = (e) => {
+        if (e.data === 'tick') {
+          reproducirAlarmaNuevoPedido();
+        }
+      };
+      workerRef.current.postMessage('start');
+    } catch (error) {
+      console.warn("⚠️ No se pudo iniciar Web Worker para alarma, usando setInterval tradicional:", error);
+      // Fallback a setInterval tradicional
+      intervaloAlarmaRef.current = window.setInterval(() => {
+        reproducirAlarmaNuevoPedido();
+      }, 5000);
+    }
   }, [reproducirAlarmaNuevoPedido]);
 
   // Función para detener la alarma repetitiva
   const detenerAlarmaRepetitiva = useCallback(() => {
+    if (workerRef.current !== null) {
+      workerRef.current.postMessage('stop');
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
     if (intervaloAlarmaRef.current !== null) {
       clearInterval(intervaloAlarmaRef.current);
       intervaloAlarmaRef.current = null;
-      setAlarmaActiva(false);
     }
+    setAlarmaActiva(false);
   }, []);
 
   // Función para detener INMEDIATAMENTE todos los audios en reproducción
@@ -260,9 +294,13 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     console.log("🔇 Todos los audios detenidos inmediatamente");
   }, [detenerAlarmaRepetitiva]);
 
-  // Limpiar el intervalo de alarma al desmontar el componente
+  // Limpiar el intervalo de alarma y el worker al desmontar el componente
   useEffect(() => {
     return () => {
+      if (workerRef.current !== null) {
+        workerRef.current.postMessage('stop');
+        workerRef.current.terminate();
+      }
       if (intervaloAlarmaRef.current !== null) {
         clearInterval(intervaloAlarmaRef.current);
       }

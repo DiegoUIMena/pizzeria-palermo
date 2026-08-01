@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,6 +28,8 @@ export default function PedidosPage() {
   // Estado para controlar qué pedidos están expandidos
   const [expandedOrders, setExpandedOrders] = useState<{ [key: string]: boolean }>({})
   const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
+  const [needUnlock, setNeedUnlock] = useState(false)
+  const audioUnlockedRef = useRef(false)
   const { itemsMenu } = useFirestorePizzaConfig()
 
   // Estados locales para el catálogo de canjes y puntos
@@ -352,6 +354,32 @@ export default function PedidosPage() {
     }
   }, [error])
 
+  // Desbloquear canal de audio al primer clic o toque en la pantalla
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioUnlockedRef.current) return
+      const silentAudio = new Audio('/notification.mp3')
+      silentAudio.volume = 0
+      silentAudio.play()
+        .then(() => {
+          audioUnlockedRef.current = true
+          console.log("🔓 Canal de audio del cliente (pedidos page) desbloqueado por interacción")
+        })
+        .catch(() => {})
+
+      window.removeEventListener('click', unlockAudio)
+      window.removeEventListener('touchstart', unlockAudio)
+    }
+
+    window.addEventListener('click', unlockAudio)
+    window.addEventListener('touchstart', unlockAudio)
+
+    return () => {
+      window.removeEventListener('click', unlockAudio)
+      window.removeEventListener('touchstart', unlockAudio)
+    }
+  }, [])
+
   // Reproducir sonido cuando el pedido alcanza su estado final de entrega
   useEffect(() => {
     orders.forEach(order => {
@@ -359,9 +387,11 @@ export default function PedidosPage() {
       const isReadyForDelivery = order.deliveryType === 'Delivery' && order.status === 'En camino'
 
       if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(order.id)) {
-        const audio = new Audio('/notification.mp3') // Asumimos que existirá este archivo
+        const audio = new Audio('/notification.mp3')
         audio.play()
           .then(() => {
+            // Guardar en playedSound solo si se reproduce correctamente
+            setPlayedSound(prev => new Set(prev).add(order.id))
             audio.onended = () => {
               setTimeout(() => {
                 const secondAudio = new Audio('/notification.mp3')
@@ -369,12 +399,58 @@ export default function PedidosPage() {
               }, 1500)
             }
           })
-          .catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
-        
-        setPlayedSound(prev => new Set(prev).add(order.id))
+          .catch(e => {
+            console.log('Autoplay de audio bloqueado por el navegador, activando fallback:', e)
+            setNeedUnlock(true)
+          })
       }
     })
   }, [orders, playedSound])
+
+  // Fallback para desbloquear y reproducir audio al primer clic/toque del usuario si se bloqueó
+  useEffect(() => {
+    if (!needUnlock) return
+
+    const playAudioFallback = () => {
+      orders.forEach(order => {
+        const isReadyForPickup = order.deliveryType === 'Retiro' && order.status === 'Pedido Listo'
+        const isReadyForDelivery = order.deliveryType === 'Delivery' && order.status === 'En camino'
+
+        if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(order.id)) {
+          const audio = new Audio('/notification.mp3')
+          audio.play()
+            .then(() => {
+              console.log("✅ Audio reproducido exitosamente tras interacción en pedidos (fallback)")
+              setPlayedSound(prev => new Set(prev).add(order.id))
+              setNeedUnlock(false)
+              audio.onended = () => {
+                setTimeout(() => {
+                  const secondAudio = new Audio('/notification.mp3')
+                  secondAudio.play().catch(e => console.log('Autoplay fallback segunda vez bloqueado:', e))
+                }, 1500)
+              }
+            })
+            .catch(e => {
+              console.log("Fallo al reproducir audio en fallback:", e)
+            })
+        }
+      })
+    }
+
+    const unlockHandler = () => {
+      playAudioFallback()
+      window.removeEventListener('click', unlockHandler)
+      window.removeEventListener('touchstart', unlockHandler)
+    }
+
+    window.addEventListener('click', unlockHandler)
+    window.addEventListener('touchstart', unlockHandler)
+
+    return () => {
+      window.removeEventListener('click', unlockHandler)
+      window.removeEventListener('touchstart', unlockHandler)
+    }
+  }, [needUnlock, orders, playedSound])
 
   const getStatusIcon = (status: Order["status"]) => {
     switch (status) {

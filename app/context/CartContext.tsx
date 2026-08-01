@@ -45,6 +45,8 @@ interface CartItem {
   sinOregano?: boolean
   sinQueso?: boolean
   sinSalsaTomate?: boolean
+  isPromo?: boolean
+  productos?: any[]
 }
 
 interface CartState {
@@ -206,6 +208,8 @@ function sanitizeCartItem(raw: any): CartItem | null {
     sinSalsaTomate: raw.sinSalsaTomate,
     isCanje: typeof raw.isCanje === "boolean" ? raw.isCanje : undefined,
     canjePoints: typeof raw.canjePoints === "number" ? raw.canjePoints : undefined,
+    isPromo: typeof raw.isPromo === "boolean" ? raw.isPromo : undefined,
+    productos: Array.isArray(raw.productos) ? raw.productos : undefined,
   }
 }
 
@@ -312,6 +316,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         sinSalsaTomate: item.sinSalsaTomate,
         isCanje: item.isCanje,
         canjePoints: item.canjePoints,
+        isPromo: item.isPromo,
+        productos: item.productos,
       }))
 
       // Llamar a la Cloud Function createOrder

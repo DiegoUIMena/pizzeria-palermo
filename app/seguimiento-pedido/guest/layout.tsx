@@ -1,5 +1,3 @@
-import { ChatbotWidget } from "../../components/ChatbotWidget"
-
 export default function SeguimientoPedidoGuestLayout({
   children,
 }: {
@@ -8,7 +6,6 @@ export default function SeguimientoPedidoGuestLayout({
   return (
     <>
       {children}
-      <ChatbotWidget />
     </>
   )
 }

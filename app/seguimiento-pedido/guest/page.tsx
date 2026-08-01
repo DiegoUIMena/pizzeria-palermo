@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useCallback, useState, useEffect } from 'react'
+import { Suspense, useCallback, useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -260,6 +260,35 @@ function SeguimientoPedidoGuestContent() {
 
   const activeOrder = orders[0] || null
 
+  const [needSoundFallback, setNeedSoundFallback] = useState(false)
+  const audioUnlockedRef = useRef(false)
+
+  // Desbloquear canal de audio al primer clic o toque en la pantalla
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioUnlockedRef.current) return
+      const silentAudio = new Audio('/notification.mp3')
+      silentAudio.volume = 0
+      silentAudio.play()
+        .then(() => {
+          audioUnlockedRef.current = true
+          console.log("🔓 Canal de audio del cliente (guest page) desbloqueado por interacción")
+        })
+        .catch(() => {})
+
+      window.removeEventListener('click', unlockAudio)
+      window.removeEventListener('touchstart', unlockAudio)
+    }
+
+    window.addEventListener('click', unlockAudio)
+    window.addEventListener('touchstart', unlockAudio)
+
+    return () => {
+      window.removeEventListener('click', unlockAudio)
+      window.removeEventListener('touchstart', unlockAudio)
+    }
+  }, [])
+
   // Reproducir sonido cuando el pedido alcanza su estado final de entrega
   useEffect(() => {
     if (activeOrder) {
@@ -267,10 +296,11 @@ function SeguimientoPedidoGuestContent() {
       const isReadyForDelivery = activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino'
 
       if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(activeOrder.id)) {
-        // Asumimos que crearás/tendrás un archivo de audio en /public/notification.mp3
         const audio = new Audio('/notification.mp3')
         audio.play()
           .then(() => {
+            // Guardar en playedSound solo si se reproduce correctamente
+            setPlayedSound(prev => new Set(prev).add(activeOrder.id))
             audio.onended = () => {
               setTimeout(() => {
                 const secondAudio = new Audio('/notification.mp3')
@@ -278,12 +308,51 @@ function SeguimientoPedidoGuestContent() {
               }, 1500)
             }
           })
-          .catch(e => console.log('Autoplay de audio bloqueado por el navegador:', e))
-        
-        setPlayedSound(prev => new Set(prev).add(activeOrder.id))
+          .catch(e => {
+            console.log('Autoplay de audio bloqueado por el navegador, activando fallback:', e)
+            setNeedSoundFallback(true)
+          })
       }
     }
   }, [activeOrder?.estado, activeOrder?.id, activeOrder?.tipoEntrega, playedSound])
+
+  // Fallback para desbloquear y reproducir audio al primer clic/toque del usuario
+  useEffect(() => {
+    if (!needSoundFallback || !activeOrder) return
+
+    const playAudioFallback = () => {
+      const audio = new Audio('/notification.mp3')
+      audio.play()
+        .then(() => {
+          console.log("✅ Audio reproducido exitosamente tras interacción (fallback)")
+          setPlayedSound(prev => new Set(prev).add(activeOrder.id))
+          setNeedSoundFallback(false)
+          audio.onended = () => {
+            setTimeout(() => {
+              const secondAudio = new Audio('/notification.mp3')
+              secondAudio.play().catch(e => console.log('Autoplay fallback segunda vez bloqueado:', e))
+            }, 1500)
+          }
+        })
+        .catch(e => {
+          console.log("Fallo al reproducir audio en fallback:", e)
+        })
+    }
+
+    const unlockHandler = () => {
+      playAudioFallback()
+      window.removeEventListener('click', unlockHandler)
+      window.removeEventListener('touchstart', unlockHandler)
+    }
+
+    window.addEventListener('click', unlockHandler)
+    window.addEventListener('touchstart', unlockHandler)
+
+    return () => {
+      window.removeEventListener('click', unlockHandler)
+      window.removeEventListener('touchstart', unlockHandler)
+    }
+  }, [needSoundFallback, activeOrder, playedSound])
 
   return (
     <div className='min-h-screen bg-gray-50'>

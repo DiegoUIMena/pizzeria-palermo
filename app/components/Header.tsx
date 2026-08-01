@@ -69,32 +69,32 @@ export default function Header() {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-[70px] sm:h-[80px]">
             {/* Logo con Gatita */}
-            <div className="flex items-center gap-3 relative -ml-5 sm:ml-0">
+            <div className="flex items-center gap-3 relative -ml-2 sm:ml-0">
               <Link href="/" className="flex items-center">
                 <Image
                   src="/iconos/logo.png"
                   alt="Pizzería Palermo"
                   width={540}
                   height={180}
-                  className="w-auto h-[85px] sm:h-[100px]"
+                  className="w-auto h-[50px] sm:h-[75px] md:h-[90px] lg:h-[100px]"
                   priority
                 />
               </Link>
               
               {/* Gatita durmiendo - solo cuando está cerrado */}
               {!isOpen && (
-                <div className="absolute -right-3 top-full -mt-14 sm:relative sm:top-11 sm:-ml-4 sm:left-auto sm:right-auto">
+                <div className="absolute -right-2 top-full -mt-8 sm:relative sm:top-9 sm:-ml-3 sm:left-auto sm:right-auto">
                   <SleepingCat />
                 </div>
               )}
             </div>
 
             {/* Right Side Actions */}
-            <div className="flex items-center space-x-2 sm:space-x-3">
+            <div className="flex items-center space-x-1.5 xs:space-x-2 sm:space-x-3">
               {/* Search Button */}
               <button
                 onClick={() => setIsSearchOpen(true)}
-                className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[46px] h-[46px] sm:w-[57px] sm:h-[57px]"
+                className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px]"
                 title="Buscar"
               >
                 <Image
@@ -102,7 +102,7 @@ export default function Header() {
                   alt="Buscar"
                   width={58}
                   height={58}
-                  className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                  className="w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] object-contain"
                 />
               </button>
 
@@ -114,7 +114,7 @@ export default function Header() {
                     alt="Puntos Palermo"
                     width={58}
                     height={58}
-                    className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                    className="w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] object-contain"
                   />
                 </Link>
               )}
@@ -122,13 +122,13 @@ export default function Header() {
               {/* User Account */}
               {isAuthenticated ? (
                 <DropdownMenu>
-                  <DropdownMenuTrigger className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[46px] h-[46px] sm:w-[57px] sm:h-[57px]" title="Mi Cuenta">
+                  <DropdownMenuTrigger className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px]" title="Mi Cuenta">
                     <Image
                       src="/iconos/header/usuario.svg"
                       alt="Usuario"
                       width={58}
                       height={58}
-                      className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                      className="w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] object-contain"
                     />
                   </DropdownMenuTrigger>
                   <DropdownMenuContent className="w-64 p-2">
@@ -166,7 +166,7 @@ export default function Header() {
                     alt="Acceder"
                     width={58}
                     height={58}
-                    className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                    className="w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] object-contain"
                   />
                 </Link>
               )}
@@ -184,7 +184,7 @@ export default function Header() {
 
                 <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                   <SheetTrigger
-                    className={`relative flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] ${
+                    className={`relative flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] ${
                       itemCount > 0 ? "animate-pulse-glow" : ""
                     }`}
                     title="Carrito de compras"
@@ -194,7 +194,7 @@ export default function Header() {
                       alt="Carrito"
                       width={58}
                       height={58}
-                      className="w-[46px] h-[46px] sm:w-[57px] sm:h-[57px] object-contain"
+                      className="w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] object-contain"
                     />
                     {itemCount > 0 && (
                       <span className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 bg-pink-500 text-white rounded-full w-4 h-4 sm:w-5 sm:h-5 flex items-center justify-center text-xs font-bold shadow-md">

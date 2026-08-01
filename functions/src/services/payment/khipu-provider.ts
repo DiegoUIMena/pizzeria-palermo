@@ -185,8 +185,8 @@ export class KhipuProvider implements PaymentProvider {
   ): Promise<WebhookValidationResult> {
     logger.info('KhipuProvider.validateWebhook: Recibido webhook de Khipu', { payload });
 
-    // La API moderna puede enviar el webhook con el ID del pago en 'paymentId' o 'id'
-    const paymentId = String(payload.paymentId || payload.id || '');
+    // La API de Khipu envía el webhook con el ID del pago en 'payment_id', 'paymentId' o 'id'
+    const paymentId = String(payload.payment_id || payload.paymentId || payload.id || '');
 
     if (!paymentId) {
       logger.error('KhipuProvider.validateWebhook: Webhook no contiene paymentId', { payload });
@@ -203,7 +203,7 @@ export class KhipuProvider implements PaymentProvider {
       // Validamos consultando directamente el estado verificado del pago a la API de Khipu
       const verification = await this.verifyPayment(paymentId);
       
-      const transactionId = String(verification.rawResponse.transactionId || '');
+      const transactionId = String(verification.rawResponse.transaction_id || verification.rawResponse.transactionId || '');
       
       // Mapear estado
       let paymentStatus: PaymentStatus = 'pending';

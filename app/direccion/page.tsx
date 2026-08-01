@@ -98,12 +98,12 @@ export default function DireccionPage() {
           <h1 className="text-3xl font-bold text-gray-800 mb-8">Dirección de Entrega</h1>
 
           {/* Mapa para selección de dirección */}
-          <div className="mb-6 h-[300px] md:h-[400px] border border-gray-200 rounded-lg shadow-md overflow-hidden">
-      <LocationPicker 
+          <div className="mb-6 h-[240px] xs:h-[300px] md:h-[400px] border border-gray-200 rounded-lg shadow-md overflow-hidden">
+            <LocationPicker 
               key={`location-map-${mapKey}`} // Esto fuerza un re-renderizado cuando cambia mapKey
               onLocationSelect={(lat, lng, address) => {
                 console.log("Dirección seleccionada:", lat, lng, address);
-        setSelectedLocation({lat,lng,address})
+                setSelectedLocation({lat,lng,address})
                 if (address) {
                   // Intentar extraer información de la dirección para auto-completar campos
                   const parts = address.split(", ");
@@ -201,20 +201,20 @@ export default function DireccionPage() {
                 </div>
               </form>
             </CardContent>
-            <CardFooter className="flex justify-end border-t border-gray-200 pt-4 bg-gray-50">
+            <CardFooter className="flex flex-col md:flex-row justify-end items-stretch md:items-center gap-2 border-t border-gray-200 pt-4 bg-gray-50">
+              {selectedLocation && !selectedZone && (
+                <p className="text-xs text-red-600 text-center md:text-right md:mr-4">La ubicación está fuera de las zonas de delivery.</p>
+              )}
+              {selectedZone && !zoneAvailable && (
+                <p className="text-xs text-red-600 text-center md:text-right md:mr-4">La zona seleccionada no está activa.</p>
+              )}
               <Button
                 onClick={handleSubmit}
                 disabled={isLoading || !selectedZone || !zoneAvailable}
-                className="bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all"
+                className="w-full md:w-auto bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all"
               >
                 {isLoading ? "Procesando..." : "Continuar al Pago"}
               </Button>
-              {selectedLocation && !selectedZone && (
-                <p className="text-xs text-red-600 mt-2">La ubicación está fuera de las zonas de delivery.</p>
-              )}
-              {selectedZone && !zoneAvailable && (
-                <p className="text-xs text-red-600 mt-2">La zona seleccionada no está activa.</p>
-              )}
             </CardFooter>
           </Card>
         </div>

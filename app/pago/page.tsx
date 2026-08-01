@@ -179,11 +179,11 @@ export default function PagoPage() {
                     </div>
                   )}
                 </CardContent>
-                <CardFooter className="flex justify-end border-t border-gray-200 pt-4 bg-gray-50">
+                <CardFooter className="flex flex-col md:flex-row justify-end items-stretch md:items-center gap-2 border-t border-gray-200 pt-4 bg-gray-50">
                   <Button
                     onClick={handlePayment}
                     disabled={isProcessing || blocked || !zone || !zoneAvailable}
-                    className="bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all"
+                    className="w-full md:w-auto bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 px-8 rounded-lg shadow-md hover:shadow-lg transition-all"
                   >
                     {isProcessing ? "Procesando..." : "Confirmar Pago"}
                   </Button>

@@ -173,16 +173,16 @@ export function Step5IngredientsSelector({
       )}
 
       {/* Botones de navegación */}
-      <div className="flex justify-between items-center mt-8 pt-6 border-t">
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-3 mt-8 pt-6 border-t">
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
         >
           ← Volver
         </button>
         <button
           onClick={onNext}
-          className="flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-3 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
         >
           Continuar →
         </button>

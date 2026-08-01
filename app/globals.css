@@ -1,6 +1,12 @@
+@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.font-handwritten {
+  font-family: 'Caveat', cursive;
+}
 
 /* Fuente personalizada BarberChop */
 @font-face {
@@ -702,4 +708,26 @@ textarea:focus {
 
 .force-spin {
   animation: custom-spin 1s linear infinite !important;
+}
+
+/* Animaciones suaves para la página Acerca de Nosotros */
+.animate-on-scroll {
+  opacity: 0;
+  transition: opacity 350ms ease-out, transform 350ms ease-out;
+}
+
+.animate-on-scroll.fade-in-scroll {
+  transform: translateY(0);
+}
+
+.animate-on-scroll.fade-up-scroll {
+  transform: translateY(20px);
+}
+
+.animate-on-scroll.is-visible {
+  opacity: 1;
+}
+
+.animate-on-scroll.fade-up-scroll.is-visible {
+  transform: translateY(0);
 }

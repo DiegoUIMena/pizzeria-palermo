@@ -185,7 +185,7 @@ export default function BannersManager() {
                       <span className="absolute bottom-1 left-1 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded">Móvil</span>
                     </div>
                   </div>
-                  <Button variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => handleDelete(banner)}>
+                  <Button variant="destructive" size="icon" className="absolute top-2 right-2 h-7 w-7 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity" onClick={() => handleDelete(banner)}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </Button>
                 </div>

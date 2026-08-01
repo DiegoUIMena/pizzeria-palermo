@@ -479,24 +479,24 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
       </div>
 
       {/* Botones */}
-      <div className="flex justify-between items-center pt-6 border-t">
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-between items-center gap-3 pt-6 border-t">
         <button
           onClick={onBack}
-          className="flex items-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
+          className="w-full sm:w-auto flex items-center justify-center gap-2 px-6 py-3 text-gray-600 hover:text-gray-900 font-medium transition-colors"
         >
           ← Volver
         </button>
         {half === 1 ? (
           <button
             onClick={handleNextStep}
-            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
           >
             Siguiente Mitad (Mitad 2) →
           </button>
         ) : (
           <button
             onClick={handleComplete}
-            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
+            className="w-full sm:w-auto flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105"
           >
             ✓ Agregar al Carrito
           </button>

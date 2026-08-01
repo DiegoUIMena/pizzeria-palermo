@@ -8,13 +8,29 @@ import { collection, onSnapshot, query, orderBy } from "firebase/firestore"
 
 export default function BannerCarousel() {
   const [currentSlide, setCurrentSlide] = useState(0)
-  const [isMobile, setIsMobile] = useState(false)
   const [isAutoPlaying, setIsAutoPlaying] = useState(true)
   const [banners, setBanners] = useState<any[]>([])
-  const [isLoading, setIsLoading] = useState(true)
 
-  // Obtener banners desde Firestore
+  // Sincronizar cache y Firestore de forma segura tras el montaje en el cliente
+  // Esto previene errores de hidratación en Next.js (SSR) al asegurar que el primer renderizado
+  // del cliente y del servidor coincidan con un arreglo vacío, para luego actualizarse inmediatamente.
   useEffect(() => {
+    // 1. Cargar desde la caché local en el cliente inmediatamente
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem("cachedBanners")
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setBanners(parsed)
+          }
+        } catch (e) {
+          console.error("Error al parsear banners de localStorage:", e)
+        }
+      }
+    }
+
+    // 2. Establecer listener en tiempo real con Firestore
     const q = query(collection(db, "banners"), orderBy("createdAt", "asc"))
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedBanners = snapshot.docs.map(doc => ({
@@ -22,34 +38,39 @@ export default function BannerCarousel() {
         desktop: doc.data().desktopUrl,
         mobile: doc.data().mobileUrl
       }))
-      setBanners(fetchedBanners)
-      setIsLoading(false)
-      // Ajustar si el slide actual queda fuera de rango al borrar
-      if (currentSlide >= fetchedBanners.length && fetchedBanners.length > 0) setCurrentSlide(0)
+
+      if (fetchedBanners.length > 0) {
+        setBanners(fetchedBanners)
+        if (typeof window !== "undefined") {
+          localStorage.setItem("cachedBanners", JSON.stringify(fetchedBanners))
+        }
+      } else {
+        setBanners([])
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("cachedBanners")
+        }
+      }
+    }, (error) => {
+      console.error("Error al sincronizar banners con Firestore:", error)
     })
 
     return () => unsubscribe()
-  }, [currentSlide])
-
-  // Detectar si es móvil
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768)
-    }
-    
-    checkMobile()
-    window.addEventListener("resize", checkMobile)
-    
-    return () => window.removeEventListener("resize", checkMobile)
   }, [])
 
-  // Autoplay: cambiar slide cada 3 segundos (más dinámico)
+  // Ajustar el slide actual si el índice queda fuera de rango al borrar o cambiar banners
+  useEffect(() => {
+    if (currentSlide >= banners.length && banners.length > 0) {
+      setCurrentSlide(0)
+    }
+  }, [banners, currentSlide])
+
+  // Autoplay: cambiar slide cada 3 segundos
   useEffect(() => {
     if (!isAutoPlaying || banners.length <= 1) return
 
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % banners.length)
-    }, 3000) // 3 segundos
+    }, 3000)
 
     return () => clearInterval(interval)
   }, [isAutoPlaying, banners.length])
@@ -57,7 +78,7 @@ export default function BannerCarousel() {
   const goToSlide = (index: number) => {
     setCurrentSlide(index)
     setIsAutoPlaying(false)
-    // Reactivar autoplay después de 10 segundos de interacción manual
+    // Reactivar autoplay después de 10 segundos de inactividad
     setTimeout(() => setIsAutoPlaying(true), 10000)
   }
 
@@ -71,16 +92,11 @@ export default function BannerCarousel() {
     goToSlide(newIndex)
   }
 
-  // Mostrar esqueleto de carga mientras se obtienen los datos
-  if (isLoading) {
-    return <section className="w-full h-[300px] sm:h-[400px] md:h-[500px] lg:h-[600px] bg-gray-900 animate-pulse"></section>
-  }
-
-  // Ocultar sección si no hay banners
+  // Mientras se obtienen las imágenes, no renderiza nada en el HTML inicial para evitar parpadeos y errores de hidratación
   if (banners.length === 0) return null
 
   return (
-    <section className="relative w-full overflow-hidden bg-gray-900">
+    <section className="relative w-full overflow-hidden bg-gray-950">
       {/* Contenedor del carrusel */}
       <div className="relative w-full h-[300px] sm:h-[400px] md:h-[500px] lg:h-[600px]">
         {/* Slides */}
@@ -93,11 +109,21 @@ export default function BannerCarousel() {
         >
           {banners.map((banner, index) => (
             <div key={banner.id} className="min-w-full h-full relative flex-shrink-0">
+              {/* Imagen Desktop: Se oculta en móviles nativamente mediante CSS */}
               <Image
-                src={isMobile ? banner.mobile : banner.desktop}
+                src={banner.desktop}
                 alt={`Banner promocional ${index + 1}`}
                 fill
-                className="object-cover"
+                className="hidden md:block object-cover"
+                priority={index === 0}
+                quality={90}
+              />
+              {/* Imagen Mobile: Se muestra en móviles nativamente mediante CSS */}
+              <Image
+                src={banner.mobile}
+                alt={`Banner promocional ${index + 1} móvil`}
+                fill
+                className="block md:hidden object-cover"
                 priority={index === 0}
                 quality={90}
               />

@@ -358,28 +358,28 @@ export default function ZonasDeliveryPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
       <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Zonas de Delivery</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">Administra las zonas de entrega y tarifas para Los Andes</p>
           </div>
-          <div className="flex space-x-3">
-            <Button onClick={() => setIsMapOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white">
+          <div className="flex flex-wrap gap-2 w-full md:w-auto">
+            <Button onClick={() => setIsMapOpen(true)} className="flex-1 md:flex-initial bg-pink-600 hover:bg-pink-700 text-white">
               <Edit className="w-4 h-4 mr-2" />
               Editar Zonas en Mapa
             </Button>
             <Button 
               onClick={() => window.location.href = '/admin/reset-zonas'} 
-              className="bg-red-600 hover:bg-red-700 text-white"
+              className="flex-1 md:flex-initial bg-red-600 hover:bg-red-700 text-white"
             >
               Eliminar Zonas
             </Button>
-            <Button variant="outline" onClick={exportZones}>
+            <Button variant="outline" onClick={exportZones} className="flex-1 md:flex-initial">
               <Download className="w-4 h-4 mr-2" />
               Exportar
             </Button>
-            <div className="relative">
-              <Button variant="outline">
+            <div className="relative flex-1 md:flex-initial">
+              <Button variant="outline" className="w-full">
                 <Upload className="w-4 h-4 mr-2" />
                 Importar
               </Button>

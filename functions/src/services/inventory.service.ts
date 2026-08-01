@@ -24,6 +24,29 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+// Helper para aplanar los items de promociones y combos en sus subproductos constituyentes
+export function flattenOrderItems(items: any[]): any[] {
+  if (!items) return [];
+  const flattened: any[] = [];
+  items.forEach((item: any) => {
+    if (item.isPromo && Array.isArray(item.productos)) {
+      item.productos.forEach((subProd: any) => {
+        flattened.push({
+          ...subProd,
+          nombre: subProd.nombre || subProd.name || "",
+          cantidad: (subProd.cantidad || 1) * (item.cantidad || item.quantity || 1),
+          size: subProd.size,
+          variant: subProd.variant,
+          pizzaType: subProd.categoria?.toLowerCase() === "pizzas" ? "normal" : undefined,
+        });
+      });
+    } else {
+      flattened.push(item);
+    }
+  });
+  return flattened;
+}
+
 interface AgregadosConfig {
   rollitosPackStock: number;
   gauchitosDisponible: boolean;
@@ -437,10 +460,12 @@ export async function validateInventoryForOrder(
       };
     });
 
+    const flattenedItems = flattenOrderItems(items);
+
     // Calcular ingredientes necesarios del pedido
     const required: Record<string, number> = {};
 
-    for (const item of items) {
+    for (const item of flattenedItems) {
       const itemNombreOriginal = item.nombre || "";
       const cantidad = item.cantidad || 1;
 
@@ -788,6 +813,7 @@ export async function consumeInventoryForOrder(
     // ✅ MEJORA: Si ya hay una transacción, usarla. Si no, crear una nueva
     const executeConsumption = async (t: admin.firestore.Transaction) => {
       const agregadosConfig = await getAgregadosConfig(t);
+      const flattenedItems = flattenOrderItems(items);
 
       // 1. Obtener todos los ingredientes (INCLUYENDO cantidades estándar)
       const inventorySnapshot = await t.get(
@@ -841,7 +867,7 @@ export async function consumeInventoryForOrder(
       let standaloneSaucesProcessed = 0;
       let standaloneBeveragesProcessed = 0;
 
-      for (const item of items) {
+      for (const item of flattenedItems) {
         const itemNombreOriginal = item.nombre || "";
         const cantidad = item.cantidad || 1;
 

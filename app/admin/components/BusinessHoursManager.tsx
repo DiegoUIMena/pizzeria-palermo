@@ -375,13 +375,13 @@ export default function BusinessHoursManager() {
                           e.stopPropagation()
                           deleteImage(image.id)
                         }}
-                        className="absolute top-2 left-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600"
+                        className="absolute top-2 left-2 bg-red-500 text-white rounded-full p-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity hover:bg-red-600"
                         aria-label="Eliminar imagen"
                       >
                         <X className="h-4 w-4" />
                       </button>
                     </div>
-
+ 
                     {/* Info */}
                     <div className="p-3 bg-white">
                       <p className="text-xs font-medium text-gray-700 truncate">
@@ -391,7 +391,7 @@ export default function BusinessHoursManager() {
                         {new Date(image.uploadedAt).toLocaleDateString()}
                       </p>
                     </div>
-
+ 
                     {/* Radio visual */}
                     <div className="absolute bottom-3 right-3">
                       <div
@@ -409,7 +409,7 @@ export default function BusinessHoursManager() {
               })}
             </div>
           )}
-
+ 
           {config.closedBannerImages.length > 0 && !config.activeBannerId && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-amber-600" />
@@ -419,13 +419,13 @@ export default function BusinessHoursManager() {
             </div>
           )}
         </div>
-
+ 
         {/* Botón guardar */}
         <div className="flex justify-end pt-4 border-t">
           <Button
             onClick={saveConfig}
             disabled={saving}
-            className="bg-pink-500 hover:bg-pink-600"
+            className="w-full sm:w-auto bg-pink-500 hover:bg-pink-600"
           >
             {saving ? "Guardando..." : "Guardar Configuración"}
           </Button>

@@ -748,23 +748,24 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <main className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold dark:text-white">Gestión de Pedidos</h1>
             <p className="text-gray-600 dark:text-gray-300">Administra y actualiza el estado de los pedidos</p>
           </div>
-          <div className="flex space-x-2">
-            <Search className="w-5 h-5 text-gray-500" />
-            <Input placeholder="Buscar por ID o cliente" value={busqueda} onChange={e=>setBusqueda(e.target.value)} className="w-64" />
-            <Filter className="w-5 h-5 text-gray-500" />
-            {/* Filtro de estado */}
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:flex-initial">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <Input placeholder="Buscar por ID o cliente" value={busqueda} onChange={e=>setBusqueda(e.target.value)} className="pl-10 w-full md:w-64" />
+            </div>
+            <div className="flex items-center gap-2 w-full md:w-auto">
+              <Filter className="w-4 h-4 text-gray-500" />
               <label htmlFor="filtroEstado" className="sr-only">Filtrar estado</label>
               <select
                 id="filtroEstado"
                 value={filtroEstado}
                 onChange={e => setFiltroEstado(e.target.value)}
-                className="border rounded px-2 py-1"
+                className="border rounded px-3 py-2 text-sm bg-white dark:bg-gray-800 dark:text-white flex-1 md:flex-initial"
               >
                 <option value="activos">Activos</option>
                 <option value="todos">Todos</option>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { functions, db } from "@/lib/firebase"
@@ -16,8 +16,39 @@ export default function FloatingOrderTracker() {
   const [activeOrder, setActiveOrder] = useState<any>(null)
   const [playedSound, setPlayedSound] = useState<Set<string>>(new Set())
   const [isRegisteredTracking, setIsRegisteredTracking] = useState(false)
+  const [needUnlock, setNeedUnlock] = useState(false)
 
+  const audioUnlockedRef = useRef(false)
   const isAdminRoute = pathname?.startsWith('/admin')
+
+  // Desbloquear el canal de audio del cliente al primer clic o toque en cualquier parte del sitio
+  // Esto permite que el navegador acepte reproducir la alerta sonora de pedido listo
+  // de forma exitosa aun cuando el cliente tenga la pestaña en segundo plano más adelante.
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (audioUnlockedRef.current) return
+      
+      const silentAudio = new Audio('/notification.mp3')
+      silentAudio.volume = 0
+      silentAudio.play()
+        .then(() => {
+          audioUnlockedRef.current = true
+          console.log("🔓 Canal de audio global del cliente desbloqueado por interacción");
+        })
+        .catch(() => {})
+
+      window.removeEventListener('click', unlockAudio)
+      window.removeEventListener('touchstart', unlockAudio)
+    }
+
+    window.addEventListener('click', unlockAudio)
+    window.addEventListener('touchstart', unlockAudio)
+
+    return () => {
+      window.removeEventListener('click', unlockAudio)
+      window.removeEventListener('touchstart', unlockAudio)
+    }
+  }, [])
 
   useEffect(() => {
     if (isAuthenticated || isAdminRoute) {
@@ -79,9 +110,48 @@ export default function FloatingOrderTracker() {
     }
 
     fetchStatus()
-    const intervalId = setInterval(fetchStatus, 15000)
 
-    return () => clearInterval(intervalId)
+    // Usar un Web Worker para ejecutar el sondeo (polling) en un hilo secundario.
+    // Los navegadores no estrangulan los timers en Web Workers, por lo que el seguimiento
+    // de invitados seguirá consultando fielmente cada 15 segundos incluso con la pestaña en segundo plano.
+    let worker: Worker | null = null
+    try {
+      const code = `
+        let timer = null;
+        self.onmessage = function(e) {
+          if (e.data === 'start') {
+            if (timer) clearInterval(timer);
+            timer = setInterval(() => {
+              self.postMessage('tick');
+            }, 15000);
+          } else if (e.data === 'stop') {
+            if (timer) clearInterval(timer);
+          }
+        }
+      `
+      const blob = new Blob([code], { type: 'application/javascript' })
+      worker = new Worker(URL.createObjectURL(blob))
+      worker.onmessage = (e) => {
+        if (e.data === 'tick') {
+          fetchStatus()
+        }
+      }
+      worker.postMessage('start')
+    } catch (e) {
+      console.warn("No se pudo iniciar el Web Worker de tracking, usando fallback:", e)
+    }
+
+    const fallbackInterval = worker ? null : setInterval(fetchStatus, 15000)
+
+    return () => {
+      if (worker) {
+        worker.postMessage('stop')
+        worker.terminate()
+      }
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval)
+      }
+    }
   }, [trackingData, isAuthenticated, isAdminRoute])
 
   useEffect(() => {
@@ -113,8 +183,14 @@ export default function FloatingOrderTracker() {
     return () => unsubscribe()
   }, [isAuthenticated, user?.id, isAdminRoute])
 
+  // Reproducir alerta sonora cuando el pedido esté listo.
+  // Se ignora si el cliente ya está en las páginas de seguimiento (/seguimiento o /pedidos)
+  // para evitar echos/duplicaciones, ya que esas páginas tienen su propio reproductor de alertas.
   useEffect(() => {
     if (activeOrder) {
+      const isTrackingPage = pathname?.includes('/seguimiento') || pathname?.includes('/pedidos')
+      if (isTrackingPage) return
+
       const isReadyForPickup = activeOrder.tipoEntrega === 'Retiro' && activeOrder.estado === 'Pedido Listo'
       const isReadyForDelivery = activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino'
 
@@ -122,6 +198,41 @@ export default function FloatingOrderTracker() {
         const audio = new Audio('/notification.mp3')
         audio.play()
           .then(() => {
+            // Solo marcar como reproducido tras tener éxito
+            setPlayedSound(prev => new Set(prev).add(activeOrder.id))
+            setNeedUnlock(false)
+            
+            audio.onended = () => {
+              setTimeout(() => {
+                const secondAudio = new Audio('/notification.mp3')
+                secondAudio.play().catch(e => console.log('Autoplay blocked second time in tracker:', e))
+              }, 1500)
+            }
+          })
+          .catch(e => {
+            console.log('Autoplay de alerta de pedido bloqueado en tracker, reintentará en interacción:', e)
+            setNeedUnlock(true)
+          })
+      }
+    }
+  }, [activeOrder, playedSound, pathname])
+
+  // Ejecutar alarma fallida inmediatamente al primer toque si quedó pendiente
+  useEffect(() => {
+    if (!needUnlock || !activeOrder) return
+
+    const unlockAndPlay = () => {
+      const isReadyForPickup = activeOrder.tipoEntrega === 'Retiro' && activeOrder.estado === 'Pedido Listo'
+      const isReadyForDelivery = activeOrder.tipoEntrega === 'Delivery' && activeOrder.estado === 'En camino'
+
+      if ((isReadyForPickup || isReadyForDelivery) && !playedSound.has(activeOrder.id)) {
+        const audio = new Audio('/notification.mp3')
+        audio.play()
+          .then(() => {
+            setPlayedSound(prev => new Set(prev).add(activeOrder.id))
+            setNeedUnlock(false)
+            console.log("🔊 Alerta de pedido flotante reproducida tras interacción de desbloqueo")
+            
             audio.onended = () => {
               setTimeout(() => {
                 const secondAudio = new Audio('/notification.mp3')
@@ -129,12 +240,24 @@ export default function FloatingOrderTracker() {
               }, 1500)
             }
           })
-          .catch(e => console.log('Autoplay blocked:', e))
-        
-        setPlayedSound(prev => new Set(prev).add(activeOrder.id))
+          .catch(e => console.warn('Bloqueado aún tras click:', e))
       }
     }
-  }, [activeOrder, playedSound])
+
+    const handler = () => {
+      unlockAndPlay()
+      window.removeEventListener('click', handler)
+      window.removeEventListener('touchstart', handler)
+    }
+
+    window.addEventListener('click', handler)
+    window.addEventListener('touchstart', handler)
+
+    return () => {
+      window.removeEventListener('click', handler)
+      window.removeEventListener('touchstart', handler)
+    }
+  }, [needUnlock, activeOrder, playedSound])
 
   const isPaymentProcessingRoute = pathname?.startsWith('/pago')
 

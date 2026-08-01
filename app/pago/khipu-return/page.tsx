@@ -23,7 +23,10 @@ function KhipuReturnContent() {
   const unsubscribeRef = useRef<(() => void) | null>(null)
 
   useEffect(() => {
-    const paymentId = searchParams.get("paymentId") || searchParams.get("payment_id") || searchParams.get("khipuPaymentId")
+    const paymentId = searchParams.get("paymentId") || 
+                      searchParams.get("payment_id") || 
+                      searchParams.get("khipuPaymentId") || 
+                      localStorage.getItem("pendingPaymentId")
     const localOrderId = localStorage.getItem("pendingOrderId")
     const isCancelled = searchParams.get("cancel") === "true"
 
@@ -45,6 +48,8 @@ function KhipuReturnContent() {
           localStorage.removeItem("pendingOrderId")
           localStorage.removeItem("pendingOrderNumber")
           localStorage.removeItem("pendingPaymentProvider")
+          localStorage.removeItem("pendingPaymentId")
+          localStorage.removeItem("guestTrackingData")
           setTimeout(() => {
             router.push("/")
           }, 2000)
@@ -86,8 +91,46 @@ function KhipuReturnContent() {
         console.log(`%c⏱️ [T+${elapsedAfter}ms] Respuesta Khipu:`, "color: blue", data)
 
         if (data && data.success) {
-          // Éxito — el listener de Firestore detectará el cambio y mostrará la pantalla verde
-          if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current)
+          const elapsed = Date.now() - startTime
+          console.log(`%c✅ [T+${elapsed}ms] PAGO CONFIRMADO por Polling Khipu. Mostrando pantalla verde.`, "color: green; font-weight: bold; font-size: 14px")
+          console.timeEnd("⏱️ Khipu: tiempo total hasta confirmación")
+          
+          setResult({
+            success: true,
+            amount: data.amount,
+            orderNumber: data.orderNumber,
+            isGuestOrder: data.isGuestOrder,
+            trackingToken: data.trackingToken || localOrderId,
+            email: data.email,
+            phone: data.phone || ""
+          })
+          setLoading(false)
+
+          // Limpiar datos pendientes locales
+          localStorage.removeItem("pendingOrderId")
+          localStorage.removeItem("pendingOrderNumber")
+          localStorage.removeItem("pendingPaymentProvider")
+          localStorage.removeItem("pendingPaymentId")
+
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current()
+            unsubscribeRef.current = null
+          }
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current)
+            pollingIntervalRef.current = null
+          }
+
+          // Auto-redirección countdown: 5 segundos
+          let count = 5
+          const countInterval = setInterval(() => {
+            count -= 1
+            setCountdown(count)
+            if (count <= 0) {
+              clearInterval(countInterval)
+              router.push(data.isGuestOrder ? `/seguimiento-pedido/guest?email=${encodeURIComponent(data.email || "")}&phone=${encodeURIComponent(data.phone || "")}` : "/pedidos")
+            }
+          }, 1000)
         } else {
           // Aún verifying — liberar flag para próximo ciclo
           hasTriggeredVerification.current = false
@@ -137,14 +180,16 @@ function KhipuReturnContent() {
               isGuestOrder: orderData.customerType === "guest",
               // Generar o recuperar datos de invitado
               trackingToken: orderData.guestCheckout?.webpayTokenHash || localOrderId, // fallback
-              email: orderData.cliente?.email || ""
+              email: orderData.cliente?.email || "",
+              phone: orderData.cliente?.telefono || orderData.cliente?.phone || ""
             })
             setLoading(false)
             
             // Limpiar datos pendientes locales
-            localStorage.removeItem("pendingOrderId")
-            localStorage.removeItem("pendingOrderNumber")
-            localStorage.removeItem("pendingPaymentProvider")
+             localStorage.removeItem("pendingOrderId")
+             localStorage.removeItem("pendingOrderNumber")
+             localStorage.removeItem("pendingPaymentProvider")
+             localStorage.removeItem("pendingPaymentId")
             
             if (unsubscribeRef.current) {
               unsubscribeRef.current()
@@ -164,7 +209,7 @@ function KhipuReturnContent() {
               if (count <= 0) {
                 clearInterval(countInterval)
                 const isGuest = orderData.customerType === "guest"
-                router.push(isGuest ? `/seguimiento-pedido/guest?email=${encodeURIComponent(orderData.cliente?.email || "")}` : "/pedidos")
+                router.push(isGuest ? `/seguimiento-pedido/guest?email=${encodeURIComponent(orderData.cliente?.email || "")}&phone=${encodeURIComponent(orderData.cliente?.telefono || "")}` : "/pedidos")
               }
             }, 1000)
           } else if (orderData.paymentStatus === "failed") {
@@ -283,7 +328,7 @@ function KhipuReturnContent() {
 
   if (result && result.success) {
     const trackingUrl = result.isGuestOrder 
-      ? `/seguimiento-pedido/guest?email=${encodeURIComponent(result.email)}`
+      ? `/seguimiento-pedido/guest?email=${encodeURIComponent(result.email)}&phone=${encodeURIComponent(result.phone || "")}`
       : `/pedidos`
 
     return (

@@ -10,6 +10,10 @@ import { ShoppingCart } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 import { isItemAvailable } from '../../lib/recipes'
+import { db } from "@/lib/firebase"
+import { collection, onSnapshot, doc } from "firebase/firestore"
+import { listenIngredientes } from "@/lib/inventory"
+import { getAgregadosConfig } from "@/lib/agregados-config"
 
 // Mapeo de nombres de productos a archivos de imagen conocidos (normalizados sin acentos)
 const imageMap: Record<string, string> = {
@@ -215,7 +219,37 @@ export default function PromoSection() {
   const [activeCategory, setActiveCategory] = useState<string | null>("Todas las Pizzas")
   const { addItem, items } = useCart()
   const [selectedSizes, setSelectedSizes] = useState<{ [key: string]: "familiar" | "mediana" }>({})
-  const { loading: configLoading, itemsMenu, ingredients } = useFirestorePizzaConfig()
+  const { loading: configLoading, itemsMenu } = useFirestorePizzaConfig()
+
+  const [promosEnabled, setPromosEnabled] = useState(false)
+  const [promos, setPromos] = useState<any[]>([])
+  const [ingredients, setIngredients] = useState<any[]>([])
+  const [agregadosConfig, setAgregadosConfig] = useState<any>(null)
+
+  useEffect(() => {
+    const unsubConfig = onSnapshot(doc(db, "settings", "promos_config"), (docSnap) => {
+      if (docSnap.exists()) {
+        setPromosEnabled(docSnap.data().promosEnabled || false)
+      }
+    }, (err) => console.error("Error al cargar promos_config:", err))
+
+    const unsubPromos = onSnapshot(collection(db, "promos"), (snapshot) => {
+      const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      setPromos(fetched)
+    }, (err) => console.error("Error al cargar promos:", err))
+
+    const unsubIng = listenIngredientes((items) => {
+      setIngredients(items)
+    })
+
+    getAgregadosConfig().then(setAgregadosConfig).catch(console.error)
+
+    return () => {
+      unsubConfig()
+      unsubPromos()
+      unsubIng()
+    }
+  }, [])
 
   // Categories = key (internal) and label (display)
   const categories = [
@@ -224,7 +258,7 @@ export default function PromoSection() {
     { key: "Pizzas con Carne", label: "🥩 Pizzas con Carne", icon: "/iconos/tradicionales.svg", iconLabel: "TRADICIONALES" },
     { key: "Pizzas del Mar", label: "🐟 Pizzas del Mar", icon: "/iconos/mar.svg", iconLabel: "DEL MAR" },
     { key: "Quiero armar mi pizza", label: "🍕 Armar tu Pizza", href: "/armar-pizza-nueva", icon: "/iconos/armar.svg", iconLabel: "ARMAR PIZZA" },
-    // { key: "Combos", label: "🎁 Combos", icon: "/iconos/combos.svg", iconLabel: "COMBOS" }, // Oculto hasta que se configuren combos en la Base de Datos
+    ...(promosEnabled ? [{ key: "Promos", label: "🎁 Promos", icon: "/iconos/combos.svg", iconLabel: "PROMOS" }] : []),
     { key: "Acompañamientos", label: "🍟 Acompañamientos", icon: "/iconos/agregados.svg", iconLabel: "AGREGADOS" },
     { key: "Bebidas", label: "🥤 Bebidas", icon: "/iconos/bebidas.svg", iconLabel: "BEBIDAS" },
   ]
@@ -241,7 +275,8 @@ export default function PromoSection() {
       carne: "Pizzas con Carne",
       delmar: "Pizzas del Mar",
       armar: "Quiero armar mi pizza",
-      combos: "Combos",
+      combos: "Promos",
+      promos: "Promos",
       acompanamientos: "Acompañamientos",
       bebidas: "Bebidas",
     }
@@ -277,16 +312,58 @@ export default function PromoSection() {
     }
   }
 
+  const isPromoAvailable = (promo: any) => {
+    if (!promo.productos || promo.productos.length === 0) return false
+
+    for (const prod of promo.productos) {
+      const matchedItem = itemsMenu.find((i: any) => i.id === prod.productoId)
+      if (!matchedItem || matchedItem.activo === false) {
+        return false
+      }
+
+      const qtyNeeded = prod.cantidad || 1
+      const nameLower = (prod.nombre || matchedItem.nombre || "").toLowerCase()
+      
+      if (prod.categoria === "Pizzas") {
+        const recipe = prod.size === "mediana" ? (matchedItem.recetaMediana || matchedItem.receta) : matchedItem.receta
+        if (recipe && recipe.length > 0) {
+          const avail = isItemAvailable(recipe, ingredientsById, qtyNeeded)
+          if (!avail.available) {
+            return false
+          }
+        }
+      } else if (nameLower.includes("rollito") || nameLower.includes("canela")) {
+        const rollitoStock = agregadosConfig?.rollitosPackStock ?? 0
+        if (rollitoStock < qtyNeeded) return false
+      } else if (nameLower.includes("gauchito")) {
+        if (!agregadosConfig?.gauchitosDisponible) return false
+      } else if (prod.categoria === "Bebidas" && agregadosConfig?.bebidasDisponibles) {
+        if (nameLower.includes("lipton") && nameLower.includes("botella") && !agregadosConfig.bebidasDisponibles.liptonBotella) return false
+        if (nameLower.includes("lipton") && nameLower.includes("lata") && !agregadosConfig.bebidasDisponibles.liptonLata) return false
+        if (nameLower.includes("coca") && nameLower.includes("1.5") && nameLower.includes("zero") && !agregadosConfig.bebidasDisponibles.cocaBotellaZero) return false
+        if (nameLower.includes("coca") && nameLower.includes("1.5") && !nameLower.includes("zero") && !agregadosConfig.bebidasDisponibles.cocaBotellaTradicional) return false
+        if (nameLower.includes("coca") && nameLower.includes("lata") && nameLower.includes("zero") && !agregadosConfig.bebidasDisponibles.cocaLataZero) return false
+        if (nameLower.includes("coca") && nameLower.includes("lata") && !nameLower.includes("zero") && !agregadosConfig.bebidasDisponibles.cocaLataTradicional) return false
+      } else if (prod.categoria === "Agregados" && nameLower.includes("salsa") && agregadosConfig?.salsasDisponibles) {
+        if (nameLower.includes("ajo") && !agregadosConfig.salsasDisponibles.ajo) return false
+        if (nameLower.includes("chimichurri") && !agregadosConfig.salsasDisponibles.chimichurri) return false
+        if (nameLower.includes("bbq") && !agregadosConfig.salsasDisponibles.bbq) return false
+        if (nameLower.includes("pesto") && !agregadosConfig.salsasDisponibles.pesto) return false
+      }
+    }
+    return true
+  }
+
   const getCurrentItems = () => {
     // Si aun esta cargando, retornar array vacio
     if (configLoading || !itemsMenu || itemsMenu.length === 0) {
       return []
     }
 
-    // FILTRAR SOLO ITEMS ACTIVOS (activo !== false, para compatibilidad con items antiguos sin el campo)
+    // FILTRAR SOLO ITEMS ACTIVOS (activo !== false)
     const activeItems = itemsMenu.filter((it: any) => it.activo !== false)
 
-    // Nueva categoría: Todas las Pizzas (PALERMO) - muestra vegetarianas, carnicas y marinas juntas
+    // Nueva categoría: Todas las Pizzas (PALERMO)
     if (activeCategory === "Todas las Pizzas") {
       return activeItems.filter((it: any) => 
         it.clasificacion === "vegetariana" || 
@@ -295,7 +372,6 @@ export default function PromoSection() {
       ).map(mapFirestoreItemToUI)
     }
 
-    // If firestore items exist, use classification filters for pizza categories
     if (activeCategory === "Pizzas del Mar") {
       return activeItems.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI)
     }
@@ -306,12 +382,24 @@ export default function PromoSection() {
       return activeItems.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI)
     }
 
-    // Other categories: try to match by categoria field
+    // Other categories
     switch (activeCategory) {
       case "Combos":
         return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Combos").map(mapFirestoreItemToUI)
-      case "Promos":
-        return activeItems.filter((it: any) => (it.categoria || it.category || "").includes("Promo")).map(mapFirestoreItemToUI)
+      case "Promos": {
+        const activePromos = promos.filter(p => p.activa && isPromoAvailable(p))
+        return activePromos.map(p => ({
+          id: p.id,
+          name: p.nombre,
+          description: p.descripcion || "",
+          price: p.precio,
+          image: p.imagen || "/placeholder.svg?height=200&width=200",
+          category: "Promos",
+          isPromo: true,
+          productos: p.productos,
+          activo: p.activa
+        }))
+      }
       case "Acompañamientos": {
         return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos").map(mapFirestoreItemToUI)
       }
@@ -397,7 +485,20 @@ export default function PromoSection() {
   }
 
   const handleAddToCart = (item: any) => {
-  if (pizzaCategoryKeys.includes(activeCategory || "")) {
+    if (item.isPromo) {
+      addItem({
+        id: item.id,
+        name: item.name,
+        price: item.price,
+        image: item.image || "/placeholder.svg?height=200&width=200",
+        quantity: 1,
+        isPromo: true,
+        productos: item.productos
+      } as any)
+      return
+    }
+
+    if (pizzaCategoryKeys.includes(activeCategory || "")) {
       const selectedSize = selectedSizes[String(item.id)] || "familiar"
       const finalPrice = selectedSize === "mediana" && item.mediumPrice ? item.mediumPrice : item.price
 

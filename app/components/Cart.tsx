@@ -1038,6 +1038,17 @@ const Cart = ({ onClose }: CartProps) => {
             localStorage.setItem('pendingOrderId', result.id)
             localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
 
+            // Guardar datos de seguimiento de invitado si corresponde
+            if (!isAuthenticated) {
+              localStorage.setItem(
+                "guestTrackingData",
+                JSON.stringify({
+                  email: guestEmail.trim(),
+                  phone: guestPhone.trim(),
+                })
+              )
+            }
+
             console.log('🔵 Redireccionando a Webpay...')
             // Redireccionar a Webpay
             window.location.href = `${webpayData.url}?token_ws=${webpayData.token}`
@@ -1104,6 +1115,18 @@ const Cart = ({ onClose }: CartProps) => {
             localStorage.setItem('pendingOrderId', result.id)
             localStorage.setItem('pendingOrderNumber', result.orderNumber.toString())
             localStorage.setItem('pendingPaymentProvider', 'khipu')
+            localStorage.setItem('pendingPaymentId', khipuData.token)
+
+            // Guardar datos de seguimiento de invitado si corresponde
+            if (!isAuthenticated) {
+              localStorage.setItem(
+                "guestTrackingData",
+                JSON.stringify({
+                  email: guestEmail.trim(),
+                  phone: guestPhone.trim(),
+                })
+              )
+            }
 
             console.log('🔵 Redireccionando a Khipu...')
             window.location.href = khipuData.url
@@ -1452,7 +1475,7 @@ const Cart = ({ onClose }: CartProps) => {
             {/* Sección del mapa con altura aumentada */}
             <div className="space-y-2">
               <Label className="text-base font-medium">Seleccionar Ubicación</Label>
-              <div className="h-[400px] md:h-[450px] overflow-hidden rounded-lg border border-gray-200 shadow-sm">
+              <div className="h-[260px] xs:h-[320px] sm:h-[380px] md:h-[450px] overflow-hidden rounded-lg border border-gray-200 shadow-sm">
                 <LocationPicker
                   key={mapKey} // Forzar recreación del componente
                   onLocationSelect={handleLocationSelect}
@@ -2102,6 +2125,18 @@ const Cart = ({ onClose }: CartProps) => {
                             ))}
                           </div>
                         )}
+                        {displayItem.isPromo && Array.isArray(displayItem.productos) && (
+                          <div className="mt-1 space-y-0.5">
+                            {displayItem.productos.map((prod: any, idx: number) => (
+                              <div key={idx} className="text-[10px] sm:text-xs text-gray-500 font-medium flex items-center gap-1.5 bg-gray-50 dark:bg-gray-900/40 px-2 py-0.5 rounded border border-gray-100 dark:border-gray-800 w-fit">
+                                <span>{prod.nombre || prod.name}</span>
+                                <span className="text-pink-600 dark:text-pink-400 font-bold">x{prod.cantidad}</span>
+                                {prod.size && <span className="text-gray-400 font-normal">({prod.size})</span>}
+                                {prod.variant && <span className="text-gray-400 font-normal">({prod.variant})</span>}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {displayItem.size && !shouldGroup && (
                           <span className="text-[10px] sm:text-xs text-pink-600 font-medium bg-pink-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full inline-block mt-0.5 sm:mt-1">
                             {displayItem.size}
@@ -2296,7 +2331,7 @@ const Cart = ({ onClose }: CartProps) => {
                       // Mostrar para todo excepto los productos excluidos y bebidas agrupadas
                       return !isExcluded && !shouldGroup
                     })() && (
-                        <div className="mt-2 mb-2 flex items-center gap-2">
+                        <div className="mt-2 mb-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
                           <button
                             type="button"
                             onClick={() => {
@@ -2633,8 +2668,8 @@ const Cart = ({ onClose }: CartProps) => {
                   {expandedUpsell.snacks && (
                     <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
                       {[
-                        { id: 15, name: "Rollitos de Canela", price: 4900, image: "/pizzas/canela.jpg" },
-                        { id: 16, name: "Gauchitos", price: 4000, image: "/pizzas/gauchitos.jpg" },
+                        { id: 15, name: "Rollitos de Canela", price: 4900, image: "/acompañamientos/canela.jpg" },
+                        { id: 16, name: "Gauchitos", price: 4000, image: "/acompañamientos/gauchitos.jpg" },
                       ].map(snack => {
                         const cartItem = items.find(item => item.id === String(snack.id))
                         const isInCart = !!cartItem
@@ -2649,8 +2684,8 @@ const Cart = ({ onClose }: CartProps) => {
                                 onChange={(e) => {
                                   if (e.target.checked) {
                                     const imageMap: Record<string, string> = {
-                                      "Rollitos de Canela": "/pizzas/canela.jpg",
-                                      "Gauchitos": "/pizzas/gauchitos.jpg"
+                                      "Rollitos de Canela": "/acompañamientos/canela.jpg",
+                                      "Gauchitos": "/acompañamientos/gauchitos.jpg"
                                     };
                                     addItem({
                                       id: String(snack.id),
