@@ -37,7 +37,7 @@ export default function SleepingCat() {
     <div className="relative inline-block">
       {/* Sombra proyectada - primero para que esté detrás */}
       <div 
-        className="absolute left-1/2 -translate-x-1/2 bottom-1 w-[48px] h-[7px] sm:w-[58px] sm:h-[8px] rounded-full opacity-50 z-0"
+        className="absolute left-1/2 -translate-x-1/2 bottom-1 w-[96px] h-[14px] sm:w-[116px] sm:h-[16px] rounded-full opacity-50 z-0"
         style={{
           background: 'radial-gradient(ellipse, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.4) 40%, transparent 100%)',
           filter: 'blur(1px)',
@@ -49,9 +49,9 @@ export default function SleepingCat() {
         <Image
           src="/iconos/gatita.svg"
           alt="Gatita durmiendo - Local cerrado"
-          width={64}
-          height={64}
-          className="w-[52px] h-[52px] sm:w-[62px] sm:h-[62px]"
+          width={128}
+          height={128}
+          className="w-[104px] h-[104px] sm:w-[124px] sm:h-[124px]"
           priority
         />
       </div>
@@ -66,7 +66,7 @@ export default function SleepingCat() {
               left: z.left,
               bottom: '50%',
               animationDelay: `${z.delay}s`,
-              fontSize: `${12 + Math.random() * 4}px`,
+              fontSize: `calc(${12 + Math.random() * 4}px * var(--z-scale, 1))`,
             }}
           >
             z
@@ -97,7 +97,24 @@ export default function SleepingCat() {
           }
           100% {
             opacity: 0;
-            transform: translateY(-45px) translateX(10px) rotate(12deg);
+            transform: translateY(-80px) translateX(15px) rotate(12deg);
+          }
+        }
+
+        @keyframes floatZDesktop {
+          0% {
+            opacity: 0;
+            transform: translateY(0) translateX(0) rotate(0deg);
+          }
+          20% {
+            opacity: 0.7;
+          }
+          80% {
+            opacity: 0.5;
+          }
+          100% {
+            opacity: 0;
+            transform: translateY(-90px) translateX(20px) rotate(12deg);
           }
         }
 
@@ -107,8 +124,16 @@ export default function SleepingCat() {
         }
 
         :global(.z-floating) {
+          --z-scale: 1.6;
           animation: floatZ 4s ease-out forwards !important;
           will-change: transform, opacity;
+        }
+
+        @media (min-width: 640px) {
+          :global(.z-floating) {
+            --z-scale: 2;
+            animation: floatZDesktop 4s ease-out forwards !important;
+          }
         }
 
         /* Forzar animaciones incluso con prefers-reduced-motion */
@@ -119,6 +144,12 @@ export default function SleepingCat() {
           
           :global(.z-floating) {
             animation: floatZ 4s ease-out forwards !important;
+          }
+
+          @media (min-width: 640px) {
+            :global(.z-floating) {
+              animation: floatZDesktop 4s ease-out forwards !important;
+            }
           }
         }
       `}</style>

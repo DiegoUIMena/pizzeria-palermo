@@ -83,7 +83,7 @@ export default function Header() {
               
               {/* Gatita durmiendo - solo cuando está cerrado */}
               {!isOpen && (
-                <div className="absolute -right-2 top-full -mt-8 sm:relative sm:top-9 sm:-ml-3 sm:left-auto sm:right-auto">
+                <div className="relative top-3 -ml-2 sm:top-3 sm:-ml-3">
                   <SleepingCat />
                 </div>
               )}

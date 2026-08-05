@@ -80,8 +80,8 @@ export default function ClosedBanner() {
         onClick={handleDismiss}
       />
       
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] max-w-2xl animate-[slideIn_0.4s_ease-out]">
-        <div className="relative bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-100">
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] max-w-2xl animate-[slideIn_0.4s_ease-out] flex flex-col items-center">
+        <div className="relative bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-100 w-fit max-w-full min-w-[280px] sm:min-w-[350px]">
           <button
             onClick={handleDismiss}
             className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/75 text-white transition-all hover:scale-110 p-2 rounded-full shadow-lg backdrop-blur-[2px]"
@@ -94,7 +94,7 @@ export default function ClosedBanner() {
             <img
               src={activeBannerUrl}
               alt="Local cerrado"
-              className="w-full h-auto max-h-[65vh] object-contain block"
+              className="w-auto max-w-full h-auto max-h-[65vh] object-contain block mx-auto"
             />
           </div>
 

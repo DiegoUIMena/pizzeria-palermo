@@ -641,7 +641,7 @@ export default function PromoSection() {
                 cat.href ? (
                   <Link href={cat.href} key={cat.key} className="col-span-1">
                     <div className="flex flex-col items-center gap-2 cursor-pointer transition-all active:scale-95 group" data-category={cat.key}>
-                      <div className={`relative transition-all rounded-full aspect-square w-16 sm:w-20 ${
+                      <div className={`relative transition-all rounded-full aspect-square w-20 sm:w-24 ${
                         activeCategory === cat.key 
                           ? "shadow-[0_0_15px_rgba(236,72,153,0.6),0_0_30px_rgba(236,72,153,0.4)]" 
                           : "opacity-80"
@@ -649,8 +649,8 @@ export default function PromoSection() {
                         <Image 
                           src={cat.icon} 
                           alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
-                          width={60} 
-                          height={60} 
+                          width={80} 
+                          height={80} 
                           className={`w-full h-full object-contain transition-all ${
                             activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
                           }`}
@@ -672,7 +672,7 @@ export default function PromoSection() {
                     onClick={() => setActiveCategory(cat.key)}
                     className="col-span-1 flex flex-col items-center gap-2 cursor-pointer transition-all active:scale-95 group"
                   >
-                    <div className={`relative transition-all rounded-full aspect-square w-16 sm:w-20 ${
+                    <div className={`relative transition-all rounded-full aspect-square w-20 sm:w-24 ${
                       activeCategory === cat.key 
                         ? "shadow-[0_0_15px_rgba(236,72,153,0.6),0_0_30px_rgba(236,72,153,0.4)]" 
                         : "opacity-80"
@@ -680,8 +680,8 @@ export default function PromoSection() {
                       <Image 
                         src={cat.icon} 
                         alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
-                        width={60} 
-                        height={60} 
+                        width={80} 
+                        height={80} 
                         className={`w-full h-full object-contain transition-all ${
                           activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
                         }`}
@@ -730,7 +730,7 @@ export default function PromoSection() {
           </div>
         </div>
 
-        <h2 className="text-4xl font-bold text-gray-800 mb-12 text-center">
+        <h2 className="text-3xl md:text-4xl font-bold text-gray-800 mb-12 text-center barbershop-text">
           {activeCategory === "Pizzas con Carne" 
             ? "Pizzas con Carne y derivados" 
             : activeCategory === "Pizzas Vegetarianas"

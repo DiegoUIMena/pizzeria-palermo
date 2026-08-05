@@ -53,7 +53,7 @@ export default function LocalesPage() {
           />
         </picture>
         {/* Botón "CÓMO LLEGAR" para Versión Desktop (con animación de luz fucsia corriendo por el contorno) */}
-        <div className="absolute bottom-[19%] md:bottom-[20%] lg:bottom-[24%] left-[17%] lg:left-[17.8%] -translate-x-1/2 z-20 hidden md:block">
+        <div className="absolute bottom-[5%] md:bottom-[5%] lg:bottom-[8%] left-[25%] lg:left-[13%] -translate-x-1/2 z-20 hidden md:block">
           <div className="relative group p-[2.5px] rounded-full overflow-hidden bg-[#e21b70]/20 flex items-center justify-center shadow-xl transition-all duration-300 hover:scale-105 hover:shadow-2xl">
             {/* Luz fucsia/blanca giratoria de fondo con important para asegurar la animación */}
             <div className="absolute inset-[-1000%] bg-[conic-gradient(from_90deg_at_50%_50%,#ffffff_0%,#ff5c93_25%,#e21b70_50%,transparent_80%)] !animate-[spin_2.2s_linear_infinite]" />
@@ -72,7 +72,7 @@ export default function LocalesPage() {
         </div>
 
         {/* Botón "CÓMO LLEGAR" para Versión Móvil (con animación de luz fucsia corriendo por el contorno) */}
-        <div className="absolute bottom-[10%] xs:bottom-[13%] sm:bottom-[15%] left-1/2 -translate-x-1/2 z-20 block md:hidden">
+        <div className="absolute top-[58%] left-[25%] -translate-x-1/2 -translate-y-1/2 z-20 block md:hidden">
           <div className="relative group p-[2.5px] rounded-full overflow-hidden bg-[#e21b70]/20 flex items-center justify-center shadow-lg transition-all duration-300 hover:scale-105">
             {/* Luz fucsia/blanca giratoria de fondo con important */}
             <div className="absolute inset-[-1000%] bg-[conic-gradient(from_90deg_at_50%_50%,#ffffff_0%,#ff5c93_25%,#e21b70_50%,transparent_80%)] !animate-[spin_2.2s_linear_infinite]" />
@@ -82,7 +82,7 @@ export default function LocalesPage() {
               href="https://maps.app.goo.gl/G47JBTGr1KKpVJLY7"
               target="_blank"
               rel="noopener noreferrer"
-              className="relative z-10 w-full h-full bg-black text-white text-[10px] sm:text-xs font-black uppercase tracking-wider py-2.5 px-6 rounded-full transition-colors duration-300 flex items-center justify-center gap-1.5 border border-black hover:bg-[#111111] whitespace-nowrap"
+              className="relative z-10 w-full h-full bg-black text-white text-[10px] sm:text-xs font-black uppercase tracking-wider py-2.5 px-4 rounded-full transition-colors duration-300 flex items-center justify-center gap-1.5 border border-black hover:bg-[#111111] whitespace-nowrap"
             >
               <MapPin className="w-3.5 h-3.5 text-[#e21b70] fill-[#e21b70]" />
               CÓMO LLEGAR
@@ -96,7 +96,7 @@ export default function LocalesPage() {
         <div className="container mx-auto px-6 sm:px-12 lg:px-20">
 
           {/* Título de Sección */}
-          <div className="flex flex-col items-center justify-center text-center mb-16 animate-on-scroll fade-up-scroll">
+          <div className="flex flex-col items-center md:items-start justify-center md:justify-start text-center md:text-left mb-16 animate-on-scroll fade-up-scroll">
             <h2 className="text-2xl sm:text-3xl font-black text-gray-950 dark:text-white uppercase tracking-tight">
               NUESTRO LOCAL
             </h2>
@@ -123,8 +123,8 @@ export default function LocalesPage() {
                     key={idx}
                     onClick={() => setSelectedPhoto(photo)}
                     className={`aspect-[16/10] rounded-xl overflow-hidden border shadow-sm transition-all duration-300 hover:scale-105 ${selectedPhoto === photo
-                        ? "border-[#e21b70] ring-2 ring-[#e21b70]/20"
-                        : "border-gray-200 dark:border-gray-800 hover:border-gray-400"
+                      ? "border-[#e21b70] ring-2 ring-[#e21b70]/20"
+                      : "border-gray-200 dark:border-gray-800 hover:border-gray-400"
                       }`}
                   >
                     <img
@@ -142,17 +142,17 @@ export default function LocalesPage() {
             <div className="w-full flex flex-col gap-6 animate-on-scroll fade-up-scroll" style={{ animationDelay: "150ms" }}>
               <div>
                 <h3 className="text-xl sm:text-2xl font-extrabold text-gray-900 dark:text-white mb-4">
-                  Un rincón para disfrutar en Los Andes
+                  Tu pizzeria de barrio con ONDA...
                 </h3>
                 <div className="space-y-4 text-gray-600 dark:text-gray-400 text-sm sm:text-base leading-relaxed">
                   <p>
-                    Palermo Pizzas está ubicado en un sector de fácil acceso dentro de la ciudad de Los Andes, pensado para que retirar tu pedido sea rápido y cómodo.
+                    Ubicados al final del Pasaje Hermano Michaelis, en la Villa Hermanos Maristas de Los Andes, Palermo es una pizzería de barrio que nació de un proyecto familiar y funciona en una casa adaptada para atender con dedicación a quienes nos visitan. No somos un gran restaurante, pero sí un lugar pensado para que cada pizza salga con el mismo cuidado y pasión con la que comenzamos.
                   </p>
                   <p>
-                    Nuestro local fue diseñado para ofrecer una experiencia cercana y acogedora, donde cada detalle refleja el espíritu familiar con el que nació Palermo.
+                    Creemos que las mejores experiencias no siempre se encuentran en los lugares más grandes. Nos gusta ser ese pequeño rincón que sorprende por la calidad, la variedad de nuestras pizzas y una atención cercana, amable y sin apuros. Cada cliente que cruza nuestra puerta es recibido como nos gustaría ser recibidos nosotros.
                   </p>
                   <p>
-                    Ya sea que vengas a retirar tu pizza o simplemente quieras conocernos, siempre encontrarás un ambiente preparado para recibirte.
+                    En Palermo nos esforzamos cada día por mantener esa esencia: ingredientes de calidad, recetas que buscan ofrecer algo diferente y un compromiso constante por mejorar. Porque, al final, lo que hace grande a un lugar no es su tamaño, sino el cariño y la dedicación que hay detrás de cada detalle.
                   </p>
                 </div>
               </div>
@@ -161,33 +161,33 @@ export default function LocalesPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
                 {/* Tarjeta Dirección */}
-                <div className="bg-white dark:bg-gray-900 rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm transition-all duration-300 hover:shadow-md">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-8 h-8 rounded-full bg-pink-50 dark:bg-pink-950/20 flex items-center justify-center text-[#e21b70]">
-                      <MapPin className="w-4 h-4" />
+                <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 md:p-8 border border-gray-100 dark:border-gray-800 shadow-sm transition-all duration-300 hover:shadow-md">
+                  <div className="flex items-center gap-4 mb-5">
+                    <div className="w-14 h-14 rounded-full bg-pink-50 dark:bg-pink-950/20 flex items-center justify-center text-[#e21b70] flex-shrink-0">
+                      <MapPin className="w-7 h-7" />
                     </div>
-                    <h4 className="font-extrabold text-xs tracking-wider text-gray-500 dark:text-gray-400 uppercase">
+                    <h4 className="font-black text-sm sm:text-base tracking-wider text-gray-700 dark:text-gray-300 uppercase">
                       DIRECCIÓN
                     </h4>
                   </div>
-                  <div className="text-gray-800 dark:text-gray-200 text-sm font-medium space-y-0.5 leading-relaxed">
+                  <div className="text-gray-800 dark:text-gray-200 text-sm sm:text-base font-semibold space-y-1 leading-relaxed">
                     <p>Hermano Michaelis N° 33</p>
                     <p>Villa Hermanos Maristas, Los Andes</p>
-                    <p className="text-gray-500 dark:text-gray-400 text-xs">Región de Valparaíso</p>
+                    <p className="text-gray-500 dark:text-gray-400 text-xs sm:text-sm font-medium">Región de Valparaíso</p>
                   </div>
                 </div>
 
                 {/* Tarjeta Referencias */}
-                <div className="bg-white dark:bg-gray-900 rounded-2xl p-5 border border-gray-100 dark:border-gray-800 shadow-sm transition-all duration-300 hover:shadow-md">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-8 h-8 rounded-full bg-pink-50 dark:bg-pink-950/20 flex items-center justify-center text-[#e21b70]">
-                      <Star className="w-4 h-4" />
+                <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 md:p-8 border border-gray-100 dark:border-gray-800 shadow-sm transition-all duration-300 hover:shadow-md">
+                  <div className="flex items-center gap-4 mb-5">
+                    <div className="w-14 h-14 rounded-full bg-pink-50 dark:bg-pink-950/20 flex items-center justify-center text-[#e21b70] flex-shrink-0">
+                      <Star className="w-7 h-7" />
                     </div>
-                    <h4 className="font-extrabold text-xs tracking-wider text-gray-500 dark:text-gray-400 uppercase">
+                    <h4 className="font-black text-sm sm:text-base tracking-wider text-gray-700 dark:text-gray-300 uppercase">
                       REFERENCIAS
                     </h4>
                   </div>
-                  <ul className="space-y-1 text-gray-700 dark:text-gray-300 text-xs font-semibold">
+                  <ul className="space-y-2 text-gray-700 dark:text-gray-300 text-xs sm:text-sm font-bold">
                     <li className="flex items-start gap-1.5 leading-relaxed">
                       <span className="text-[#e21b70] select-none">✓</span>
                       <span>Villa al costado izquierdo del cementerio</span>
@@ -243,8 +243,8 @@ export default function LocalesPage() {
                     transform="scale(0.8) translate(40, -10)"
                   />
                 </svg>
-                <div className="w-10 h-10 rounded-full bg-pink-50 dark:bg-pink-950/20 flex items-center justify-center text-[#e21b70] shadow-sm -ml-4">
-                  <MapPin className="w-5 h-5" />
+                <div className="w-32 h-32 rounded-full bg-pink-50 dark:bg-pink-950/20 flex items-center justify-center text-[#e21b70] shadow-md ml-4 flex-shrink-0">
+                  <MapPin className="w-16 h-16" />
                 </div>
               </div>
             </div>
@@ -287,7 +287,7 @@ export default function LocalesPage() {
               HORARIOS DE ATENCIÓN
             </h2>
             <div className="space-y-1 text-gray-500 dark:text-gray-400 text-sm max-w-lg leading-relaxed font-medium">
-              <p>Nuestro horno se enciende todos los días para preparar pizzas recién hechas.</p>
+              <p>Nuestro horno se enciende todos los días para preparar tus pizzas.</p>
               <p>Solo descansamos los martes.</p>
             </div>
           </div>
@@ -296,37 +296,47 @@ export default function LocalesPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto animate-on-scroll fade-up-scroll" style={{ animationDelay: "150ms" }}>
 
             {/* Horario Invierno */}
-            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col sm:flex-row items-center gap-6 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-              <div className="w-16 h-16 rounded-full flex-shrink-0 flex items-center justify-center bg-blue-50 dark:bg-blue-950/20 text-blue-500">
-                <Snowflake className="w-9 h-9" />
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-row items-center gap-4 sm:gap-6 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full flex-shrink-0 flex items-center justify-center bg-blue-50 dark:bg-blue-950/20 text-blue-500">
+                <Snowflake className="w-8 h-8 sm:w-12 sm:h-12" />
               </div>
-              <div className="flex-1 flex flex-col items-center sm:items-start text-center sm:text-left">
-                <h3 className="font-extrabold text-sm sm:text-base text-blue-600 dark:text-blue-400 tracking-wider uppercase mb-3">
+              <div className="flex-1 flex flex-col items-start text-left">
+                <h3 className="font-extrabold text-sm sm:text-base text-blue-600 dark:text-blue-400 tracking-wider uppercase mb-2">
                   HORARIO INVIERNO
                 </h3>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-xs font-semibold w-full max-w-[280px]">
-                  <div className="text-gray-500 dark:text-gray-400">TODOS LOS DÍAS</div>
-                  <div className="text-gray-900 dark:text-gray-100 text-right">18:00 — 23:00</div>
-                  <div className="text-gray-500 dark:text-gray-400">MARTES</div>
-                  <div className="text-red-500 font-extrabold text-right">CERRADO</div>
+                <div className="flex flex-row flex-wrap gap-x-6 gap-y-2 items-center w-full">
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wide">TODOS LOS DÍAS</span>
+                    <span className="text-gray-900 dark:text-gray-100 text-sm sm:text-lg font-black tracking-tight">18:00 — 23:00</span>
+                  </div>
+                  <div className="w-px h-8 bg-gray-200 dark:bg-gray-800 hidden xs:block" />
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wide">MARTES</span>
+                    <span className="text-red-600 dark:text-red-500 text-sm sm:text-lg font-black tracking-tight">CERRADO</span>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Horario Verano */}
-            <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-col sm:flex-row items-center gap-6 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
-              <div className="w-16 h-16 rounded-full flex-shrink-0 flex items-center justify-center bg-amber-50 dark:bg-amber-950/20 text-amber-500">
-                <Sun className="w-9 h-9" />
+            <div className="bg-white dark:bg-gray-900 rounded-2xl p-4 sm:p-6 border border-gray-100 dark:border-gray-800 shadow-sm flex flex-row items-center gap-4 sm:gap-6 transition-all duration-300 hover:shadow-md hover:-translate-y-0.5">
+              <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-full flex-shrink-0 flex items-center justify-center bg-amber-50 dark:bg-amber-950/20 text-amber-500">
+                <Sun className="w-8 h-8 sm:w-12 sm:h-12" />
               </div>
-              <div className="flex-1 flex flex-col items-center sm:items-start text-center sm:text-left">
-                <h3 className="font-extrabold text-sm sm:text-base text-amber-600 dark:text-amber-400 tracking-wider uppercase mb-3">
+              <div className="flex-1 flex flex-col items-start text-left">
+                <h3 className="font-extrabold text-sm sm:text-base text-amber-600 dark:text-amber-400 tracking-wider uppercase mb-2">
                   HORARIO VERANO
                 </h3>
-                <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-xs font-semibold w-full max-w-[280px]">
-                  <div className="text-gray-500 dark:text-gray-400">TODOS LOS DÍAS</div>
-                  <div className="text-gray-900 dark:text-gray-100 text-right">17:30 — 23:30</div>
-                  <div className="text-gray-500 dark:text-gray-400">MARTES</div>
-                  <div className="text-red-500 font-extrabold text-right">CERRADO</div>
+                <div className="flex flex-row flex-wrap gap-x-6 gap-y-2 items-center w-full">
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wide">TODOS LOS DÍAS</span>
+                    <span className="text-gray-900 dark:text-gray-100 text-sm sm:text-lg font-black tracking-tight">17:30 — 23:30</span>
+                  </div>
+                  <div className="w-px h-8 bg-gray-200 dark:bg-gray-800 hidden xs:block" />
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wide">MARTES</span>
+                    <span className="text-red-600 dark:text-red-500 text-sm sm:text-lg font-black tracking-tight">CERRADO</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -342,7 +352,7 @@ export default function LocalesPage() {
 
             {/* Tarjeta 1 */}
             <div className="flex flex-col items-center text-center p-4 animate-on-scroll fade-up-scroll" style={{ animationDelay: "0ms" }}>
-              <div className="w-20 h-20 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-2 hover:scale-105 transition-all duration-300">
+              <div className="w-28 h-28 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-3 hover:scale-105 transition-all duration-300">
                 <img
                   src="/local_horarios/retiro.svg"
                   alt="Icono Retiro en Local"
@@ -360,7 +370,7 @@ export default function LocalesPage() {
 
             {/* Tarjeta 2 */}
             <div className="flex flex-col items-center text-center p-4 animate-on-scroll fade-up-scroll" style={{ animationDelay: "100ms" }}>
-              <div className="w-20 h-20 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-2 hover:scale-105 transition-all duration-300">
+              <div className="w-28 h-28 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-3 hover:scale-105 transition-all duration-300">
                 <img
                   src="/local_horarios/mediodepago.svg"
                   alt="Icono Medios de Pago"
@@ -378,7 +388,7 @@ export default function LocalesPage() {
 
             {/* Tarjeta 3 */}
             <div className="flex flex-col items-center text-center p-4 animate-on-scroll fade-up-scroll" style={{ animationDelay: "200ms" }}>
-              <div className="w-20 h-20 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-2 hover:scale-105 transition-all duration-300">
+              <div className="w-28 h-28 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-3 hover:scale-105 transition-all duration-300">
                 <img
                   src="/local_horarios/delivery.svg"
                   alt="Icono Delivery"
@@ -396,7 +406,7 @@ export default function LocalesPage() {
 
             {/* Tarjeta 4 */}
             <div className="flex flex-col items-center text-center p-4 animate-on-scroll fade-up-scroll" style={{ animationDelay: "300ms" }}>
-              <div className="w-20 h-20 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-2 hover:scale-105 transition-all duration-300">
+              <div className="w-28 h-28 rounded-full flex items-center justify-center bg-transparent mb-4 shadow-sm border border-gray-100/50 p-3 hover:scale-105 transition-all duration-300">
                 <img
                   src="/local_horarios/atencion.svg"
                   alt="Icono Atención"
@@ -408,7 +418,7 @@ export default function LocalesPage() {
                 ATENCIÓN
               </h3>
               <p className="text-gray-500 dark:text-gray-400 text-xs sm:text-sm leading-relaxed max-w-[220px]">
-                Si tienes alguna consulta estaremos encantados de ayudarte.
+                Si tenés alguna duda preguntale a nuestro asistente. ¡Está aprendiendo todo el tiempo sobre tus preguntas!
               </p>
             </div>
 
