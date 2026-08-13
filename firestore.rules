@@ -279,6 +279,29 @@ service cloud.firestore {
     }
     
     // ============================================
+    // REGLAS PARA CONTACTOS Y SOLICITUDES (NUEVO)
+    // ============================================
+    match /contactos/{contactoId} {
+      // Solo administradores y staff pueden leer contactos
+      allow read: if isAdmin() || isStaff();
+      
+      // Bloquear escritura directa desde el cliente (se hace vía Cloud Function)
+      allow write: if false;
+      
+      // Subcolección de respuestas de contactos
+      match /respuestas/{respuestaId} {
+        allow read: if isAdmin() || isStaff();
+        allow write: if false;
+      }
+      
+      // Subcolección de auditoría
+      match /auditoria/{auditoriaId} {
+        allow read: if isAdmin() || isStaff();
+        allow write: if false;
+      }
+    }
+    
+    // ============================================
     // BLOQUEAR TODO LO DEMÁS POR DEFECTO
     // ============================================
     // Esta regla bloquea cualquier colección no especificada arriba

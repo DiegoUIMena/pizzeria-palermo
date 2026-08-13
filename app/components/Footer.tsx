@@ -3,31 +3,38 @@ import Image from "next/image"
 import { Instagram, Facebook } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
-export default function Footer() {
+interface FooterProps {
+  showDivider?: boolean
+}
+
+export default function Footer({ showDivider = true }: FooterProps) {
   return (
     <>
 
       {/* Imagen promocional arriba del footer - patrón repetido */}
-      <div
-        className="w-full"
-        style={{
-          backgroundImage: 'url(/banners/footer.jpg)',
-          backgroundRepeat: 'repeat-x',
-          backgroundSize: 'auto 100%',
-          backgroundPosition: 'center',
-          height: 'auto',
-          minHeight: '100px'
-        }}
-      >
-        <Image
-          src="/banners/footer.jpg"
-          alt="Promoción Pizzería Palermo"
-          width={1200}
-          height={300}
-          className="invisible"
-          quality={90}
-        />
-      </div>
+      {showDivider && (
+        <div
+          className="w-full"
+          style={{
+            backgroundImage: 'url(/banners/footer.jpg)',
+            backgroundRepeat: 'repeat-x',
+            backgroundSize: 'auto 100%',
+            backgroundPosition: 'center',
+            height: 'auto',
+            minHeight: '100px'
+          }}
+        >
+          <Image
+            src="/banners/footer.jpg"
+            alt="Promoción Pizzería Palermo"
+            width={1200}
+            height={300}
+            className="invisible"
+            quality={90}
+          />
+        </div>
+      )}
+
 
       <footer className="bg-[#1a1a1a] py-12">
         <div className="container mx-auto px-4">

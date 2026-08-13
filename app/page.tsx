@@ -2,6 +2,8 @@ import { Suspense } from "react"
 import Header from "./components/Header"
 import BannerCarousel from "./components/BannerCarousel"
 import PromoSection from "./components/PromoSection"
+import FooterDivider from "./components/FooterDivider"
+import GoogleReviews from "./components/GoogleReviews"
 import Footer from "./components/Footer"
 
 export default function Home() {
@@ -14,7 +16,11 @@ export default function Home() {
           <PromoSection />
         </Suspense>
       </main>
-      <Footer />
+      <FooterDivider />
+      <GoogleReviews />
+      <FooterDivider />
+      <Footer showDivider={false} />
     </div>
   )
 }
+

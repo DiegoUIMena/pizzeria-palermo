@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { createPortal } from "react-dom"
 import { useCart } from "../context/CartContext"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/hooks/use-toast"
@@ -21,7 +22,8 @@ import PizzaConfigModal from "./PizzaConfigModal"
 import InventoryErrorModal from "./InventoryErrorModal"
 import { functions, db } from "@/lib/firebase"
 import { httpsCallable } from "firebase/functions"
-import { collection, getDocs, query, where } from "firebase/firestore"
+import { collection, getDocs, query, where, doc, updateDoc, serverTimestamp } from "firebase/firestore"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useFirestorePizzaConfig } from "@/hooks/useFirestorePizzaConfig"
 import { subscribeAgregadosConfig, type BebidasDisponiblesConfig } from "@/lib/agregados-config"
 
@@ -51,14 +53,18 @@ const Cart = ({ onClose }: CartProps) => {
     snacks: false
   })
 
-  const { isAuthenticated, user } = useAuth()
+  const { isAuthenticated, user, updateUser } = useAuth()
   const [guestName, setGuestName] = useState("")
   const [guestPhone, setGuestPhone] = useState("")
   const [guestEmail, setGuestEmail] = useState("")
   const [guestFormError, setGuestFormError] = useState("")
   const { isOpen, config } = useBusinessHours()
+
+  // Estados para la solicitud automática de teléfono en confirmación
+  const [phoneInput, setPhoneInput] = useState("")
+  const [isSavingPhone, setIsSavingPhone] = useState(false)
   const [isDelivery, setIsDelivery] = useState<boolean | null>(null) // null = no seleccionado
-  const [currentView, setCurrentView] = useState<"cart" | "address" | "payment" | "confirmation">("cart")
+  const [currentView, setCurrentView] = useState<"cart" | "address" | "payment" | "confirmation" | "phone-registration">("cart")
   const [paymentMethod, setPaymentMethod] = useState("webpay")
   const [isProcessing, setIsProcessing] = useState(false)
   const [isRedirectingToWebpay, setIsRedirectingToWebpay] = useState(false)
@@ -699,6 +705,60 @@ const Cart = ({ onClose }: CartProps) => {
     }
   }
 
+  const handleSavePhoneAndContinue = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!phoneInput || phoneInput.trim() === "") {
+      toast({
+        title: "Campo requerido",
+        description: "Por favor ingresa tu número de celular para continuar.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingPhone(true)
+    try {
+      if (user?.id) {
+        // 1. Guardar en Firestore directamente
+        const userRef = doc(db, "users", user.id)
+        await updateDoc(userRef, {
+          telefono: phoneInput.trim(),
+          phone: phoneInput.trim(),
+          updatedAt: serverTimestamp(),
+        })
+
+        // 2. Actualizar el estado del usuario localmente en AuthContext
+        await updateUser({
+          phone: phoneInput.trim(),
+          telefono: phoneInput.trim(),
+        } as any)
+
+        // 3. Cambiar vista a payment
+        setCurrentView("payment")
+
+        // 4. Mostrar feedback positivo
+        toast({
+          title: "Teléfono registrado",
+          description: "Tu número de teléfono ha sido guardado exitosamente.",
+        })
+
+        // 5. Continuar inmediatamente con el flujo de pago
+        setTimeout(() => {
+          handlePayment()
+        }, 100)
+      }
+    } catch (error) {
+      console.error("Error al guardar el teléfono:", error)
+      toast({
+        title: "Error al guardar",
+        description: "No pudimos guardar tu teléfono en este momento. Inténtalo de nuevo.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingPhone(false)
+    }
+  }
+
   const handlePayment = async () => {
     console.log(`🔵 === INICIO handlePayment ===`)
     console.log(`🔵 Usuario autenticado:`, isAuthenticated)
@@ -770,6 +830,16 @@ const Cart = ({ onClose }: CartProps) => {
           description: "Tu ubicación no pertenece a ninguna de las zonas de delivery configuradas. Ajusta el punto dentro de la cobertura.",
           variant: "destructive"
         })
+        return
+      }
+    }
+
+    // [PHONE VERIFICATION] Verificar si el usuario autenticado tiene un teléfono registrado
+    if (isAuthenticated && user) {
+      const hasPhone = (user.phone && user.phone.trim() !== "") || ((user as any).telefono && (user as any).telefono.trim() !== "")
+      if (!hasPhone) {
+        console.log("⚠️ Usuario autenticado no tiene teléfono registrado. Redirigiendo a vista de registro de teléfono.")
+        setCurrentView("phone-registration")
         return
       }
     }
@@ -1621,6 +1691,64 @@ const Cart = ({ onClose }: CartProps) => {
           {deliveryInfo.disponible && !deliveryInfo.zone && (
             <p className="mt-2 text-xs text-red-600 text-center">Debes seleccionar una ubicación dentro de una zona válida de delivery.</p>
           )}
+        </div>
+      </div>
+    )
+  }
+
+  // Vista de registro de teléfono (para evitar problemas de Focus Trap de Radix UI en el modal)
+  if (currentView === "phone-registration") {
+    return (
+      <div className="h-full flex flex-col bg-white text-gray-900">
+        <div className="p-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex items-center">
+            <Button variant="ghost" size="icon" onClick={() => setCurrentView("payment")} className="mr-2 hover:bg-gray-200 text-gray-700">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h2 className="text-xl font-bold text-gray-800">Completa tu perfil</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="space-y-2 text-center mt-4">
+            <h3 className="text-lg font-bold text-gray-900">Completa un dato para continuar</h3>
+            <p className="text-sm text-gray-500">
+              Necesitamos tu número de celular para completar la confirmación de tu pedido.
+            </p>
+          </div>
+
+          <form onSubmit={handleSavePhoneAndContinue} className="space-y-6">
+            <div className="p-4 bg-pink-50/60 border border-pink-100/50 rounded-xl text-center">
+              <p className="text-gray-700 text-sm leading-relaxed font-medium">
+                Ingresa tu número de celular para que podamos avisarte cuando tu pedido esté listo o coordinar la entrega con nuestro delivery.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="checkout-phone-view" className="text-xs font-bold uppercase tracking-wider text-gray-500 block mb-1">
+                Número de celular
+              </Label>
+              <Input
+                id="checkout-phone-view"
+                type="tel"
+                placeholder="Ej: +56 9 1234 5678"
+                value={phoneInput}
+                onChange={(e) => setPhoneInput(e.target.value)}
+                required
+                className="w-full border-gray-200 focus-visible:ring-pink-500 rounded-xl text-gray-900 py-5"
+              />
+            </div>
+
+            <div className="pt-2">
+              <Button
+                type="submit"
+                disabled={isSavingPhone}
+                className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-6 rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-75"
+              >
+                {isSavingPhone ? "Guardando..." : "Guardar y continuar"}
+              </Button>
+            </div>
+          </form>
         </div>
       </div>
     )

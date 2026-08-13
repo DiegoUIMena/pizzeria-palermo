@@ -51,18 +51,11 @@ export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
 
-// Para desarrollo - conectar a emuladores locales si están disponibles o usar reglas menos restrictivas
+// Para desarrollo - conectar a emuladores locales si están disponibles
 if (typeof window !== "undefined" && window.location.hostname === "localhost") {
-  // NOTA: Para usar emuladores locales, ejecuta: firebase emulators:start
-  // Las líneas comentadas abajo pueden descomentarse si todos los emuladores están corriendo:
-  // connectAuthEmulator(auth, 'http://localhost:9099');
-  // connectFirestoreEmulator(db, 'localhost', 8080);
-  // connectStorageEmulator(storage, 'localhost', 9199);
-  // connectFunctionsEmulator(functions, 'localhost', 5001);
-  
-  const activeProject = firebaseConfig.projectId || "(sin-projectId)"
-  console.log(`Ejecutando en modo desarrollo - usando Firebase proyecto: ${activeProject}`)
-  console.log("Para usar emuladores locales, ejecuta: firebase emulators:start")
+  const activeProject = firebaseConfig.projectId || "(sin-projectId)";
+  console.log(`Ejecutando en modo desarrollo - usando Firebase proyecto: ${activeProject}`);
+  console.log("Para usar emuladores locales, ejecuta: firebase emulators:start");
 }
 
-export default app
+export default app;

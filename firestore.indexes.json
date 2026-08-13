@@ -113,6 +113,62 @@
         {"fieldPath": "type", "order": "ASCENDING"},
         {"fieldPath": "expiresAt", "order": "ASCENDING"}
       ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "estado", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "tipo", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "leido", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "archivado", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "correo", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "usuarioId", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "contactos",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "direccionIPHash", "order": "ASCENDING"},
+        {"fieldPath": "fechaCreacion", "order": "DESCENDING"}
+      ]
     }
   ],
   "fieldOverrides": []

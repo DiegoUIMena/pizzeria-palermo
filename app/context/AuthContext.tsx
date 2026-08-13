@@ -8,6 +8,8 @@ import {
   signOut,
   onAuthStateChanged,
   updateProfile,
+  GoogleAuthProvider,
+  signInWithPopup,
 } from "firebase/auth"
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
@@ -52,6 +54,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>
   register: (userData: RegisterData) => Promise<{ uid: string; email: string; name: string; phone: string; password: string }>
+  loginWithGoogle: () => Promise<void>
   logout: () => Promise<void>
   updateUser: (userData: Partial<User>) => Promise<void>
 }
@@ -206,6 +209,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const loginWithGoogle = async () => {
+    try {
+      const provider = new GoogleAuthProvider()
+      provider.setCustomParameters({ prompt: "select_account" })
+      await signInWithPopup(auth, provider)
+    } catch (error: any) {
+      console.error("Error al iniciar sesión con Google:", error)
+      throw new Error(getErrorMessage(error.code))
+    }
+  }
+
   const register = async (userData: RegisterData) => {
     try {
       // Crear usuario en Firebase Auth
@@ -307,6 +321,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ...authState,
         login,
         register,
+        loginWithGoogle,
         logout,
         updateUser,
       }}

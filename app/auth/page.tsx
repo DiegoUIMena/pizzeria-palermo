@@ -20,7 +20,7 @@ import { useAuth } from "../context/AuthContext"
 
 export default function AuthPage() {
   const router = useRouter()
-  const { login, register } = useAuth()
+  const { login, register, loginWithGoogle } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [activeTab, setActiveTab] = useState("login")
@@ -63,6 +63,27 @@ export default function AuthPage() {
         variant: "destructive",
         title: "Error al iniciar sesión",
         description: error.message || "Por favor verifica tus credenciales.",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true)
+    try {
+      await loginWithGoogle()
+      toast({
+        title: "¡Bienvenido!",
+        description: "Has iniciado sesión con Google correctamente.",
+      })
+      router.push("/")
+    } catch (error: any) {
+      console.error("Error al iniciar sesión con Google:", error)
+      toast({
+        variant: "destructive",
+        title: "Error al iniciar sesión",
+        description: error.message || "No se pudo autenticar con Google. Intenta de nuevo.",
       })
     } finally {
       setIsLoading(false)
@@ -289,6 +310,36 @@ export default function AuthPage() {
                   </form>
                 </TabsContent>
               </Tabs>
+
+              {/* Botón de Autenticación con Google */}
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-gray-200 dark:border-gray-800" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white dark:bg-gray-900 px-2 text-gray-500 dark:text-gray-400">
+                    O continuar con
+                  </span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleGoogleLogin}
+                disabled={isLoading}
+                className="w-full border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl flex items-center justify-center gap-2"
+              >
+                <svg className="h-5 w-5 mr-1" viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg">
+                  <g transform="matrix(1, 0, 0, 1, 0, 0)">
+                    <path d="M21.35,11.1H12v2.7h5.38c-0.24,1.28 -0.96,2.37 -2.04,3.1v2.6h3.3c1.92,-1.78 3.02,-4.4 3.02,-7.4C21.66,11.83 21.55,11.45 21.35,11.1z" fill="#4285F4" />
+                    <path d="M12,20.6c2.59,0 4.77,-0.86 6.36,-2.3l-3.3,-2.6c-0.91,0.61 -2.08,0.98 -3.06,0.98 -2.35,0 -4.35,-1.59 -5.06,-3.72H3.5v2.6C5.1,18.71 8.35,20.6 12,20.6z" fill="#34A853" />
+                    <path d="M6.94,12.96c-0.18,-0.54 -0.28,-1.11 -0.28,-1.7c0,-0.59 0.1,-1.16 0.28,-1.7V6.96H3.5C2.88,8.2 2.53,9.6 2.53,11.26c0,1.66 0.35,3.06 0.97,4.3L6.94,12.96z" fill="#FBBC05" />
+                    <path d="M12,5.2c1.41,0 2.68,0.49 3.68,1.44l2.76,-2.76C16.76,2.32 14.59,1.4 12,1.4c-3.65,0 -6.9,1.89 -8.5,5.2l3.44,2.6c0.71,-2.13 2.71,-3.72 5.06,-3.72z" fill="#EA4335" />
+                  </g>
+                </svg>
+                <span>Google</span>
+              </Button>
             </CardContent>
 
             <CardFooter className="flex flex-col space-y-4 border-t pt-4">

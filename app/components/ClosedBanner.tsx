@@ -32,7 +32,9 @@ export default function ClosedBanner() {
       document.head.appendChild(link)
       
       return () => {
-        document.head.removeChild(link)
+        if (document.head.contains(link)) {
+          document.head.removeChild(link)
+        }
       }
     }
   }, [activeBannerUrl, isOpen])

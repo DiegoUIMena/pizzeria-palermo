@@ -16,10 +16,20 @@
  */
 
 import * as admin from "firebase-admin";
+
+// Inicializar Firebase Admin inmediatamente (requerido para imports de submódulos)
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+
 import {onCall, HttpsError, onRequest} from "firebase-functions/v2/https";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import * as logger from "firebase-functions/logger";
 import * as crypto from "crypto";
+
+// Importar utilidades y servicios de contacto
+import { verifyAdminAccess } from "./utils/admin-access";
+import * as contactService from "./services/contact.service";
 
 // Importar servicios
 import {
@@ -47,10 +57,6 @@ import { OrderProcessingService } from "./services/order.service";
 import { WebpayProvider } from "./services/payment/webpay-provider";
 import { KhipuProvider } from "./services/payment/khipu-provider";
 
-// Inicializar Firebase Admin (solo una vez)
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
 
 const GUEST_WEBPAY_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 minutos para validar vouchers
 const GUEST_WEBPAY_MAX_INIT_ATTEMPTS = 3;
@@ -2732,3 +2738,199 @@ export const cleanupAndVerifyPayments = onSchedule({
     logger.error("cleanupAndVerifyPayments: Error en conciliacion", { error });
   }
 });
+
+// ==================================================
+// MÓDULO: Contacto y Solicitudes
+// ==================================================
+
+/**
+ * Cloud Function para crear un contacto (público)
+ */
+export const crearContacto = onCall({ cors: true }, async (request) => {
+  const ip = getClientIp(request);
+  const authUserId = request.auth ? request.auth.uid : null;
+
+  try {
+    return await contactService.crearContacto(request.data, ip, authUserId);
+  } catch (error: any) {
+    logger.error("Error en crearContacto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al procesar tu mensaje");
+  }
+});
+
+/**
+ * Auxiliar para verificar rol del usuario invocador
+ */
+async function getRequesterRole(auth: any): Promise<string> {
+  if (!auth) {
+    throw new HttpsError("unauthenticated", "No estás autenticado.");
+  }
+  const userDoc = await admin.firestore().collection("users").doc(auth.uid).get();
+  if (!userDoc.exists) {
+    throw new HttpsError("not-found", "Usuario no encontrado.");
+  }
+  return userDoc.data()?.role || "customer";
+}
+
+/**
+ * Cloud Function para obtener listado de contactos paginados (admin/staff)
+ */
+export const obtenerContactosPaginados = onCall({ cors: true }, async (request) => {
+  const role = await getRequesterRole(request.auth);
+  try {
+    return await contactService.obtenerContactosPaginados(request.data, role);
+  } catch (error: any) {
+    logger.error("Error en obtenerContactosPaginados:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al listar contactos");
+  }
+});
+
+/**
+ * Cloud Function para obtener el detalle de un contacto (admin/staff)
+ */
+export const obtenerDetalleContacto = onCall({ cors: true }, async (request) => {
+  const role = await getRequesterRole(request.auth);
+  const { contactoId } = request.data;
+  if (!contactoId) {
+    throw new HttpsError("invalid-argument", "El contactoId es requerido.");
+  }
+
+  try {
+    return await contactService.obtenerDetalleContacto(contactoId, role);
+  } catch (error: any) {
+    logger.error("Error en obtenerDetalleContacto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al obtener detalle del contacto");
+  }
+});
+
+/**
+ * Cloud Function para cambiar el estado de un contacto (admin/staff)
+ */
+export const cambiarEstadoContacto = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "No estás autenticado.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden cambiar el estado de los contactos.");
+
+  const db = admin.firestore();
+  const adminDoc = await db.collection("users").doc(request.auth.uid).get();
+  const adminName = adminDoc.data()?.name || "Administrador";
+
+  try {
+    await contactService.cambiarEstadoContacto(request.data, request.auth.uid, adminName);
+    return { success: true };
+  } catch (error: any) {
+    logger.error("Error en cambiarEstadoContacto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al cambiar el estado");
+  }
+});
+
+/**
+ * Cloud Function para marcar un contacto como leído/no leído (admin/staff)
+ */
+export const marcarLeidoContacto = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "No estás autenticado.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden marcar contactos como leídos.");
+
+  const db = admin.firestore();
+  const adminDoc = await db.collection("users").doc(request.auth.uid).get();
+  const adminName = adminDoc.data()?.name || "Administrador";
+
+  try {
+    await contactService.marcarLeidoContacto(request.data, request.auth.uid, adminName);
+    return { success: true };
+  } catch (error: any) {
+    logger.error("Error en marcarLeidoContacto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al marcar como leído");
+  }
+});
+
+/**
+ * Cloud Function para archivar/desarchivar un contacto (admin/staff)
+ */
+export const archivarContacto = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "No estás autenticado.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden archivar contactos.");
+
+  const db = admin.firestore();
+  const adminDoc = await db.collection("users").doc(request.auth.uid).get();
+  const adminName = adminDoc.data()?.name || "Administrador";
+
+  try {
+    await contactService.archivarContacto(request.data, request.auth.uid, adminName);
+    return { success: true };
+  } catch (error: any) {
+    logger.error("Error en archivarContacto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al archivar el contacto");
+  }
+});
+
+/**
+ * Cloud Function para responder a un contacto (admin/staff)
+ */
+export const responderContacto = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "No estás autenticado.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden responder a los contactos.");
+
+  const db = admin.firestore();
+  const adminDoc = await db.collection("users").doc(request.auth.uid).get();
+  const adminData = adminDoc.data();
+  const adminName = adminData?.name || "Administrador";
+  const adminEmail = adminData?.email || "contacto@palermopizzas.cl";
+
+  try {
+    return await contactService.responderContacto(
+      request.data,
+      request.auth.uid,
+      adminName,
+      adminEmail
+    );
+  } catch (error: any) {
+    logger.error("Error en responderContacto:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al enviar la respuesta");
+  }
+});
+
+/**
+ * Cloud Function para obtener el conteo de contactos pendientes (admin/staff)
+ */
+export const obtenerConteoPendientes = onCall({ cors: true }, async (request) => {
+  const role = await getRequesterRole(request.auth);
+  try {
+    return await contactService.obtenerConteoPendientes(role);
+  } catch (error: any) {
+    logger.error("Error en obtenerConteoPendientes:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al obtener conteo");
+  }
+});
+

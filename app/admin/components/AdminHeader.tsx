@@ -11,9 +11,11 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders, Sparkles } from "lucide-react"
+import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders, Sparkles, Mail } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from 'react'
+import { httpsCallable } from "firebase/functions"
+import { functions } from "@/lib/firebase"
 
 export default function AdminHeader() {
   const pathname = usePathname()
@@ -38,6 +40,27 @@ export default function AdminHeader() {
     )
   }
 
+  const [pendingContactsCount, setPendingContactsCount] = useState<number>(0)
+
+  // Consulta económica de contactos pendientes (sin listener permanente)
+  useEffect(() => {
+    const fetchPendingContactsCount = async () => {
+      try {
+        const obtenerConteoFn = httpsCallable(functions, "obtenerConteoPendientes")
+        const res = await obtenerConteoFn()
+        setPendingContactsCount((res.data as { count: number }).count)
+      } catch (error) {
+        console.error("Error al obtener conteo de contactos pendientes:", error)
+      }
+    }
+
+    fetchPendingContactsCount()
+    
+    // Consultar cada 2 minutos
+    const interval = setInterval(fetchPendingContactsCount, 120000)
+    return () => clearInterval(interval)
+  }, [pathname])
+
   const navigation = [
     { name: "Dashboard", href: "/admin", icon: Home },
     { name: "Pedidos", href: "/admin/pedidos", icon: ShoppingCart },
@@ -53,6 +76,7 @@ export default function AdminHeader() {
     { name: "Zonas Delivery", href: "/admin/zonas-delivery", icon: MapPin },
     { name: "Puntos Palermo", href: "/admin/puntos-palermo", icon: Sparkles },
     { name: "Chatbot", href: "/admin/chatbot", icon: MessageCircle },
+    { name: "Contacto", href: "/admin/contacto", icon: Mail },
     { name: "Reportes", href: "/admin/reportes", icon: BarChart3 },
   ]
 
@@ -109,7 +133,7 @@ export default function AdminHeader() {
                 <Link key={item.name} href={item.href!}>
                   <Button
                     variant={isActive ? "default" : "ghost"}
-                    className={`flex items-center space-x-2 ${
+                    className={`flex items-center space-x-2 relative ${
                       isActive
                         ? "bg-pink-600 text-white hover:bg-pink-700"
                         : "text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -117,6 +141,11 @@ export default function AdminHeader() {
                   >
                     <Icon className="w-4 h-4" />
                     <span>{item.name}</span>
+                    {item.name === "Contacto" && pendingContactsCount > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 text-[10px] font-bold text-white bg-red-500 rounded-full animate-pulse">
+                        {pendingContactsCount}
+                      </span>
+                    )}
                   </Button>
                 </Link>
               )
@@ -157,9 +186,16 @@ export default function AdminHeader() {
                   
                   return (
                     <DropdownMenuItem key={item.name} asChild>
-                      <Link href={item.href!} className="flex items-center">
-                        <Icon className="mr-2 h-4 w-4" />
-                        <span>{item.name}</span>
+                      <Link href={item.href!} className="flex items-center justify-between">
+                        <span className="flex items-center">
+                          <Icon className="mr-2 h-4 w-4" />
+                          <span>{item.name}</span>
+                        </span>
+                        {item.name === "Contacto" && pendingContactsCount > 0 && (
+                          <span className="px-1.5 py-0.5 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                            {pendingContactsCount}
+                          </span>
+                        )}
                       </Link>
                     </DropdownMenuItem>
                   )

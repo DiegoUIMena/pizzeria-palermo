@@ -387,3 +387,149 @@ El equipo de Pizzería Palermo
     return false;
   }
 }
+
+/**
+ * Enviar correo de respuesta a una solicitud de contacto
+ */
+export async function sendContactResponseEmail(
+  recipientEmail: string,
+  recipientName: string,
+  originalSubject: string,
+  originalMessage: string,
+  adminResponse: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    const transporter = createEmailTransporter();
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html lang="es">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .header {
+            background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+          }
+          .content {
+            background: #ffffff;
+            padding: 30px;
+            border: 1px solid #e5e7eb;
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+          }
+          .original-message {
+            background: #f9fafb;
+            border-left: 4px solid #db2777;
+            padding: 15px;
+            margin: 20px 0;
+            font-style: italic;
+            color: #4b5563;
+          }
+          .response-container {
+            background: #fff9fb;
+            border: 1px solid #fbcfe8;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            line-height: 1.6;
+            color: #111827;
+          }
+          .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 14px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>🍕 Pizzería Palermo</h1>
+          <h2>Respuesta a tu solicitud</h2>
+        </div>
+        <div class="content">
+          <p>Hola <strong>${recipientName}</strong>,</p>
+          
+          <p>Hemos revisado el mensaje que nos enviaste y nuestro equipo de atención al cliente te entrega la siguiente respuesta:</p>
+          
+          <div class="response-container">
+            ${adminResponse.replace(/\n/g, "<br>")}
+          </div>
+
+          <div class="original-message">
+            <p style="margin: 0 0 5px 0; font-weight: bold; font-style: normal; color: #111827;">Resumen de tu mensaje:</p>
+            <strong>Asunto:</strong> ${originalSubject}<br>
+            <strong>Mensaje original:</strong> "${originalMessage}"
+          </div>
+          
+          <p>Si tienes alguna otra duda o consulta adicional, puedes responder directamente a este correo o escribirnos por medio de nuestro sitio web.</p>
+          
+          <p>¡Gracias por comunicarte con nosotros!</p>
+          
+          <p>Atentamente,<br>
+          <strong>El equipo de Pizzería Palermo</strong></p>
+        </div>
+        <div class="footer">
+          <p>Este es un correo automático de seguimiento, por favor no respondas si tu caso ya fue aclarado.</p>
+          <p>© ${new Date().getFullYear()} Pizzería Palermo. Todos los derechos reservados.</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const textContent = `
+Hola ${recipientName},
+
+Hemos recibido tu solicitud y nuestro equipo te ha respondido:
+
+--------------------------------------------------
+RESPUESTA:
+${adminResponse}
+--------------------------------------------------
+
+RESUMEN DE TU MENSAJE ORIGINAL:
+Asunto: ${originalSubject}
+Mensaje: "${originalMessage}"
+
+Si tienes más preguntas, no dudes en escribirnos de nuevo.
+
+Atentamente,
+El equipo de Pizzería Palermo
+    `;
+
+    const mailOptions = {
+      from: `"Pizzería Palermo" <${gmailUser.value()}>`,
+      to: recipientEmail,
+      subject: `Respuesta a tu mensaje enviado a Pizzería Palermo`,
+      text: textContent,
+      html: htmlContent,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+
+    return {
+      success: true,
+      messageId: info.messageId,
+    };
+  } catch (error: any) {
+    logger.error("Error al enviar email de respuesta de contacto:", error);
+    return {
+      success: false,
+      error: error.message || String(error),
+    };
+  }
+}
+

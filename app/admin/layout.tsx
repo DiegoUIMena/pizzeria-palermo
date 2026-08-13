@@ -53,9 +53,9 @@ export default function AdminLayout({
         return
       }
 
-      // Si está autenticado pero no es admin, redirigir a inicio
-      if (user?.role !== 'admin') {
-        console.log('[AdminLayout] Usuario no es admin (rol:', user?.role, '), redirigiendo a inicio')
+      // Si está autenticado pero no es admin o staff, redirigir a inicio
+      if (user?.role !== 'admin' && user?.role !== 'staff') {
+        console.log('[AdminLayout] Usuario no es admin/staff (rol:', user?.role, '), redirigiendo a inicio')
         setIsChecking(false) // [AUTH] Detener loading antes del redirect
         router.push('/')
         return

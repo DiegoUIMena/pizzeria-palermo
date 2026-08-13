@@ -11,19 +11,19 @@ export default function TerminosPage() {
   return (
     <main className="min-h-screen py-12 px-4 sm:px-6 lg:px-8 bg-transparent antialiased text-gray-800 dark:text-gray-200">
       <div className="max-w-4xl mx-auto flex flex-col items-center">
-        {/* Título Principal */}
-        <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white uppercase mb-4 text-center">
-          Términos y Condiciones
-        </h1>
-
-        {/* Subtítulo Institucional */}
-        <p className="text-black dark:text-white text-center max-w-2xl text-sm sm:text-base leading-relaxed mb-8">
-          Lea atentamente las condiciones que regulan el uso del sitio web, los pedidos realizados a través de nuestra plataforma y los servicios ofrecidos por Palermo Pizzas.
-        </p>
-
         {/* Contenedor del Documento Legal */}
         <article className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-sm p-6 sm:p-10 md:p-12 text-gray-700 dark:text-gray-300">
           
+          {/* Título Principal */}
+          <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-gray-900 dark:text-white uppercase mb-4 text-center">
+            Términos y Condiciones
+          </h1>
+
+          {/* Subtítulo Institucional */}
+          <p className="text-gray-500 dark:text-gray-400 text-center mx-auto max-w-2xl text-sm sm:text-base leading-relaxed mb-8">
+            Lea atentamente las condiciones que regulan el uso del sitio web, los pedidos realizados a través de nuestra plataforma y los servicios ofrecidos por Palermo Pizzas.
+          </p>
+
           {/* Fecha de vigencia y procedencia */}
           <div className="border-b border-gray-100 dark:border-gray-800 pb-4 mb-8 text-xs sm:text-sm text-gray-400 dark:text-gray-500 flex justify-between items-center">
             <span>Última actualización: 5 de agosto de 2026</span>
