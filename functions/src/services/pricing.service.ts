@@ -123,6 +123,84 @@ async function getPriceConfig(): Promise<PriceConfig> {
   return fallbackConfig;
 }
 
+interface IngredientPriceInfo {
+  nombre: string;
+  tipo?: string;
+  clase?: string;
+  esPrecioEspecial?: boolean;
+  precioPorcionFamiliar?: number;
+  precioPorcionMediana?: number;
+}
+
+let CACHED_INGREDIENTS_MAP: Map<string, IngredientPriceInfo> | null = null;
+let lastIngredientsFetchTime = 0;
+const INGREDIENTS_CACHE_TTL = 15 * 60 * 1000;
+
+function normalizeIngredientName(text: string): string {
+  return (text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s*\(\+\$\d+(\.\d+)?\)/, "")
+    .trim();
+}
+
+async function getIngredientsPriceMap(): Promise<Map<string, IngredientPriceInfo>> {
+  const now = Date.now();
+  if (CACHED_INGREDIENTS_MAP && (now - lastIngredientsFetchTime) < INGREDIENTS_CACHE_TTL) {
+    return CACHED_INGREDIENTS_MAP;
+  }
+
+  const map = new Map<string, IngredientPriceInfo>();
+  try {
+    const db = admin.firestore();
+    const snap = await db.collection("ingredientes").get();
+    snap.docs.forEach((doc) => {
+      const data = doc.data() as any;
+      if (data.nombre) {
+        const norm = normalizeIngredientName(data.nombre);
+        map.set(norm, {
+          nombre: data.nombre,
+          tipo: data.tipo || data.clase,
+          clase: data.clase || data.tipo,
+          esPrecioEspecial: Boolean(data.esPrecioEspecial),
+          precioPorcionFamiliar: Number(data.precioPorcionFamiliar) || 0,
+          precioPorcionMediana: Number(data.precioPorcionMediana) || 0,
+        });
+      }
+    });
+    CACHED_INGREDIENTS_MAP = map;
+    lastIngredientsFetchTime = now;
+  } catch (error) {
+    console.error("❌ Error cargando mapa de ingredientes en pricing:", error);
+  }
+
+  return map;
+}
+
+function getIngredientUnitPrice(
+  ingName: string,
+  size: string,
+  isPremiumDefault: boolean,
+  sizeConfig: { simpleExtraPrice: number; premiumExtraPrice: number },
+  ingMap: Map<string, IngredientPriceInfo>
+): number {
+  const norm = normalizeIngredientName(ingName);
+  const info = ingMap.get(norm);
+
+  if (info && info.esPrecioEspecial) {
+    const specialPrice = size === "mediana"
+      ? (info.precioPorcionMediana || info.precioPorcionFamiliar)
+      : info.precioPorcionFamiliar;
+    if (specialPrice && specialPrice > 0) {
+      return specialPrice;
+    }
+  }
+
+  const isPrem = info ? (info.tipo === "premium" || info.clase === "premium") : isPremiumDefault;
+  return isPrem ? sizeConfig.premiumExtraPrice : sizeConfig.simpleExtraPrice;
+}
+
 /**
  * Calcular precio de un ítem del pedido
  */
@@ -133,6 +211,7 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
   }
 
   const PRICE_CONFIG = await getPriceConfig();
+  const ingMap = await getIngredientsPriceMap();
   let totalPrice = 0;
 
   // Si el item ya tiene precio y no es una pizza personalizable, usar ese precio
@@ -159,12 +238,15 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
 
       const simpleCount = item.ingredients?.length || 0;
       if (simpleCount > 2) {
-        const extraSimple = simpleCount - 2;
-        totalPrice += extraSimple * sizeConfig.simpleExtraPrice;
+        const extraSimples = (item.ingredients || []).slice(2);
+        extraSimples.forEach((ing) => {
+          totalPrice += getIngredientUnitPrice(ing, size, false, sizeConfig, ingMap);
+        });
       }
-    } else if (item.pizzaType === "premium") {
-      // ⭐ NUEVO: Si hay pizza base seleccionada, usar su precio
-      if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
+    } else if (item.pizzaType === "premium" || item.pizzaType === "custom" || item.pizzaType === "normal") {
+      if (item.pizzaType === "custom") {
+        totalPrice = sizeConfig.simpleBasePrice;
+      } else if (item.selectedMenuPizza && item.selectedMenuPizza !== "base") {
         try {
           const selectedPizzaPrice = await getMenuPizzaPriceByName(item.selectedMenuPizza);
           if (selectedPizzaPrice) {
@@ -181,15 +263,15 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
           totalPrice = sizeConfig.premiumBasePrice;
         }
       } else {
-        // Sin pizza base seleccionada, usar precio genérico
         totalPrice = sizeConfig.premiumBasePrice;
       }
 
-      const simpleCount = item.ingredients?.length || 0;
-      const premiumCount = item.premiumIngredients?.length || 0;
-
-      totalPrice += simpleCount * sizeConfig.simpleExtraPrice;
-      totalPrice += premiumCount * sizeConfig.premiumExtraPrice;
+      (item.ingredients || []).forEach((ing) => {
+        totalPrice += getIngredientUnitPrice(ing, size, false, sizeConfig, ingMap);
+      });
+      (item.premiumIngredients || []).forEach((ing) => {
+        totalPrice += getIngredientUnitPrice(ing, size, true, sizeConfig, ingMap);
+      });
     } else if (item.pizzaType === "duo") {
       const calculateDuoHalfPrice = async (half?: DuoHalfPriceInput | null): Promise<number> => {
         if (!half) {
@@ -219,8 +301,12 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
           halfTotal = sizeConfig.premiumBasePrice;
         }
 
-        halfTotal += (half.simpleIngredients?.length || 0) * sizeConfig.simpleExtraPrice;
-        halfTotal += (half.premiumIngredients?.length || 0) * sizeConfig.premiumExtraPrice;
+        (half.simpleIngredients || []).forEach((ing) => {
+          halfTotal += getIngredientUnitPrice(ing, size, false, sizeConfig, ingMap);
+        });
+        (half.premiumIngredients || []).forEach((ing) => {
+          halfTotal += getIngredientUnitPrice(ing, size, true, sizeConfig, ingMap);
+        });
 
         return halfTotal;
       };
@@ -228,6 +314,30 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
       const half1Price = await calculateDuoHalfPrice(item.half1 as DuoHalfPriceInput | undefined);
       const half2Price = await calculateDuoHalfPrice(item.half2 as DuoHalfPriceInput | undefined);
       totalPrice = Math.max(half1Price, half2Price);
+
+      // Sumar ingredientes extras seleccionados para TODA la pizza (simples y premium)
+      const h1Simple = item.half1?.simpleIngredients || [];
+      const h1Premium = item.half1?.premiumIngredients || [];
+      const h2Simple = item.half2?.simpleIngredients || [];
+      const h2Premium = item.half2?.premiumIngredients || [];
+
+      const duoExtraSimple = Array.isArray(item.extraSimple)
+        ? item.extraSimple
+        : (Array.isArray(item.ingredients)
+            ? item.ingredients.filter((x: string) => !h1Simple.includes(x) && !h2Simple.includes(x))
+            : []);
+      const duoExtraPremium = Array.isArray(item.extraPremium)
+        ? item.extraPremium
+        : (Array.isArray(item.premiumIngredients)
+            ? item.premiumIngredients.filter((x: string) => !h1Premium.includes(x) && !h2Premium.includes(x))
+            : []);
+
+      duoExtraSimple.forEach((ing) => {
+        totalPrice += getIngredientUnitPrice(ing, size, false, sizeConfig, ingMap);
+      });
+      duoExtraPremium.forEach((ing) => {
+        totalPrice += getIngredientUnitPrice(ing, size, true, sizeConfig, ingMap);
+      });
 
       if (!item.half1 || !item.half2) {
         console.warn("⚠️ DUO recibido sin detalle de mitades completo, usando el precio calculado con lo disponible");

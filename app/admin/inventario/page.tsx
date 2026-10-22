@@ -78,6 +78,12 @@ export default function AdminInventario() {
     precioUnitario: 0,
     proveedor: "",
     fechaVencimiento: "",
+    tipo: "ninguno" as "simple" | "premium" | "base" | "ninguno",
+    cantidadPorPizzaFamiliar: 0,
+    cantidadPorPizzaMediana: 0,
+    esPrecioEspecial: false,
+    precioPorcionFamiliar: 0,
+    precioPorcionMediana: 0,
   })
 
   // Suscripción en tiempo real Firestore
@@ -454,20 +460,32 @@ export default function AdminInventario() {
     if (saving) return
     setSaving(true)
     try {
+      const payload: any = {
+        nombre: formData.nombre,
+        categoria: formData.categoria,
+        stockActual: formData.stockActual,
+        stockMinimo: formData.stockMinimo,
+        stockMaximo: formData.stockMaximo,
+        unidad: formData.unidad,
+        precioUnitario: formData.precioUnitario,
+        proveedor: formData.proveedor,
+        fechaVencimiento: formData.fechaVencimiento || undefined,
+        tipo: formData.tipo,
+        clase: formData.tipo,
+        cantidadPorPizzaFamiliar: Number(formData.cantidadPorPizzaFamiliar) || 0,
+        cantidadPorPizzaMediana: Number(formData.cantidadPorPizzaMediana) || 0,
+        esPrecioEspecial: Boolean(formData.esPrecioEspecial),
+        precioPorcionFamiliar: Number(formData.precioPorcionFamiliar) || 0,
+        precioPorcionMediana: Number(formData.precioPorcionMediana) || 0,
+      }
+
       if (editingItem) {
-        await updateIngrediente(editingItem.id, { ...formData, estado: computeEstado({ stockActual: formData.stockActual, stockMinimo: formData.stockMinimo, fechaVencimiento: formData.fechaVencimiento }) })
-      } else {
-        await addIngrediente({
-          nombre: formData.nombre,
-          categoria: formData.categoria,
-          stockActual: formData.stockActual,
-          stockMinimo: formData.stockMinimo,
-          stockMaximo: formData.stockMaximo,
-          unidad: formData.unidad,
-          precioUnitario: formData.precioUnitario,
-          proveedor: formData.proveedor,
-          fechaVencimiento: formData.fechaVencimiento || undefined,
+        await updateIngrediente(editingItem.id, {
+          ...payload,
+          estado: computeEstado({ stockActual: formData.stockActual, stockMinimo: formData.stockMinimo, fechaVencimiento: formData.fechaVencimiento })
         })
+      } else {
+        await addIngrediente(payload)
         setShowAddedModal(true)
       }
     } catch (err) {
@@ -485,6 +503,12 @@ export default function AdminInventario() {
       precioUnitario: 0,
       proveedor: "",
       fechaVencimiento: "",
+      tipo: "ninguno",
+      cantidadPorPizzaFamiliar: 0,
+      cantidadPorPizzaMediana: 0,
+      esPrecioEspecial: false,
+      precioPorcionFamiliar: 0,
+      precioPorcionMediana: 0,
     })
     setEditingItem(null)
     setShowModal(false)
@@ -493,6 +517,7 @@ export default function AdminInventario() {
 
   const openEditModal = (ingrediente: IngredienteFS) => {
     setEditingItem(ingrediente)
+    const detectedTipo = (ingrediente.tipo || ingrediente.clase || (ingrediente.categoria === 'simple' || ingrediente.categoria === 'premium' ? ingrediente.categoria : 'ninguno')) as any
     setFormData({
       nombre: ingrediente.nombre,
       categoria: ingrediente.categoria,
@@ -503,6 +528,12 @@ export default function AdminInventario() {
       precioUnitario: ingrediente.precioUnitario,
       proveedor: ingrediente.proveedor,
       fechaVencimiento: ingrediente.fechaVencimiento || "",
+      tipo: detectedTipo || "ninguno",
+      cantidadPorPizzaFamiliar: ingrediente.cantidadPorPizzaFamiliar || 0,
+      cantidadPorPizzaMediana: ingrediente.cantidadPorPizzaMediana || 0,
+      esPrecioEspecial: Boolean(ingrediente.esPrecioEspecial),
+      precioPorcionFamiliar: ingrediente.precioPorcionFamiliar || 0,
+      precioPorcionMediana: ingrediente.precioPorcionMediana || 0,
     })
     setShowModal(true)
   }
@@ -704,10 +735,21 @@ export default function AdminInventario() {
                 <CardHeader className="py-3 pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-col flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {getEstadoIcon(ing.estado)}
                         <CardTitle className="text-sm truncate font-semibold">{ing.nombre}</CardTitle>
-                        <Badge className={`ml-auto ${getEstadoColor(ing.estado)} text-white text-[10px] px-2 py-0.5 tracking-wide`}>{ing.estado}</Badge>
+                        <Badge className={`${getEstadoColor(ing.estado)} text-white text-[10px] px-2 py-0.5 tracking-wide`}>{ing.estado}</Badge>
+                        {(ing.tipo === 'simple' || ing.clase === 'simple') && (
+                          <Badge variant="outline" className="text-[9px] bg-green-50 text-green-700 border-green-300 dark:bg-green-950 dark:text-green-300">Simple</Badge>
+                        )}
+                        {(ing.tipo === 'premium' || ing.clase === 'premium') && (
+                          <Badge variant="outline" className="text-[9px] bg-purple-50 text-purple-700 border-purple-300 dark:bg-purple-950 dark:text-purple-300">Premium</Badge>
+                        )}
+                        {ing.esPrecioEspecial && (
+                          <Badge variant="outline" className="text-[9px] bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300 font-semibold">
+                            Esp: +${(ing.precioPorcionFamiliar || 0).toLocaleString()}
+                          </Badge>
+                        )}
                       </div>
                       <div className="mt-2">
                         <div className="flex justify-between text-[10px] text-gray-500 dark:text-gray-400 mb-1 font-medium">
@@ -901,6 +943,109 @@ export default function AdminInventario() {
                     onChange={(e) => setFormData({ ...formData, fechaVencimiento: e.target.value })}
                   />
                 </div>
+              </div>
+
+              {/* SECCIÓN CONFIGURACIÓN PARA PIZZAS */}
+              <div className="border-t pt-4 mt-2 space-y-4">
+                <h4 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  🍕 Configuración para Armado de Pizzas
+                </h4>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="tipoPizza">Clasificación en Pizzas</Label>
+                    <Select
+                      value={formData.tipo}
+                      onValueChange={(val: any) => setFormData({ ...formData, tipo: val })}
+                    >
+                      <SelectTrigger id="tipoPizza">
+                        <SelectValue placeholder="Seleccionar tipo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="simple">Ingrediente Simple</SelectItem>
+                        <SelectItem value="premium">Ingrediente Premium</SelectItem>
+                        <SelectItem value="base">Insumo Base (Masa, salsa, queso)</SelectItem>
+                        <SelectItem value="ninguno">Ninguno (No visible en pizzas)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="cantFamiliar">Porción Familiar ({formData.unidad || 'uds/gr'})</Label>
+                    <Input
+                      id="cantFamiliar"
+                      type="number"
+                      value={formData.cantidadPorPizzaFamiliar || ""}
+                      onChange={(e) => setFormData({ ...formData, cantidadPorPizzaFamiliar: Number.parseFloat(e.target.value) || 0 })}
+                      min="0"
+                      step="any"
+                      placeholder="Ej: 16 uds u 80 gr"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="cantMediana">Porción Mediana ({formData.unidad || 'uds/gr'})</Label>
+                    <Input
+                      id="cantMediana"
+                      type="number"
+                      value={formData.cantidadPorPizzaMediana || ""}
+                      onChange={(e) => setFormData({ ...formData, cantidadPorPizzaMediana: Number.parseFloat(e.target.value) || 0 })}
+                      min="0"
+                      step="any"
+                      placeholder="Ej: 16 uds o 50 gr"
+                    />
+                  </div>
+                </div>
+
+                {/* OPCIÓN PRECIO ESPECIAL DE PORCIÓN */}
+                {(formData.tipo === 'simple' || formData.tipo === 'premium') && (
+                  <div className="p-3 border rounded-lg bg-gray-50 dark:bg-gray-900/50 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <Label htmlFor="esPrecioEspecial" className="text-sm font-medium cursor-pointer">
+                          Precio Especial de Porción
+                        </Label>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Cobrar un valor personalizado al cliente (ej. Camarones $6.000) y mostrar su valor al lado.
+                        </p>
+                      </div>
+                      <Switch
+                        id="esPrecioEspecial"
+                        checked={formData.esPrecioEspecial}
+                        onCheckedChange={(checked) => setFormData({ ...formData, esPrecioEspecial: checked })}
+                      />
+                    </div>
+
+                    {formData.esPrecioEspecial && (
+                      <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-200 dark:border-gray-800">
+                        <div className="space-y-1">
+                          <Label htmlFor="precioPorcionFamiliar" className="text-xs">Precio Porción Familiar ($)</Label>
+                          <Input
+                            id="precioPorcionFamiliar"
+                            type="number"
+                            value={formData.precioPorcionFamiliar || ""}
+                            onChange={(e) => setFormData({ ...formData, precioPorcionFamiliar: Number.parseInt(e.target.value) || 0 })}
+                            min="0"
+                            placeholder="Ej: 6000"
+                            required={formData.esPrecioEspecial}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="precioPorcionMediana" className="text-xs">Precio Porción Mediana ($)</Label>
+                          <Input
+                            id="precioPorcionMediana"
+                            type="number"
+                            value={formData.precioPorcionMediana || ""}
+                            onChange={(e) => setFormData({ ...formData, precioPorcionMediana: Number.parseInt(e.target.value) || 0 })}
+                            min="0"
+                            placeholder="Ej: 6000"
+                            required={formData.esPrecioEspecial}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <DialogFooter>

@@ -17,7 +17,7 @@ export function Step5IngredientsSelector({
   onNext,
   onBack,
 }: Step5IngredientsSelectorProps) {
-  const { loading, ingredientesSimples, ingredientesPremium, getPreciosSegunTamano } = usePizzaBuilderData();
+  const { loading, ingredientesSimples, ingredientesPremium, getPreciosSegunTamano, getIngredientDisplayName } = usePizzaBuilderData();
 
   // Normalizar texto para comparaciones
   const normalizeText = (text: string): string => {
@@ -114,7 +114,7 @@ export function Step5IngredientsSelector({
                 {ingredientesSimples.map((ingredient) => (
                   <IngredientChip
                     key={ingredient.id}
-                    name={ingredient.nombre}
+                    name={getIngredientDisplayName(ingredient, tamano)}
                     price={simplePrice}
                     type="simple"
                     selected={config.simpleIngredients.includes(ingredient.nombre)}
@@ -140,7 +140,7 @@ export function Step5IngredientsSelector({
                 {ingredientesPremium.map((ingredient) => (
                   <IngredientChip
                     key={ingredient.id}
-                    name={ingredient.nombre}
+                    name={getIngredientDisplayName(ingredient, tamano, true)}
                     price={premiumPrice}
                     type="premium"
                     selected={config.premiumIngredients.includes(ingredient.nombre)}

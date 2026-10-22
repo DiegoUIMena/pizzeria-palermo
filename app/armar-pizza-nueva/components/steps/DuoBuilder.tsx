@@ -96,6 +96,8 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
     ingredientesSimples,
     ingredientesPremium,
     getPreciosSegunTamano,
+    getIngredientPrice,
+    getIngredientDisplayName,
   } = usePizzaBuilderData();
   const { addItem } = useCart();
   const router = useRouter();
@@ -174,8 +176,12 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
       }
     }
 
-    halfTotal += (half.simpleIngredients?.length || 0) * precios.simple;
-    halfTotal += (half.premiumIngredients?.length || 0) * precios.premium;
+    (half.simpleIngredients || []).forEach((ing: string) => {
+      halfTotal += getIngredientPrice(ing, tamano, false);
+    });
+    (half.premiumIngredients || []).forEach((ing: string) => {
+      halfTotal += getIngredientPrice(ing, tamano, true);
+    });
     return halfTotal;
   };
 
@@ -269,6 +275,8 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
         half2: config.half2,
         ingredients: allSimpleIngredients,
         premiumIngredients: allPremiumIngredients,
+        extraSimple: [],
+        extraPremium: [],
       };
       
       addItem(cartItem);
@@ -406,7 +414,7 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
                     {ingredientesSimples.map((ing) => (
                       <IngredientChip
                         key={ing.id}
-                        name={ing.nombre}
+                        name={getIngredientDisplayName(ing, tamano)}
                         price={simplePrice}
                         type="simple"
                         selected={currentHalf?.simpleIngredients?.includes(ing.nombre) || false}
@@ -425,7 +433,7 @@ export function DuoBuilder({ config, onUpdate, onBack, half, onNext }: DuoBuilde
                     {ingredientesPremium.map((ing) => (
                       <IngredientChip
                         key={ing.id}
-                        name={ing.nombre}
+                        name={getIngredientDisplayName(ing, tamano, true)}
                         price={premiumPrice}
                         type="premium"
                         selected={currentHalf?.premiumIngredients?.includes(ing.nombre) || false}

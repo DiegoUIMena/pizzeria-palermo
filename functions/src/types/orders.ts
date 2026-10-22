@@ -10,6 +10,8 @@ export interface OrderItem {
   size?: string;
   ingredients?: string[];
   premiumIngredients?: string[];
+  extraSimple?: string[];
+  extraPremium?: string[];
   sauces?: string[];
   drinks?: string[];
   extras?: string[];

@@ -15,9 +15,16 @@ export interface Ingrediente {
   estado: 'Disponible' | 'Stock Bajo' | 'Agotado' | 'Vencido'
   createdAt?: string
   updatedAt?: string
+  // Clasificación para armado de pizzas:
+  tipo?: 'simple' | 'premium' | 'base' | 'ninguno'
+  clase?: 'simple' | 'premium' | 'base' | 'ninguno'
   // Cantidades estándar para pizzas armadas manualmente
   cantidadPorPizzaMediana?: number  // Cantidad a consumir por pizza mediana
   cantidadPorPizzaFamiliar?: number // Cantidad a consumir por pizza familiar
+  // Precios especiales de porción (para cobrar al cliente en pizzas armadas si difiere del estándar)
+  esPrecioEspecial?: boolean
+  precioPorcionFamiliar?: number
+  precioPorcionMediana?: number
 }
 
 export const ingredientesCollection = collection(db, 'ingredientes')
@@ -52,8 +59,13 @@ export const listenIngredientes = (cb: (items: Ingrediente[]) => void): (() => v
         estado: data.estado || computeEstado(data),
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
+        tipo: data.tipo || data.clase,
+        clase: data.clase || data.tipo,
         cantidadPorPizzaMediana: data.cantidadPorPizzaMediana,
-        cantidadPorPizzaFamiliar: data.cantidadPorPizzaFamiliar
+        cantidadPorPizzaFamiliar: data.cantidadPorPizzaFamiliar,
+        esPrecioEspecial: data.esPrecioEspecial ?? false,
+        precioPorcionFamiliar: data.precioPorcionFamiliar,
+        precioPorcionMediana: data.precioPorcionMediana
       })
     })
     cb(arr)

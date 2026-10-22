@@ -21,7 +21,7 @@ interface OrderSummaryProps {
 }
 
 export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
-  const { getPreciosSegunTamano, pizzasParaNormal, pizzasParaDuo, salsas, bebidas, otrosExtras } = usePizzaBuilderData();
+  const { getPreciosSegunTamano, getIngredientPrice, pizzasParaNormal, pizzasParaDuo, salsas, bebidas, otrosExtras } = usePizzaBuilderData();
   const [serverPrice, setServerPrice] = useState<number | null>(null);
   const [isServerPriceLoading, setIsServerPriceLoading] = useState(false);
   const [serverPriceError, setServerPriceError] = useState<string | null>(null);
@@ -55,10 +55,14 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
       }
 
       // Agregar ingredientes simples
-      total += config.simpleIngredients.length * precios.simple;
+      config.simpleIngredients.forEach(ing => {
+        total += getIngredientPrice(ing, tamano, false);
+      });
 
       // Agregar ingredientes premium
-      total += config.premiumIngredients.length * precios.premium;
+      config.premiumIngredients.forEach(ing => {
+        total += getIngredientPrice(ing, tamano, true);
+      });
     } else if (config.type === 'duo' && config.half1 && config.half2) {
       // Calcular precio de cada mitad
       const calculateHalfPrice = (half: any) => {
@@ -77,8 +81,12 @@ export function OrderSummary({ config, onAddToCart }: OrderSummaryProps) {
             halfTotal = precios.baseMenu;
           }
         }
-        halfTotal += half.simpleIngredients.length * precios.simple;
-        halfTotal += half.premiumIngredients.length * precios.premium;
+        half.simpleIngredients.forEach((ing: string) => {
+          halfTotal += getIngredientPrice(ing, tamano, false);
+        });
+        half.premiumIngredients.forEach((ing: string) => {
+          halfTotal += getIngredientPrice(ing, tamano, true);
+        });
         return halfTotal;
       };
 

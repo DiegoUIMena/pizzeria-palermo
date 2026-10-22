@@ -369,23 +369,23 @@ export default function PromoSection() {
         it.clasificacion === "vegetariana" || 
         it.clasificacion === "carnica" || 
         it.clasificacion === "marina"
-      ).map(mapFirestoreItemToUI)
+      ).map(mapFirestoreItemToUI).sort((a, b) => a.name.localeCompare(b.name))
     }
 
     if (activeCategory === "Pizzas del Mar") {
-      return activeItems.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI)
+      return activeItems.filter((it: any) => it.clasificacion === "marina").map(mapFirestoreItemToUI).sort((a, b) => a.name.localeCompare(b.name))
     }
     if (activeCategory === "Pizzas con Carne") {
-      return activeItems.filter((it: any) => it.clasificacion === "carnica").map(mapFirestoreItemToUI)
+      return activeItems.filter((it: any) => it.clasificacion === "carnica").map(mapFirestoreItemToUI).sort((a, b) => a.name.localeCompare(b.name))
     }
     if (activeCategory === "Pizzas Vegetarianas") {
-      return activeItems.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI)
+      return activeItems.filter((it: any) => it.clasificacion === "vegetariana").map(mapFirestoreItemToUI).sort((a, b) => a.name.localeCompare(b.name))
     }
 
     // Other categories
     switch (activeCategory) {
       case "Combos":
-        return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Combos").map(mapFirestoreItemToUI)
+        return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Combos").map(mapFirestoreItemToUI).sort((a, b) => a.name.localeCompare(b.name))
       case "Promos": {
         const activePromos = promos.filter(p => p.activa && isPromoAvailable(p))
         return activePromos.map(p => ({
@@ -401,7 +401,7 @@ export default function PromoSection() {
         }))
       }
       case "Acompañamientos": {
-        return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos").map(mapFirestoreItemToUI)
+        return activeItems.filter((it: any) => (it.categoria || it.category || "") === "Acompañamientos").map(mapFirestoreItemToUI).sort((a, b) => a.name.localeCompare(b.name))
       }
       case "Bebidas": {
         const rawBebidas = activeItems.filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("bebid"))
@@ -455,16 +455,18 @@ export default function PromoSection() {
           }
         })
         
-        return desglosadas
+        return desglosadas.sort((a, b) => a.name.localeCompare(b.name))
       }
       case "Pizzas Palermo":
         return activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("palermo") || (it.categoria || it.category || "").toLowerCase().includes("especial"))
           .map(mapFirestoreItemToUI)
+          .sort((a, b) => a.name.localeCompare(b.name))
       case "Pizzas Tradicionales":
         return activeItems
           .filter((it: any) => (it.categoria || it.category || "").toLowerCase().includes("tradicional") || (it.categoria || it.category || "").toLowerCase().includes("clasica"))
           .map(mapFirestoreItemToUI)
+          .sort((a, b) => a.name.localeCompare(b.name))
       default:
         return []
     }

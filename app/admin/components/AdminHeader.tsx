@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders, Sparkles, Mail } from "lucide-react"
+import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders, Sparkles, Mail, Store } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState } from 'react'
 import { httpsCallable } from "firebase/functions"
@@ -64,6 +64,7 @@ export default function AdminHeader() {
   const navigation = [
     { name: "Dashboard", href: "/admin", icon: Home },
     { name: "Pedidos", href: "/admin/pedidos", icon: ShoppingCart },
+    { name: "Ventas Presencial", href: "/admin/ventas-presencial", icon: Store },
     { 
       name: "Inventario", 
       icon: Package,

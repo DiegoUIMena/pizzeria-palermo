@@ -543,6 +543,12 @@ export const createOrder = onCall(async (request) => {
         orderData.tipoEntrega,
         orderData.direccion
       );
+      
+      // ✅ MEJORA: Para POS (Venta Presencial), permitir incorporar el valor de delivery ingresado manualmente
+      if ((orderData as any).orderChannel === "POS" && (orderData as any).delivery > 0) {
+        priceCalculation.deliveryFee = (orderData as any).delivery;
+        priceCalculation.total = priceCalculation.subtotal + priceCalculation.deliveryFee;
+      }
 
       let discountCode: string | undefined;
       let discountFromCode = 0;
@@ -592,8 +598,17 @@ export const createOrder = onCall(async (request) => {
 
       const finalTotal = Math.max(0, priceCalculation.total - discountFromCode);
 
-      // 6. Generar número de pedido único
-      const orderNumber = Math.floor(10000 + Math.random() * 90000);
+      // 6. Generar número de pedido único consecutivo (Atómico)
+      const countersRef = db.collection('settings').doc('counters');
+      const countersDoc = await transaction.get(countersRef);
+      
+      let orderNumber = 100;
+      if (countersDoc.exists) {
+        const data = countersDoc.data();
+        if (data && typeof data.orderNumber === 'number') {
+          orderNumber = data.orderNumber + 1;
+        }
+      }
 
       // 7. Determinar el estado inicial según el método de pago (Webpay y Khipu son pasarelas en línea)
       const isOnlinePayment = orderData.metodoPago === "Webpay Plus" || 
@@ -686,6 +701,7 @@ export const createOrder = onCall(async (request) => {
       }
 
       // ✅ CRÍTICO: Escribir pedido en la transacción AL FINAL
+      transaction.set(countersRef, { orderNumber }, { merge: true });
       transaction.set(orderRef, newOrder);
 
       logger.info("Transaction prepared successfully", {orderId: orderRef.id});

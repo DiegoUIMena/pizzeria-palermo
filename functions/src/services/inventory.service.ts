@@ -396,12 +396,139 @@ async function processExtrasForItem(
   logger.info(`✅ [processExtrasForItem] Completado. Consumption actualizado:`, consumption);
 }
 
+// Helper para buscar pizzas en el menú con tolerancia a nombres y variaciones
+function findPizzaInMenuMap(
+  searchName: string,
+  pizzasConReceta: Record<string, any>
+): any | null {
+  if (!searchName) return null;
+  const clean = normalizeText(searchName)
+    .replace(/\s+pizza\s+/gi, " ")
+    .replace(/^pizza\s+/gi, "")
+    .replace(/\b(mediana|familiar)\b/gi, "")
+    .trim();
+
+  if (!clean || clean === "personalizada" || clean === "armar" || clean === "custom") {
+    return null;
+  }
+
+  // 1. Caso especial Del Pibe
+  if (clean.includes("del pibe") || clean.includes("pibe")) {
+    for (const [key, pizza] of Object.entries(pizzasConReceta)) {
+      if (normalizeText(key).includes("pibe")) return pizza;
+    }
+  }
+
+  // 2. Coincidencia exacta o parcial
+  for (const [key, pizza] of Object.entries(pizzasConReceta)) {
+    const normKey = normalizeText(key).replace(/^pizza\s+/gi, "").trim();
+    if (normKey === clean || normKey.includes(clean) || clean.includes(normKey)) {
+      return pizza;
+    }
+  }
+
+  // 3. Palabras clave
+  const words = clean.split(" ").filter(w => w.length > 2 && !["con", "los", "las", "del", "de", "la", "el", "y"].includes(w));
+  if (words.length > 0) {
+    for (const [key, pizza] of Object.entries(pizzasConReceta)) {
+      const normKey = normalizeText(key);
+      if (words.every(w => normKey.includes(w))) return pizza;
+    }
+  }
+
+  return null;
+}
+
+// Helper para calcular el consumo/receta de una mitad de Pizza DUO (del menú o personalizada)
+function calculateDuoHalfConsumption(
+  half: any,
+  varietyName: string,
+  isMediana: boolean,
+  pizzasConReceta: Record<string, any>,
+  ingredientesMap: Record<string, any>,
+  itemOptions?: { sinOregano?: boolean; sinQueso?: boolean; sinSalsaTomate?: boolean }
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  const pizzaMenu = findPizzaInMenuMap(varietyName || half?.variety || "", pizzasConReceta);
+
+  if (pizzaMenu) {
+    // Es mitad del menú -> 50% de la receta según tamaño
+    const receta = isMediana ? (pizzaMenu.recetaMediana || pizzaMenu.receta) : pizzaMenu.receta;
+    if (Array.isArray(receta)) {
+      receta.forEach((ing: any) => {
+        const nombre = normalizeText(ing.nombre || "");
+        const cant = parseFloat(ing.cantidad || 0) * 0.5; // 50%
+        if (nombre && cant > 0) {
+          result[nombre] = (result[nombre] || 0) + cant;
+        }
+      });
+    }
+  } else {
+    // Es mitad personalizada / armada -> 50% de la base + 50% de ingredientes seleccionados
+    const masaKey = Object.keys(ingredientesMap).find(k => k.includes("masa")) || (isMediana ? "masa mediana" : "masa familiar");
+    result[masaKey] = (result[masaKey] || 0) + 0.5;
+
+    if (!itemOptions?.sinQueso) {
+      const quesoEntry = Object.entries(ingredientesMap).find(([k]) => k.includes("mozzarella") || k.includes("queso"));
+      const quesoName = quesoEntry ? quesoEntry[0] : "queso mozzarella";
+      const quesoDoc = quesoEntry ? quesoEntry[1] : null;
+      const quesoCant = (isMediana ? (quesoDoc?.cantidadPorPizzaMediana || 150) : (quesoDoc?.cantidadPorPizzaFamiliar || 250)) * 0.5;
+      result[quesoName] = (result[quesoName] || 0) + quesoCant;
+    }
+
+    if (!itemOptions?.sinSalsaTomate) {
+      const salsaEntry = Object.entries(ingredientesMap).find(([k]) => k.includes("salsa"));
+      const salsaName = salsaEntry ? salsaEntry[0] : "salsa de tomate";
+      const salsaDoc = salsaEntry ? salsaEntry[1] : null;
+      const salsaCant = (isMediana ? (salsaDoc?.cantidadPorPizzaMediana || 60) : (salsaDoc?.cantidadPorPizzaFamiliar || 100)) * 0.5;
+      result[salsaName] = (result[salsaName] || 0) + salsaCant;
+    }
+
+    if (!itemOptions?.sinOregano) {
+      const oreganoEntry = Object.entries(ingredientesMap).find(([k]) => k.includes("oregano") || k.includes("orégano"));
+      if (oreganoEntry) {
+        const oreganoDoc = oreganoEntry[1];
+        const oreganoCant = (isMediana ? (oreganoDoc?.cantidadPorPizzaMediana || 2) : (oreganoDoc?.cantidadPorPizzaFamiliar || 3)) * 0.5;
+        result[oreganoEntry[0]] = (result[oreganoEntry[0]] || 0) + oreganoCant;
+      }
+    }
+  }
+
+  // Ingredientes específicos de esta mitad (50% de porción estándar)
+  const halfSimples = half?.simpleIngredients || [];
+  const halfPremiums = half?.premiumIngredients || [];
+  const allHalfIngs = [...halfSimples, ...halfPremiums];
+
+  allHalfIngs.forEach((ingStr: string) => {
+    const parsed = parseItemString(ingStr);
+    const norm = normalizeText(parsed.name);
+    
+    let ingDoc = ingredientesMap[norm];
+    let ingKey = norm;
+    if (!ingDoc) {
+      const match = Object.entries(ingredientesMap).find(([k]) => norm.includes(k) || k.includes(norm));
+      if (match) {
+        ingKey = match[0];
+        ingDoc = match[1];
+      }
+    }
+
+    const cantUnit = isMediana ? (ingDoc?.cantidadPorPizzaMediana || 1) : (ingDoc?.cantidadPorPizzaFamiliar || 1);
+    const totalCant = cantUnit * parsed.quantity * 0.5;
+    result[ingKey] = (result[ingKey] || 0) + totalCant;
+  });
+
+  return result;
+}
+
 interface InventoryItem {
   id: string;
   nombre: string;
   stockActual: number;
   stockMinimo: number;
   unidad: string;
+  cantidadPorPizzaMediana?: number;
+  cantidadPorPizzaFamiliar?: number;
 }
 
 interface ValidationResult {
@@ -433,15 +560,20 @@ export async function validateInventoryForOrder(
       : await db.collection("ingredientes").get();
 
     const inventory: Record<string, InventoryItem> = {};
+    const ingredientesMap: Record<string, any> = {};
     inventorySnapshot.forEach((doc) => {
       const data = doc.data();
-      inventory[data.nombre.toLowerCase()] = {
+      const normName = normalizeText(data.nombre || "");
+      inventory[normName] = {
         id: doc.id,
         nombre: data.nombre,
         stockActual: data.stockActual || 0,
         stockMinimo: data.stockMinimo || 0,
         unidad: data.unidad || "",
+        cantidadPorPizzaMediana: data.cantidadPorPizzaMediana,
+        cantidadPorPizzaFamiliar: data.cantidadPorPizzaFamiliar,
       };
+      ingredientesMap[normName] = { id: doc.id, ...data };
     });
 
     // Obtener recetas desde items_menu
@@ -580,6 +712,66 @@ export async function validateInventoryForOrder(
       itemNombre = itemNombre.replace(/\s*\([^)]*\)\s*$/g, '').trim();
 
       const size = (item.size || "Familiar").toLowerCase();
+      const isMediana = size.includes("mediana");
+
+      // 🔴 SOPORTE COMPLETO PARA PIZZA DUO
+      const isDuoPizza = item.pizzaType === 'duo' || Boolean(item.pizza1 && item.pizza2) || itemNombre.includes('duo');
+
+      if (isDuoPizza) {
+        logger.info(`🍕 [validateInventoryForOrder] Validando Pizza DUO: ${item.nombre} (${item.pizza1 || item.half1?.variety} / ${item.pizza2 || item.half2?.variety})`);
+        
+        const half1Cons = calculateDuoHalfConsumption(
+          item.half1,
+          item.pizza1 || item.half1?.variety || "",
+          isMediana,
+          pizzasConReceta,
+          ingredientesMap,
+          { sinOregano: item.sinOregano, sinQueso: item.sinQueso, sinSalsaTomate: item.sinSalsaTomate }
+        );
+
+        const half2Cons = calculateDuoHalfConsumption(
+          item.half2,
+          item.pizza2 || item.half2?.variety || "",
+          isMediana,
+          pizzasConReceta,
+          ingredientesMap,
+          { sinOregano: item.sinOregano, sinQueso: item.sinQueso, sinSalsaTomate: item.sinSalsaTomate }
+        );
+
+        // Sumar mitad 1 y mitad 2 multiplicadas por la cantidad de pizzas
+        for (const [ingName, cantIng] of Object.entries(half1Cons)) {
+          required[ingName] = (required[ingName] || 0) + (cantIng * cantidad);
+        }
+        for (const [ingName, cantIng] of Object.entries(half2Cons)) {
+          required[ingName] = (required[ingName] || 0) + (cantIng * cantidad);
+        }
+
+        // Procesar extras generales para toda la pizza si los hay
+        const globalExtras = [
+          ...(item.extras || []),
+          ...(item.extraSimple || []),
+          ...(item.extraPremium || [])
+        ];
+        if (globalExtras.length > 0) {
+          globalExtras.forEach((extraStr: string) => {
+            const parsed = parseItemString(extraStr);
+            const norm = normalizeText(parsed.name);
+            let ingDoc = ingredientesMap[norm];
+            let ingKey = norm;
+            if (!ingDoc) {
+              const match = Object.entries(ingredientesMap).find(([k]) => norm.includes(k) || k.includes(norm));
+              if (match) {
+                ingKey = match[0];
+                ingDoc = match[1];
+              }
+            }
+            const cantUnit = isMediana ? (ingDoc?.cantidadPorPizzaMediana || 1) : (ingDoc?.cantidadPorPizzaFamiliar || 1);
+            required[ingKey] = (required[ingKey] || 0) + (cantUnit * parsed.quantity * cantidad);
+          });
+        }
+
+        continue;
+      }
 
       // Buscar la pizza en items_menu
       let pizzaEncontrada = null;
@@ -638,7 +830,7 @@ export async function validateInventoryForOrder(
 
         if (recetaArray && Array.isArray(recetaArray) && recetaArray.length > 0) {
           recetaArray.forEach((ing: any) => {
-            const nombreIngrediente = (ing.nombre || "").toLowerCase();
+            const nombreIngrediente = normalizeText(ing.nombre || "");
             const cantidadPorPizza = parseFloat(ing.cantidad || 0);
             
             if (nombreIngrediente && cantidadPorPizza > 0) {
@@ -955,7 +1147,7 @@ export async function consumeInventoryForOrder(
         }, null, 2));
         
         // 🔴 VERIFICAR SI ES PIZZA DÚO
-        const isDuoPizza = item.pizzaType === 'duo' && item.pizza1 && item.pizza2;
+        const isDuoPizza = item.pizzaType === 'duo' || Boolean(item.pizza1 && item.pizza2) || itemNombre.includes('duo');
         logger.info('🔴 isDuoPizza CHECK:', {
           pizzaType: item.pizzaType,
           pizza1: item.pizza1,
@@ -963,75 +1155,66 @@ export async function consumeInventoryForOrder(
           result: isDuoPizza
         });
         
-        // SI ES PIZZA DÚO, procesar ambas pizzas al 50%
+        // SI ES PIZZA DÚO, procesar ambas mitades (menú o armadas) al 50%
         if (isDuoPizza) {
-          logger.info(`🍕 PIZZA DÚO DETECTADA: ${item.pizza1} / ${item.pizza2}`);
+          logger.info(`🍕 PIZZA DÚO DETECTADA: ${item.nombre} (${item.pizza1 || item.half1?.variety} / ${item.pizza2 || item.half2?.variety})`);
           
-          // Normalizar nombres de pizzas
-          const pizza1Name = (item.pizza1 || "").toLowerCase().trim();
-          const pizza2Name = (item.pizza2 || "").toLowerCase().trim();
-          
-          // Buscar ambas pizzas
-          let pizza1Encontrada: any = null;
-          let pizza2Encontrada: any = null;
-          
-          for (const [nombrePizza, pizza] of Object.entries(pizzasConReceta)) {
-            if (nombrePizza.includes(pizza1Name) || pizza1Name.includes(nombrePizza)) {
-              pizza1Encontrada = pizza;
-            }
-            if (nombrePizza.includes(pizza2Name) || pizza2Name.includes(nombrePizza)) {
-              pizza2Encontrada = pizza;
-            }
+          const isMediana = size.includes("mediana");
+
+          const half1Cons = calculateDuoHalfConsumption(
+            item.half1,
+            item.pizza1 || item.half1?.variety || "",
+            isMediana,
+            pizzasConReceta,
+            ingredientesMap,
+            { sinOregano: item.sinOregano, sinQueso: item.sinQueso, sinSalsaTomate: item.sinSalsaTomate }
+          );
+
+          const half2Cons = calculateDuoHalfConsumption(
+            item.half2,
+            item.pizza2 || item.half2?.variety || "",
+            isMediana,
+            pizzasConReceta,
+            ingredientesMap,
+            { sinOregano: item.sinOregano, sinQueso: item.sinQueso, sinSalsaTomate: item.sinSalsaTomate }
+          );
+
+          for (const [ingName, cantIng] of Object.entries(half1Cons)) {
+            consumption[ingName] = (consumption[ingName] || 0) + (cantIng * cantidad);
+            logger.info(`  [50% Mitad 1] ${ingName}: +${cantIng * cantidad}`);
           }
-          
-          if (pizza1Encontrada && pizza2Encontrada) {
-            logger.info(`✅ Ambas pizzas encontradas: ${pizza1Encontrada.nombre} + ${pizza2Encontrada.nombre}`);
-            
-            // Obtener recetas según tamaño
-            const receta1 = size.includes("mediana") 
-              ? pizza1Encontrada.recetaMediana 
-              : pizza1Encontrada.receta;
-              
-            const receta2 = size.includes("mediana") 
-              ? pizza2Encontrada.recetaMediana 
-              : pizza2Encontrada.receta;
-            
-            // Procesar ingredientes de pizza 1 al 50%
-            if (receta1 && Array.isArray(receta1)) {
-              receta1.forEach((ing: any) => {
-                const nombreIngrediente = (ing.nombre || "").toLowerCase();
-                const cantidadPorPizza = parseFloat(ing.cantidad || 0) * 0.5; // 50%
-                
-                if (nombreIngrediente && cantidadPorPizza > 0) {
-                  consumption[nombreIngrediente] =
-                    (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
-                  
-                  logger.info(`  [50% ${pizza1Encontrada.nombre}] ${nombreIngrediente}: +${cantidadPorPizza * cantidad}${ing.unidad || "gr"}`);
-                }
-              });
-            }
-            
-            // Procesar ingredientes de pizza 2 al 50%
-            if (receta2 && Array.isArray(receta2)) {
-              receta2.forEach((ing: any) => {
-                const nombreIngrediente = (ing.nombre || "").toLowerCase();
-                const cantidadPorPizza = parseFloat(ing.cantidad || 0) * 0.5; // 50%
-                
-                if (nombreIngrediente && cantidadPorPizza > 0) {
-                  consumption[nombreIngrediente] =
-                    (consumption[nombreIngrediente] || 0) + (cantidadPorPizza * cantidad);
-                  
-                  logger.info(`  [50% ${pizza2Encontrada.nombre}] ${nombreIngrediente}: +${cantidadPorPizza * cantidad}${ing.unidad || "gr"}`);
-                }
-              });
-            }
-            
-            logger.info(`✅ Pizza Dúo procesada correctamente, saltando lógica normal`);
-            continue; // Saltar TODA la lógica normal
-          } else {
-            logger.error(`❌ No se encontraron las pizzas para el Dúo: ${pizza1Name} / ${pizza2Name}`);
-            // Si no encuentra las pizzas del dúo, continuar con lógica normal como fallback
+
+          for (const [ingName, cantIng] of Object.entries(half2Cons)) {
+            consumption[ingName] = (consumption[ingName] || 0) + (cantIng * cantidad);
+            logger.info(`  [50% Mitad 2] ${ingName}: +${cantIng * cantidad}`);
           }
+
+          // Procesar extras generales para toda la pizza si los hay
+          const globalExtras = [
+            ...(item.extras || []),
+            ...(item.extraSimple || []),
+            ...(item.extraPremium || [])
+          ];
+          if (globalExtras.length > 0) {
+            globalExtras.forEach((extraStr: string) => {
+              const parsed = parseItemString(extraStr);
+              const norm = normalizeText(parsed.name);
+              let ingDoc = ingredientesMap[norm];
+              let ingKey = norm;
+              if (!ingDoc) {
+                const match = Object.entries(ingredientesMap).find(([k]) => norm.includes(k) || k.includes(norm));
+                if (match) {
+                  ingKey = match[0];
+                  ingDoc = match[1];
+                }
+              }
+              const cantUnit = isMediana ? (ingDoc?.cantidadPorPizzaMediana || 1) : (ingDoc?.cantidadPorPizzaFamiliar || 1);
+              consumption[ingKey] = (consumption[ingKey] || 0) + (cantUnit * parsed.quantity * cantidad);
+            });
+          }
+
+          logger.info(`✅ Pizza Dúo consumida correctamente, saltando lógica normal`);
+          continue; // Saltar TODA la lógica normal
         }
 
         // ⚠️ ESTA LÓGICA SOLO SE EJECUTA SI NO ES PIZZA DÚO O SI FALLÓ LA BÚSQUEDA
@@ -1352,12 +1535,15 @@ export async function restoreInventoryForOrder(items: any[]) {
   // 1. Obtener todos los ingredientes
   const inventorySnapshot = await db.collection("ingredientes").get();
   const inventory: Record<string, any> = {};
+  const ingredientesMap: Record<string, any> = {};
   inventorySnapshot.forEach((doc) => {
     const data = doc.data();
-    inventory[data.nombre.toLowerCase()] = {
+    const normName = normalizeText(data.nombre || "");
+    inventory[normName] = {
       ref: doc.ref,
       stockActual: data.stockActual || 0,
     };
+    ingredientesMap[normName] = { id: doc.id, ...data };
   });
 
   // 2. Obtener todas las pizzas con sus recetas desde items_menu
@@ -1396,63 +1582,67 @@ export async function restoreInventoryForOrder(items: any[]) {
     logger.info(`Restoring item: ${item.nombre} -> cleaned: "${itemNombre}", size: ${size}, cantidad: ${cantidad}`);
 
     // Verificar si es pizza DÚO
-    const isDuoPizza = item.pizzaType === "duo" && item.pizza1 && item.pizza2;
+    const isDuoPizza = item.pizzaType === "duo" || Boolean(item.pizza1 && item.pizza2) || itemNombre.includes('duo');
 
     if (isDuoPizza) {
-      logger.info(`🍕 PIZZA DÚO DETECTADA para restaurar: ${item.pizza1} / ${item.pizza2}`);
+      logger.info(`🍕 PIZZA DÚO DETECTADA para restaurar: ${item.nombre} (${item.pizza1 || item.half1?.variety} / ${item.pizza2 || item.half2?.variety})`);
 
-      const pizza1Name = (item.pizza1 || "").toLowerCase().trim();
-      const pizza2Name = (item.pizza2 || "").toLowerCase().trim();
+      const isMediana = size.includes("mediana");
 
-      let pizza1Encontrada: any = null;
-      let pizza2Encontrada: any = null;
+      const half1Cons = calculateDuoHalfConsumption(
+        item.half1,
+        item.pizza1 || item.half1?.variety || "",
+        isMediana,
+        pizzasConReceta,
+        ingredientesMap,
+        { sinOregano: item.sinOregano, sinQueso: item.sinQueso, sinSalsaTomate: item.sinSalsaTomate }
+      );
 
-      for (const [nombrePizza, pizza] of Object.entries(pizzasConReceta)) {
-        if (nombrePizza.includes(pizza1Name) || pizza1Name.includes(nombrePizza)) {
-          pizza1Encontrada = pizza;
-        }
-        if (nombrePizza.includes(pizza2Name) || pizza2Name.includes(nombrePizza)) {
-          pizza2Encontrada = pizza;
-        }
+      const half2Cons = calculateDuoHalfConsumption(
+        item.half2,
+        item.pizza2 || item.half2?.variety || "",
+        isMediana,
+        pizzasConReceta,
+        ingredientesMap,
+        { sinOregano: item.sinOregano, sinQueso: item.sinQueso, sinSalsaTomate: item.sinSalsaTomate }
+      );
+
+      for (const [ingName, cantIng] of Object.entries(half1Cons)) {
+        restoration[ingName] = (restoration[ingName] || 0) + (cantIng * cantidad);
+        logger.info(`  [50% Mitad 1 Restaurar] ${ingName}: +${cantIng * cantidad}`);
       }
 
-      if (pizza1Encontrada && pizza2Encontrada) {
-        logger.info(`✅ Ambas pizzas encontradas para restaurar: ${pizza1Encontrada.nombre} + ${pizza2Encontrada.nombre}`);
-
-        const receta1 = size.includes("mediana") ? pizza1Encontrada.recetaMediana : pizza1Encontrada.receta;
-        const receta2 = size.includes("mediana") ? pizza2Encontrada.recetaMediana : pizza2Encontrada.receta;
-
-        // Restaurar ingredientes de pizza 1 al 50%
-        if (receta1 && Array.isArray(receta1)) {
-          receta1.forEach((ing: any) => {
-            const nombreIngrediente = (ing.nombre || "").toLowerCase();
-            const cantidadPorPizza = parseFloat(ing.cantidad || 0) * 0.5;
-            if (nombreIngrediente && cantidadPorPizza > 0) {
-              restoration[nombreIngrediente] =
-                (restoration[nombreIngrediente] || 0) + cantidadPorPizza * cantidad;
-              logger.info(`  [50% ${pizza1Encontrada.nombre}] ${nombreIngrediente}: +${cantidadPorPizza * cantidad}${ing.unidad || "gr"}`);
-            }
-          });
-        }
-
-        // Restaurar ingredientes de pizza 2 al 50%
-        if (receta2 && Array.isArray(receta2)) {
-          receta2.forEach((ing: any) => {
-            const nombreIngrediente = (ing.nombre || "").toLowerCase();
-            const cantidadPorPizza = parseFloat(ing.cantidad || 0) * 0.5;
-            if (nombreIngrediente && cantidadPorPizza > 0) {
-              restoration[nombreIngrediente] =
-                (restoration[nombreIngrediente] || 0) + cantidadPorPizza * cantidad;
-              logger.info(`  [50% ${pizza2Encontrada.nombre}] ${nombreIngrediente}: +${cantidadPorPizza * cantidad}${ing.unidad || "gr"}`);
-            }
-          });
-        }
-
-        logger.info(`✅ Pizza Dúo restaurada correctamente`);
-        continue;
-      } else {
-        logger.error(`❌ No se encontraron las pizzas para restaurar el Dúo: ${pizza1Name} / ${pizza2Name}`);
+      for (const [ingName, cantIng] of Object.entries(half2Cons)) {
+        restoration[ingName] = (restoration[ingName] || 0) + (cantIng * cantidad);
+        logger.info(`  [50% Mitad 2 Restaurar] ${ingName}: +${cantIng * cantidad}`);
       }
+
+      // Procesar extras generales
+      const globalExtras = [
+        ...(item.extras || []),
+        ...(item.extraSimple || []),
+        ...(item.extraPremium || [])
+      ];
+      if (globalExtras.length > 0) {
+        globalExtras.forEach((extraStr: string) => {
+          const parsed = parseItemString(extraStr);
+          const norm = normalizeText(parsed.name);
+          let ingDoc = ingredientesMap[norm];
+          let ingKey = norm;
+          if (!ingDoc) {
+            const match = Object.entries(ingredientesMap).find(([k]) => norm.includes(k) || k.includes(norm));
+            if (match) {
+              ingKey = match[0];
+              ingDoc = match[1];
+            }
+          }
+          const cantUnit = isMediana ? (ingDoc?.cantidadPorPizzaMediana || 1) : (ingDoc?.cantidadPorPizzaFamiliar || 1);
+          restoration[ingKey] = (restoration[ingKey] || 0) + (cantUnit * parsed.quantity * cantidad);
+        });
+      }
+
+      logger.info(`✅ Pizza Dúo restaurada correctamente`);
+      continue;
     }
 
     // Lógica normal para pizzas no-DUO

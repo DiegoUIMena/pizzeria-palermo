@@ -27,6 +27,15 @@ export function usePizzaBuilderData() {
   const pizzasParaNormal = useMemo(() => {
     if (!Array.isArray(itemsMenu) || itemsMenu.length === 0) return [];
 
+    const pizzasSoloFamiliarList = [
+      '4 estaciones',
+      'cuatro estaciones',
+      'entre rios',
+      'entre ríos',
+      'sevillana',
+      'gaucha'
+    ];
+
     return itemsMenu
       .filter((pizza: any) => {
         // Solo pizzas activas
@@ -38,30 +47,34 @@ export function usePizzaBuilderData() {
           return false;
         }
 
-        // INCLUIR "4 Estaciones" para Pizza Normal (solo estará disponible en tamaño Familiar)
-        // No excluir nada más aquí
-
         return true;
       })
-      .map((pizza: any) => ({
-        id: pizza.id,
-        nombre: pizza.nombre,
-        descripcion: pizza.descripcion || '',
-        precio: pizza.precio || 0,
-        precioMediana: pizza.precioMediana || pizza.precio || 0,
-        imagen: pizza.imagen || '/placeholder.svg',
-        // Verificar disponibilidad de tamaño familiar
-        disponibleFamiliar: pizza.disponibleFamiliar !== false, // Por defecto true si no está definido
-        categoria: pizza.categoria || '',
-        ingredientes: pizza.ingredientes || [],
-      }));
+      .map((pizza: any) => {
+        const nombreNorm = normalizeText(pizza.nombre || '');
+        const esSoloFamiliar = pizzasSoloFamiliarList.some(p => nombreNorm.includes(p));
+        const tieneMediana = pizza.disponibleMediana !== false && !esSoloFamiliar;
+
+        return {
+          id: pizza.id,
+          nombre: pizza.nombre,
+          descripcion: pizza.descripcion || '',
+          precio: pizza.precio || 0,
+          precioMediana: tieneMediana ? (pizza.precioMediana || pizza.precio || 0) : 0,
+          disponibleMediana: tieneMediana,
+          disponibleFamiliar: pizza.disponibleFamiliar !== false,
+          imagen: pizza.imagen || '/placeholder.svg',
+          categoria: pizza.categoria || '',
+          ingredientes: pizza.ingredientes || [],
+        };
+      })
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [itemsMenu]);
 
   // Filtrar pizzas del menú para Pizza DUO (excluir más pizzas y productos no-pizza)
   const pizzasParaDuo = useMemo(() => {
     if (!Array.isArray(itemsMenu) || itemsMenu.length === 0) return [];
 
-    const exclusionesDuo = ['4 estaciones', 'cuatro estaciones', '4 quesos', 'cuatro quesos', 'entre rios', 'entre ríos', 'sevillana'];
+    const exclusionesDuo = ['4 estaciones', 'cuatro estaciones', '4 quesos', 'cuatro quesos', 'entre rios', 'entre ríos', 'gaucha'];
 
     return itemsMenu
       .filter((pizza: any) => {
@@ -90,11 +103,13 @@ export function usePizzaBuilderData() {
         descripcion: pizza.descripcion || '',
         precio: pizza.precio || 0,
         precioMediana: pizza.precioMediana || pizza.precio || 0,
-        imagen: pizza.imagen || '/placeholder.svg',
+        disponibleMediana: true,
         disponibleFamiliar: pizza.disponibleFamiliar !== false,
+        imagen: pizza.imagen || '/placeholder.svg',
         categoria: pizza.categoria || '',
         ingredientes: pizza.ingredientes || [],
-      }));
+      }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [itemsMenu]);
 
   // Separar ingredientes simples
@@ -103,19 +118,26 @@ export function usePizzaBuilderData() {
 
     return ingredients
       .filter((ing: any) => {
-        // Priorizar el campo 'clase' si existe
-        if (ing.clase) {
-          return normalizeText(ing.clase) === 'simple';
-        }
-        // Si no hay campo clase, usar categoría como fallback
-        return ing.categoria === 'simple';
+        const c = normalizeText(ing.clase || '');
+        const t = normalizeText(ing.tipo || '');
+        const cat = normalizeText(ing.categoria || '');
+        
+        const isPremium = c === 'premium' || t === 'premium' || cat === 'premium';
+        if (isPremium) return false;
+
+        return c === 'simple' || t === 'simple' || cat === 'simple' || c === 'ingrediente' || t === 'ingrediente';
       })
       .map((ing: any) => ({
         id: ing.id,
         nombre: ing.nombre,
         categoria: 'simple',
         clase: 'simple',
-      }));
+        tipo: 'simple',
+        esPrecioEspecial: Boolean(ing.esPrecioEspecial),
+        precioPorcionFamiliar: ing.precioPorcionFamiliar || 0,
+        precioPorcionMediana: ing.precioPorcionMediana || 0,
+      }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [ingredients]);
 
   // Separar ingredientes premium
@@ -124,19 +146,22 @@ export function usePizzaBuilderData() {
 
     return ingredients
       .filter((ing: any) => {
-        // Priorizar el campo 'clase' si existe
-        if (ing.clase) {
-          return normalizeText(ing.clase) === 'premium';
-        }
-        // Si no hay campo clase, usar categoría como fallback
-        return ing.categoria === 'premium';
+        const c = normalizeText(ing.clase || '');
+        const t = normalizeText(ing.tipo || '');
+        const cat = normalizeText(ing.categoria || '');
+        return c === 'premium' || t === 'premium' || cat === 'premium';
       })
       .map((ing: any) => ({
         id: ing.id,
         nombre: ing.nombre,
         categoria: 'premium',
         clase: 'premium',
-      }));
+        tipo: 'premium',
+        esPrecioEspecial: Boolean(ing.esPrecioEspecial),
+        precioPorcionFamiliar: ing.precioPorcionFamiliar || 0,
+        precioPorcionMediana: ing.precioPorcionMediana || 0,
+      }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [ingredients]);
 
   // Obtener precios según tamaño
@@ -227,16 +252,85 @@ export function usePizzaBuilderData() {
       }));
   }, [itemsMenu]);
 
+  // Mapa completo de ingredientes indexado por nombre normalizado
+  const ingredientesMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    if (Array.isArray(ingredients)) {
+      ingredients.forEach((ing: any) => {
+        if (ing.nombre) {
+          map[normalizeText(ing.nombre)] = ing;
+        }
+      });
+    }
+    return map;
+  }, [ingredients]);
+
+  /**
+   * Obtiene el precio de un ingrediente según tamaño, respetando precios especiales
+   */
+  const getIngredientPrice = (ing: any | string, tamano: 'mediana' | 'familiar', isPremiumDefault = false): number => {
+    const standardPrices = getPreciosSegunTamano(tamano);
+    let ingObj: any = typeof ing === 'object' && ing !== null ? ing : ingredientesMap[normalizeText(ing)];
+
+    if (!ingObj && typeof ing === 'string') {
+      // Buscar en arrays
+      ingObj = ingredientesPremium.find(p => normalizeText(p.nombre) === normalizeText(ing)) ||
+               ingredientesSimples.find(s => normalizeText(s.nombre) === normalizeText(ing));
+    }
+
+    if (ingObj && ingObj.esPrecioEspecial) {
+      const specialPrice = tamano === 'mediana' 
+        ? Number(ingObj.precioPorcionMediana || ingObj.precioPorcionFamiliar || 0)
+        : Number(ingObj.precioPorcionFamiliar || 0);
+      if (specialPrice > 0) {
+        return specialPrice;
+      }
+    }
+
+    const isPrem = ingObj ? (
+      normalizeText(ingObj.clase || '') === 'premium' || 
+      normalizeText(ingObj.tipo || '') === 'premium' || 
+      normalizeText(ingObj.categoria || '') === 'premium'
+    ) : isPremiumDefault;
+    return isPrem ? standardPrices.premium : standardPrices.simple;
+  };
+
+  /**
+   * Obtiene el nombre a mostrar para el ingrediente.
+   * Regla de negocio del usuario:
+   * Solo si el ingrediente tiene precio especial muestra su valor (ej. "Camarones (+$6.000)").
+   * Los ingredientes estándar (simples o premium) NO muestran el valor al lado de su nombre.
+   */
+  const getIngredientDisplayName = (ing: any | string, tamano: 'mediana' | 'familiar' = 'familiar', isPremiumDefault = false): string => {
+    const rawName = typeof ing === 'object' && ing !== null ? ing.nombre : String(ing);
+    let ingObj: any = typeof ing === 'object' && ing !== null ? ing : ingredientesMap[normalizeText(rawName)];
+
+    if (!ingObj && typeof rawName === 'string') {
+      ingObj = ingredientesPremium.find(p => normalizeText(p.nombre) === normalizeText(rawName)) ||
+               ingredientesSimples.find(s => normalizeText(s.nombre) === normalizeText(rawName));
+    }
+
+    if (ingObj && ingObj.esPrecioEspecial) {
+      const price = getIngredientPrice(ingObj, tamano, isPremiumDefault);
+      return `${rawName} (+$${price.toLocaleString('es-CL')})`;
+    }
+
+    return rawName;
+  };
+
   return {
     loading,
     pizzasParaNormal,
     pizzasParaDuo,
     ingredientesSimples,
     ingredientesPremium,
+    ingredientesMap,
     salsas,
     bebidas,
     otrosExtras,
     getPreciosSegunTamano,
+    getIngredientPrice,
+    getIngredientDisplayName,
     preciosConfig,
   };
 }

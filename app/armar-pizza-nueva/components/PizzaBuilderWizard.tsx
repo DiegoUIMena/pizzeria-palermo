@@ -149,7 +149,7 @@ export interface PizzaConfig {
 export function PizzaBuilderWizard() {
   const { addItem } = useCart();
   const router = useRouter();
-  const { getPreciosSegunTamano, pizzasParaNormal, salsas, bebidas, otrosExtras } = usePizzaBuilderData();
+  const { getPreciosSegunTamano, getIngredientPrice, pizzasParaNormal, salsas, bebidas, otrosExtras } = usePizzaBuilderData();
   
   const [currentStep, setCurrentStep] = useState(1);
   const [config, setConfig] = useState<PizzaConfig>({
@@ -354,8 +354,12 @@ export function PizzaBuilderWizard() {
       }
     }
 
-    total += config.simpleIngredients.length * precios.simple;
-    total += config.premiumIngredients.length * precios.premium;
+    config.simpleIngredients.forEach((ing) => {
+      total += getIngredientPrice(ing, tamano, false);
+    });
+    config.premiumIngredients.forEach((ing) => {
+      total += getIngredientPrice(ing, tamano, true);
+    });
 
     return total;
   };

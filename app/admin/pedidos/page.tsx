@@ -106,9 +106,7 @@ const formatCurrency = (value: number) => `$${Math.round(value).toLocaleString('
 
 function getPedidoMontos(pedido: Pedido | null | undefined) {
   const totalGuardado = Number(pedido?.total || 0)
-  const valorDelivery = pedido?.tipoEntrega === 'Delivery'
-    ? Math.max(0, Number(pedido?.valorDelivery || 0))
-    : 0
+  const valorDelivery = Math.max(0, Number(pedido?.valorDelivery || 0))
     
   let discountAmount = Number(pedido?.discountAmount || 0)
   const voucherDiscount = Number(pedido?.voucherDiscount || 0)
@@ -139,6 +137,24 @@ function getPedidoMontos(pedido: Pedido | null | undefined) {
     voucherDiscount,
     totalConDelivery: totalGuardado,
   }
+}
+
+// Helper para extraer únicamente notas especiales legítimas (excluyendo marcas de sistema como POS - Venta Presencial)
+export function getSpecialOrderNote(notas?: string): string {
+  if (!notas || typeof notas !== 'string') return ''
+
+  let cleaned = notas
+    .replace(/\[POS\s*-\s*Venta\s+Presencial\]/gi, '')
+    .replace(/POS\s*-\s*Venta\s+Presencial/gi, '')
+    .trim()
+
+  cleaned = cleaned
+    .replace(/^\|\s*/, '')
+    .replace(/\s*\|$/, '')
+    .replace(/\s*\|\s*\|+/g, ' | ')
+    .trim()
+
+  return cleaned
 }
 
 // Claves para almacenamiento en localStorage (mismas que usa GlobalOrderMonitor)
@@ -242,6 +258,25 @@ export default function AdminPedidos() {
         description: error?.message || "No se pudo procesar el reembolso.",
         variant: "destructive",
       })
+    }
+  }
+
+  // Función para marcar como pagado un pedido pendiente
+  const marcarComoPagado = async (pedidoId: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', pedidoId), {
+        paymentStatus: 'paid'
+      });
+      toast({
+        title: "Pago confirmado",
+        description: "El pedido ha sido marcado como pagado exitosamente.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Error al marcar pago",
+        description: error?.message || "No se pudo actualizar el estado de pago.",
+        variant: "destructive",
+      });
     }
   }
 
@@ -395,22 +430,29 @@ export default function AdminPedidos() {
           .comanda-container { font-size: 12px; line-height: 1.2; }
           .comanda-header { text-align: center; }
           .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
-          .comanda-order-label { font-size: 9px; margin-top: 1px; }
-          .comanda-order-number { font-size: 20px; font-weight: 700; letter-spacing: 0.7px; }
-          .comanda-pill {
-            display: inline-block; background: #000; color: #fff; 
-            border-radius: 999px; padding: 4px 11px; font-weight: 700; 
-            font-size: 9px; letter-spacing: 0.7px; margin: 6px 0 4px;
+          .comanda-order-number { 
+            font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+            font-stretch: condensed;
+            font-size: 18px; 
+            font-weight: 700; 
+            letter-spacing: -0.2px; 
+            text-decoration: underline; 
+            margin: 2px 0 4px; 
           }
-          .comanda-meta { font-size: 9px; margin: 3px 0; }
           .comanda-estimada {
             display: flex; align-items: center; justify-content: center; gap: 6px;
             font-size: 13px; font-weight: 700; margin: 4px 0 6px;
           }
-          .comanda-check {
-            width: 13px; height: 13px; display: inline-block;
+          .comanda-clock {
+            width: 14px; height: 14px; display: inline-block; vertical-align: middle;
           }
-          .comanda-client { font-size: 9px; font-weight: 700; text-transform: uppercase; }
+          .comanda-pill {
+            display: inline-block; background: #fff; color: #000; 
+            border: 1.5px solid #000;
+            border-radius: 999px; padding: 5px 14px; font-weight: 700; 
+            font-size: 13px; letter-spacing: 0.7px; margin: 6px 0 4px;
+          }
+          .comanda-meta { font-size: 9px; margin: 3px 0; }
           .comanda-payment { font-size: 9px; margin-top: 3px; }
           .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
           .comanda-items { margin-top: 6px; text-align: center; }
@@ -478,8 +520,8 @@ export default function AdminPedidos() {
 *VUELTO A ENTREGAR:* ${formatCurrency(Math.max(0, vuelto))}`
       : ''
     
-    // Limpiar notas de códigos promocionales o vouchers para no enviar información extra al delivery
-    let notasDelivery = pedido.notas || '';
+    // Limpiar notas de códigos promocionales, vouchers o POS para no enviar información extra al delivery
+    let notasDelivery = getSpecialOrderNote(pedido.notas);
     notasDelivery = notasDelivery
       .replace(/\|?\s*\[CÓDIGO USADO:[^\]]+\]/g, '')
       .replace(/\|?\s*\[VOUCHER USADO:[^\]]+\]/g, '')
@@ -605,8 +647,16 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
           }
         }
         
-        // Actualizar el estado de pedidos con poco tiempo (solo para visualización)
-        setPedidosConPocoTiempo(nuevosPocoTiempo)
+        // Actualizar el estado de pedidos con poco tiempo solo si cambió para evitar re-renders innecesarios
+        setPedidosConPocoTiempo(prevPoco => {
+          if (
+            prevPoco.size === nuevosPocoTiempo.size &&
+            [...nuevosPocoTiempo].every(id => prevPoco.has(id))
+          ) {
+            return prevPoco
+          }
+          return nuevosPocoTiempo
+        })
         
         return next
       })
@@ -669,7 +719,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
       
       return prev;
     });
-  }, [pedidosConPocoTiempo]);
+  }, []);
 
   // restaurar tiempos
   useEffect(() => {
@@ -783,18 +833,64 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
           {pedidosFiltrados.map(pedido => (
             <Card key={pedido.documentId} className={`hover:shadow-md transition-shadow ${pedidosNuevosSinAtender.has(pedido.documentId) ? 'border-2 border-red-500 animate-pulse' : ''}`}>
               <CardHeader className="pb-2">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center space-x-2">
-                    {getStatusIcon(pedido.estado)}
-                    <span className={`px-2 py-0.5 rounded-full text-white ${getStatusColor(pedido.estado)}`}>{pedido.estado}</span>
-                    {pedidosNuevosSinAtender.has(pedido.documentId) && (
-                      <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">
-                        ¡NUEVO!
+                <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-3">
+                  {/* Columna 1 Header: Estado e información de fecha/pago */}
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      {getStatusIcon(pedido.estado)}
+                      <span className={`px-2 py-0.5 rounded-full text-white text-xs font-semibold ${getStatusColor(pedido.estado)}`}>
+                        {pedido.estado}
                       </span>
-                    )}
+                      {pedidosNuevosSinAtender.has(pedido.documentId) && (
+                        <span className="bg-red-500 text-white px-2 py-0.5 rounded-full text-xs font-bold animate-pulse">
+                          ¡NUEVO!
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-4 text-xs text-gray-600 dark:text-gray-300 mt-1.5">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-4 h-4"/>
+                        <span>{pedido.fechaCreacion}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <DollarSign className="w-4 h-4"/>
+                        <span>{pedido.metodoPago}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-lg font-mono font-bold bg-gray-100 dark:bg-gray-800 dark:text-white px-3 py-1 rounded-md">{pedido.id}</div>
+
+                  {/* Columna 2 Header: CLIENTE #ID + Insignia Retiro/Delivery */}
+                  <div className="flex items-center md:justify-center gap-3">
+                    <span 
+                      className="font-arial-narrow text-2xl md:text-3xl lg:text-4xl text-pink-500 uppercase tracking-tighter"
+                      style={{
+                        fontFamily: "'Arial Narrow', 'Arial-Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif",
+                        fontStretch: 'condensed',
+                        fontWeight: 700,
+                        letterSpacing: '-0.02em'
+                      }}
+                    >
+                      {(() => {
+                        const nombre = pedido.cliente?.nombre
+                        const esValido = Boolean(
+                          nombre && 
+                          nombre.trim() !== '' && 
+                          nombre !== 'Usuario anónimo' && 
+                          nombre !== 'No especificado' && 
+                          nombre !== 'Venta Caja (Presencial)'
+                        )
+                        const textoNombre = esValido ? nombre!.trim().toUpperCase() : 'CLIENTE'
+                        const idFormateado = pedido.id.startsWith('#') ? pedido.id : `#${pedido.id}`
+                        return `${textoNombre} ${idFormateado}`
+                      })()}
+                    </span>
+                    <span className="px-4 md:px-5 py-1 md:py-1.5 rounded-full text-sm md:text-base font-extrabold bg-white text-gray-900 border border-gray-300 dark:border-gray-500 shadow-md tracking-wide">
+                      {(pedido.tipoEntrega === 'Delivery' || Number(pedido.valorDelivery || 0) > 0) ? 'Delivery' : 'Retiro'}
+                    </span>
+                  </div>
+
+                  {/* Columna 3 Header: Acción Aceptar (solo si está pendiente) */}
+                  <div className="flex justify-start md:justify-end items-center gap-2">
                     {pedido.estado === "Pendiente" && (
                       <Button 
                         onClick={() => actualizarEstado(pedido.documentId, "En preparación")}
@@ -806,62 +902,73 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                     )}
                   </div>
                 </div>
-                <div className="flex items-center space-x-4 text-xs text-gray-600 dark:text-gray-300 mt-1">
-                  <Calendar className="w-4 h-4"/><span>{pedido.fechaCreacion}</span>
-                  <DollarSign className="w-4 h-4"/><span>{pedido.metodoPago}</span>
-                  <Badge variant={pedido.tipoEntrega==='Delivery'?'destructive':'default'}>{pedido.tipoEntrega}</Badge>
-                </div>
               </CardHeader>
               <CardContent className="pt-0">
                 <div className="grid md:grid-cols-3 gap-4">
-                  {/* Cliente */}
+                  {/* Cliente: Información de contacto (Teléfono, Email, Dirección) */}
                   <div>
-                    <h4 className="font-medium mb-1">Cliente</h4>
-                    
-                    {/* Información básica del cliente */}
-                    <div className="space-y-1 text-sm">
-                      <div className="flex items-start">
-                        <div className="font-semibold w-20 dark:text-white">Nombre:</div>
-                        <div>{pedido.cliente.nombre === 'Usuario anónimo' ? 
-                          <span className="text-gray-500 dark:text-gray-400 italic">No especificado</span> : 
-                          <span className="dark:text-white">{pedido.cliente.nombre}</span>}
-                        </div>
-                      </div>
+                    <div className="space-y-1 text-sm pt-1">
                       <div className="flex items-start">
                         <div className="font-semibold w-20 dark:text-white">Teléfono:</div>
                         <div className="flex items-center dark:text-white">
                           <Phone className="w-4 h-4 mr-1 text-blue-600 dark:text-blue-400"/> 
-                          {pedido.cliente.telefono === 'No disponible' ? 
-                            <span className="text-gray-500 dark:text-gray-400 italic">No disponible</span> : 
+                          {(!pedido.cliente?.telefono || pedido.cliente.telefono === 'No disponible' || pedido.cliente.telefono === 'No informado') ? 
+                            <span className="text-gray-500 dark:text-gray-400">No informado</span> : 
                             pedido.cliente.telefono}
                         </div>
                       </div>
-                      {pedido.cliente.email && (
+                      {pedido.cliente?.email && (
                         <div className="flex items-start">
                           <div className="font-semibold w-20 dark:text-white">Email:</div>
-                          <div className="dark:text-white">{pedido.cliente.email}</div>
+                          <div className="dark:text-white truncate">{pedido.cliente.email}</div>
                         </div>
                       )}
                     </div>
                     
                     {/* Mostrar dirección solo para pedidos de delivery */}
-                    {pedido.tipoEntrega === 'Delivery' && pedido.direccion && (
+                    {(pedido.tipoEntrega === 'Delivery' || Number(pedido.valorDelivery || 0) > 0) && pedido.direccion && (
                       <div className="mt-2 text-sm">
                         <div className="font-semibold mb-1 dark:text-white">Dirección de entrega:</div>
                         <div className="dark:text-white"><MapPin className="w-4 h-4 inline mr-1 text-red-500 dark:text-red-400"/> {pedido.direccion.calle} {pedido.direccion.numero}, {pedido.direccion.comuna}</div>
                         {pedido.direccion.referencia && <div className="text-xs mt-1 italic dark:text-gray-300">Ref: {pedido.direccion.referencia}</div>}
                       </div>
                     )}
-                    
-                    {/* Eliminamos la descripción de "Retiro en local" en color azul */}
                   </div>
                   {/* Productos y montos */}
                   <div>
                     <h4 className="font-medium mb-1 dark:text-white">Productos</h4>
                     <div className="space-y-1 text-sm dark:text-white">
-                      {pedido.items.map((i, idx) => (
-                        <div key={idx} className="flex justify-between"><span>{i.cantidad}x {i.nombre}</span><span>${i.precio.toLocaleString()}</span></div>
-                      ))}
+                      {pedido.items.map((i, idx) => {
+                        const isDuo = i.pizzaType === 'duo' || Boolean(i.half1 || i.half2) || (i.nombre && i.nombre.toLowerCase().includes('duo'))
+                        const h1Name = i.half1?.variety || i.pizza1 || 'Personalizada'
+                        const h2Name = i.half2?.variety || i.pizza2 || 'Personalizada'
+                        const h1Extras = [...(i.half1?.simpleIngredients || []), ...(i.half1?.premiumIngredients || []).map((x: string) => `${x} (P)`)]
+                        const h2Extras = [...(i.half2?.simpleIngredients || []), ...(i.half2?.premiumIngredients || []).map((x: string) => `${x} (P)`)]
+                        
+                        const todaSimple = (Array.isArray(i.extraSimple) && i.extraSimple.length > 0)
+                          ? i.extraSimple
+                          : (Array.isArray(i.ingredients) ? i.ingredients.filter((x: string) => !h1Extras.includes(x) && !h2Extras.includes(x)) : [])
+                        const todaPremium = (Array.isArray(i.extraPremium) && i.extraPremium.length > 0)
+                          ? i.extraPremium
+                          : (Array.isArray(i.premiumIngredients) ? i.premiumIngredients.filter((x: string) => !h1Extras.includes(x) && !h2Extras.includes(x)) : [])
+                        const todaEx = [...todaSimple, ...todaPremium.map((x: string) => `${x} (P)`)]
+
+                        return (
+                          <div key={idx} className="border-b border-gray-100 dark:border-gray-800/60 pb-1 last:border-0">
+                            <div className="flex justify-between">
+                              <span className="font-medium">{i.cantidad}x {i.nombre}</span>
+                              <span className="font-semibold">${(i.precio * (i.cantidad || 1)).toLocaleString('es-CL')}</span>
+                            </div>
+                            {isDuo && (
+                              <div className="text-[11px] text-gray-500 dark:text-gray-400 pl-2 space-y-0.5 mt-0.5">
+                                <div>• 1/2 {h1Name}{h1Extras.length ? ` (${h1Extras.join(', ')})` : ''}</div>
+                                <div>• 1/2 {h2Name}{h2Extras.length ? ` (${h2Extras.join(', ')})` : ''}</div>
+                                {todaEx.length > 0 && <div className="text-yellow-600 dark:text-yellow-400 font-semibold">• Toda la pizza: {todaEx.join(', ')}</div>}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                       {(() => {
                         const { subtotal, valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedido)
                         return (
@@ -870,7 +977,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                               <span>Subtotal</span>
                               <span>{formatCurrency(subtotal)}</span>
                             </div>
-                            {pedido.tipoEntrega === 'Delivery' && (
+                            {valorDelivery > 0 && (
                               <div className="flex justify-between dark:text-white">
                                 <span>Delivery</span>
                                 <span>{formatCurrency(valorDelivery)}</span>
@@ -889,29 +996,37 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                           </>
                         )
                       })()}
-                      {pedido.notas && <div className="mt-2 text-xs bg-yellow-50 dark:bg-yellow-900 dark:text-yellow-100 p-1 rounded">Notas: {pedido.notas}</div>}
+                      {(() => {
+                        const notaEspecial = getSpecialOrderNote(pedido.notas);
+                        if (!notaEspecial) return null;
+                        return (
+                          <div className="mt-2 text-xs bg-yellow-50 dark:bg-yellow-900 dark:text-yellow-100 p-1 rounded">
+                            Notas: {notaEspecial}
+                          </div>
+                        );
+                      })()}
                     </div>
-                  </div>                    {/* Acciones y timers */}
+                  </div>
+                  {/* Acciones y timers */}
                   <div className="space-y-2">
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-1.5 md:gap-2">
                       {["Entregado", "Cancelado"].includes(pedido.estado) ? (
                         <div className="text-sm text-gray-500 dark:text-gray-400 italic">Pedido finalizado</div>
                       ) : (
                         <>
-                          {[15,30,45,60].map(m => (
-                            <Button key={m} size="sm" variant={tiemposEstimados[pedido.documentId]===m?'default':'outline'} onClick={()=>establecerTiempoEstimado(pedido.documentId,m)}>
+                          {[15, 20, 25, 30, 45, 60].map(m => (
+                            <Button 
+                              key={m} 
+                              size="sm" 
+                              variant={tiemposEstimados[pedido.documentId] === m ? 'default' : 'outline'} 
+                              className={tiemposEstimados[pedido.documentId] === m 
+                                ? "bg-white text-gray-900 font-bold border-2 border-white hover:bg-gray-100 dark:bg-white dark:text-gray-900 shadow-sm" 
+                                : "dark:border-gray-700 dark:text-gray-300 hover:bg-gray-800"}
+                              onClick={() => establecerTiempoEstimado(pedido.documentId, m)}
+                            >
                               {m}m
                             </Button>
                           ))}
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="bg-yellow-600 text-white hover:bg-yellow-700"
-                            onClick={() => establecerTiempoEstimado(pedido.documentId, 3.1)}
-                            title="Establece 3 minutos y 6 segundos para probar la alarma"
-                          >
-                            TEST 3m
-                          </Button>
                         </>
                       )}
                     </div>
@@ -926,28 +1041,30 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                           
                           return (
                             <div className="space-y-2">
-                              {/* Barra de progreso invertida */}
-                              <div className="relative h-12 bg-gray-200 dark:bg-gray-700 rounded-lg overflow-hidden shadow-inner">
+                              {/* Barra de progreso */}
+                              <div className={`relative h-12 rounded-lg overflow-hidden shadow-inner border transition-colors duration-300 ${
+                                esTiempoCritico 
+                                  ? "bg-red-950/20 border-red-500/80 dark:border-red-500/80" 
+                                  : "bg-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-700"
+                              }`}>
                                 {/* Barra de progreso que se vacía */}
                                 <div 
-                                  className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-linear ${
+                                  className={`absolute top-0 left-0 h-full transition-[width] duration-1000 ease-linear ${
                                     esTiempoCritico 
-                                      ? "bg-gradient-to-r from-red-500 to-red-600 animate-pulse" 
-                                      : "bg-gradient-to-r from-green-500 to-green-600"
+                                      ? "bg-gradient-to-r from-red-600 to-red-700" 
+                                      : "bg-gray-600 dark:bg-zinc-700"
                                   }`}
                                   style={{ width: `${porcentaje}%` }}
                                 />
                                 {/* Texto del tiempo sobre la barra */}
-                                <div className="absolute inset-0 flex items-center justify-center">
-                                  <span className={`font-mono text-2xl font-bold z-10 ${
-                                    porcentaje > 50 ? 'text-white' : 'text-gray-800 dark:text-gray-200'
-                                  }`}>
+                                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                  <span className="font-mono text-2xl font-bold text-white z-10 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
                                     {formatearTiempo(tiempoRestante)}
                                   </span>
                                 </div>
                               </div>
                               {esTiempoCritico && (
-                                <div className="text-center text-red-600 dark:text-red-400 font-bold text-sm animate-pulse">
+                                <div className="text-center text-red-600 dark:text-red-400 font-extrabold text-sm tracking-wide">
                                   ¡TIEMPO CRÍTICO!
                                 </div>
                               )}
@@ -964,20 +1081,35 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                         {pedido.estado === "Entregado" ? "Pedido completado" : "Pedido cancelado"}
                       </div>
                     )}
-                      {/* Fila de botones de acción */}
+                    {/* Fila de botones de acción con diseño gris neutro para Listo y Marcar Pagado */}
                     <div className="flex gap-2 items-center justify-between mt-2">
                       {getNextStatus(pedido.estado, pedido.tipoEntrega) && (
-                        <Button size="sm" className="flex-1 bg-pink-600 text-white" 
+                        <Button 
+                          size="sm" 
+                          className="flex-1 bg-gray-700 hover:bg-gray-600 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-white border border-gray-600 dark:border-zinc-600 transition-colors" 
                           onClick={() => {
                             const nuevoEstado = getNextStatus(pedido.estado, pedido.tipoEntrega);
                             if (nuevoEstado) {
                               actualizarEstado(pedido.documentId, nuevoEstado);
                             }
-                          }}>
+                          }}
+                        >
                           {getNextStatusLabel(pedido.estado, pedido.tipoEntrega)}
                         </Button>
                       )}
                       
+                      {/* Botón para marcar como pagado */}
+                      {pedido.paymentStatus === "pending" && pedido.estado !== "Cancelado" && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="bg-gray-700 hover:bg-gray-600 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-white border border-gray-600 dark:border-zinc-600 font-bold px-2 transition-colors"
+                          onClick={() => marcarComoPagado(pedido.documentId)}
+                        >
+                          Marcar Pagado
+                        </Button>
+                      )}
+
                       {/* Botón de impresión simplificado */}
                       <Button size="sm" variant="outline" className="bg-green-600 text-white hover:bg-green-700" 
                         onClick={()=>imprimirComanda(pedido)}>
@@ -985,7 +1117,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                       </Button>
                       
                       {/* Botón de WhatsApp para pedidos de delivery */}
-                      {pedido.tipoEntrega === 'Delivery' && pedido.direccion && (
+                      {(pedido.tipoEntrega === 'Delivery' || Number(pedido.valorDelivery || 0) > 0) && pedido.direccion && (
                         <Button size="sm" variant="outline" className="bg-green-500 text-white hover:bg-green-600 flex items-center gap-1 px-2"
                           onClick={() => enviarPedidoAWhatsApp(pedido)}>
                           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
@@ -1054,20 +1186,27 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
               }
               .comanda-header { text-align: center; }
               .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
-              .comanda-order-label { font-size: 9px; margin-top: 1px; }
-              .comanda-order-number { font-size: 20px; font-weight: 700; letter-spacing: 0.7px; }
-              .comanda-pill {
-                display: inline-block; background: #000; color: #fff; 
-                border-radius: 999px; padding: 4px 11px; font-weight: 700; 
-                font-size: 9px; letter-spacing: 0.7px; margin: 6px 0 4px;
+              .comanda-order-number { 
+                font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+                font-stretch: condensed;
+                font-size: 18px; 
+                font-weight: 700; 
+                letter-spacing: -0.2px; 
+                text-decoration: underline; 
+                margin: 2px 0 4px; 
               }
-              .comanda-meta { font-size: 9px; margin: 3px 0; }
               .comanda-estimada {
                 display: flex; align-items: center; justify-content: center; gap: 6px;
                 font-size: 13px; font-weight: 700; margin: 4px 0 6px;
               }
-              .comanda-check { width: 13px; height: 13px; display: inline-block; }
-              .comanda-client { font-size: 9px; font-weight: 700; text-transform: uppercase; }
+              .comanda-clock { width: 14px; height: 14px; display: inline-block; vertical-align: middle; }
+              .comanda-pill {
+                display: inline-block; background: #fff; color: #000; 
+                border: 1.5px solid #000;
+                border-radius: 999px; padding: 5px 14px; font-weight: 700; 
+                font-size: 13px; letter-spacing: 0.7px; margin: 6px 0 4px;
+              }
+              .comanda-meta { font-size: 9px; margin: 3px 0; }
               .comanda-payment { font-size: 9px; margin-top: 3px; }
               .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
               .comanda-items { margin-top: 6px; text-align: center; }
@@ -1081,48 +1220,83 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
             
             <div className="comanda-container">
               <div className="comanda-header">
+                {/* 1. Logo tal cual está */}
                 <img src="/iconos/logo_negro.png" alt="Palermo Pizzas" className="comanda-logo" />
-                <div className="comanda-order-label">N° Pedido:</div>
+
+                {/* Dos líneas de espacio entre el logo y el número/nombre del cliente */}
+                <br />
+                <br />
+
+                {/* 2. Número de pedido - NOMBRE CLIENTE (subrayado, sin palabra N° Pedido, 15px Arial Narrow Bold) */}
                 <div className="comanda-order-number">
-                  {(pedidoAImprimir?.id || '').replace('#', '')}
+                  {(() => {
+                    const orderNum = (pedidoAImprimir?.id || '').replace('#', '').trim()
+                    const nombre = (pedidoAImprimir?.cliente?.nombre && 
+                      pedidoAImprimir.cliente.nombre !== 'Usuario anónimo' && 
+                      pedidoAImprimir.cliente.nombre !== 'No especificado' && 
+                      pedidoAImprimir.cliente.nombre !== 'No informado')
+                      ? pedidoAImprimir.cliente.nombre.toUpperCase().trim()
+                      : 'CLIENTE'
+                    return `${orderNum} - ${nombre}`
+                  })()}
                 </div>
+
+                {/* 3. Hora de retiro con pictograma de reloj (sin iniciales p.m./a.m.) */}
+                {(() => {
+                  const fin = pedidoAImprimir?.tiempoEstimadoFin 
+                    ? new Date(pedidoAImprimir.tiempoEstimadoFin)
+                    : (pedidoAImprimir?.documentId && tiemposEstimados[pedidoAImprimir.documentId]
+                        ? new Date(Date.now() + tiemposEstimados[pedidoAImprimir.documentId] * 60000)
+                        : null)
+                  if (!fin || isNaN(fin.getTime())) return null
+                  const horaLimpia = fin.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+                    .replace(/\s*(a\.?\s*m\.?|p\.?\s*m\.?|am|pm)/gi, '')
+                    .trim()
+                  return (
+                    <div className="comanda-estimada">
+                      <svg className="comanda-clock" viewBox="0 0 20 20" aria-hidden="true">
+                        <circle cx="10" cy="10" r="9" stroke="#000" strokeWidth="2" fill="none" />
+                        <polyline points="10 5 10 10 13.5 12" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                      </svg>
+                      {horaLimpia}
+                    </div>
+                  )
+                })()}
+
+                {/* 4. Óvalo RETIRO o DELIVERY (fondo blanco, filete negro, palabra en negro) */}
                 <div className="comanda-pill">
-                  {pedidoAImprimir?.tipoEntrega === 'Delivery' ? 'DELIVERY' : 'RETIRO'}
+                  {(pedidoAImprimir?.tipoEntrega === 'Delivery' || Number(pedidoAImprimir?.valorDelivery || 0) > 0) ? 'DELIVERY' : 'RETIRO'}
                 </div>
+
+                {/* 5. Fecha y hora cuando se realizó el pedido */}
                 <div className="comanda-meta">
                   {pedidoAImprimir?.fechaCreacion}
                 </div>
-                {pedidoAImprimir?.tiempoEstimadoFin && (
-                  <div className="comanda-estimada">
-                    <svg className="comanda-check" viewBox="0 0 20 20" aria-hidden="true">
-                      <circle cx="10" cy="10" r="9" stroke="#000" strokeWidth="2" fill="none" />
-                      <path d="M6 10.5l2.5 2.5L14 7.5" stroke="#000" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                    {new Date(pedidoAImprimir.tiempoEstimadoFin).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
-                  </div>
-                )}
-                <div className="comanda-client">
-                  {pedidoAImprimir?.cliente.nombre !== 'Usuario anónimo'
-                    ? pedidoAImprimir?.cliente.nombre
-                    : 'No especificado'}
-                </div>
+
+                {/* 6. Medio de pago con el valor en MAYÚSCULAS */}
                 <div className="comanda-payment">
-                  Medio de pago: {pedidoAImprimir?.metodoPago}
+                  Medio de pago: {String(pedidoAImprimir?.metodoPago || '').toUpperCase()}
                 </div>
               </div>
               
               <div className="comanda-divider"></div>
               
+              {/* 7. Productos con inicial del tamaño adelante (ej: F: 1x Pizza 4 Estaciones) */}
               <div className="comanda-items">
                 {pedidoAImprimir?.items.map((item, idx) => {
-                  const detalles: string[] = []
-                  const sizeLetter = item.size ? String(item.size).trim().charAt(0).toUpperCase() : ''
+                  const detalles: React.ReactNode[] = []
+                  let sizeLetter = item.size ? String(item.size).trim().charAt(0).toUpperCase() : ''
+                  if (!sizeLetter) {
+                    const match = item.nombre.match(/\((familiar|mediana|personal|grande|f|m|p|g)\)/i)
+                    if (match) {
+                      sizeLetter = match[1].charAt(0).toUpperCase()
+                    }
+                  }
                   const nombreSinTamano = item.nombre
                     .replace(/^\s*pizza\s+personalizada\s*$/i, 'Personalizada')
                     .replace(/\s*\((?:familiar|mediana|personal|grande|f|m|p|g)\)\s*$/i, '')
                     .trim()
                   const isDuo = item.pizzaType === 'duo'
-                  const duoHasHalves = Boolean(item.half1 || item.half2)
                   const half1Variety = item.half1?.variety || item.pizza1 || 'Personalizada'
                   const half2Variety = item.half2?.variety || item.pizza2 || 'Personalizada'
                   const half1Extras = [
@@ -1137,34 +1311,42 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
 
                   if (isDuo) {
                     detalles.push(`Mitad 1: ${half1Variety}`)
-                    // Añadir cada extra de mitad 1 en su propia línea prefijada con +
                     if (half1Extras.length) {
                       half1Extras.forEach((ex: string) => detalles.push(`+ ${ex}`))
                     }
 
-                    // Separador visual entre Mitad 1 y Mitad 2 para mayor claridad
                     detalles.push('\u00A0')
                     detalles.push(`Mitad 2: ${half2Variety}`)
-                    // Añadir cada extra de mitad 2 en su propia línea prefijada con +
                     if (half2Extras.length) {
                       half2Extras.forEach((ex: string) => detalles.push(`+ ${ex}`))
                     }
 
-                    // Si no vienen mitades estructuradas, conservar compatibilidad con campos antiguos
-                    if (!duoHasHalves) {
-                      if (item.ingredients && item.ingredients.length) {
-                        item.ingredients.forEach((ex: string) => detalles.push(`+ ${ex}`))
-                      }
-                      if (item.premiumIngredients && item.premiumIngredients.length) {
-                        item.premiumIngredients.forEach((ex: string) => detalles.push(`+ ${ex}`))
-                      }
+                    const h1Raw = [...(item.half1?.simpleIngredients || []), ...(item.half1?.premiumIngredients || [])]
+                    const h2Raw = [...(item.half2?.simpleIngredients || []), ...(item.half2?.premiumIngredients || [])]
+
+                    const rawExtraSimple = (Array.isArray(item.extraSimple) && item.extraSimple.length > 0)
+                      ? item.extraSimple
+                      : (Array.isArray(item.ingredients) ? item.ingredients.filter((ex: string) => !h1Raw.includes(ex) && !h2Raw.includes(ex)) : [])
+
+                    const rawExtraPremium = (Array.isArray(item.extraPremium) && item.extraPremium.length > 0)
+                      ? item.extraPremium
+                      : (Array.isArray(item.premiumIngredients) ? item.premiumIngredients.filter((ex: string) => !h1Raw.includes(ex) && !h2Raw.includes(ex)) : [])
+
+                    const todaLaPizzaExtras = [
+                      ...rawExtraSimple.map((ex: string) => `+ ${ex}`),
+                      ...rawExtraPremium.map((ex: string) => `+ ${ex} (P)`),
+                    ]
+                    if (todaLaPizzaExtras.length) {
+                      detalles.push('\u00A0')
+                      detalles.push(`Toda la pizza:`)
+                      todaLaPizzaExtras.forEach((ex: string) => detalles.push(ex))
                     }
                   } else {
                     if (item.ingredients && item.ingredients.length) {
-                      detalles.push(...item.ingredients)
+                      detalles.push(...item.ingredients.map((i: string) => `+ ${i}`))
                     }
                     if (item.premiumIngredients && item.premiumIngredients.length) {
-                      detalles.push(...item.premiumIngredients)
+                      detalles.push(...item.premiumIngredients.map((i: string) => `+ ${i} (P)`))
                     }
                   }
 
@@ -1180,12 +1362,17 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                   if (item.sinOregano) detalles.push('(sin oregano)')
                   if (item.sinQueso) detalles.push('(sin queso)')
                   if (item.sinSalsaTomate) detalles.push('(sin salsa tomate)')
-                  if (item.comments) detalles.push(`(${item.comments})`)
+                  
+                  {/* 8. Mantener la nota tal cual está */}
+                  if (item.comments) {
+                    detalles.push(<br key="br1" />)
+                    detalles.push(<strong key="note">Nota: {item.comments}</strong>)
+                  }
 
                   return (
                     <div key={idx} className="comanda-item">
                       <div className="comanda-item-name">
-                        • {item.cantidad}x {displayName}{sizeLetter ? ` (${sizeLetter})` : ''}
+                        {sizeLetter ? `${sizeLetter}: ` : ''}{item.cantidad}x {displayName}
                       </div>
                       {detalles.map((detalle, detailIdx) => (
                         <div key={detailIdx} className="comanda-item-detail">
@@ -1195,10 +1382,24 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                     </div>
                   )
                 })}
+
+                {/* 8. Nota general del pedido solo si efectivamente lleva una nota especial */}
+                {(() => {
+                  const notaEspecial = getSpecialOrderNote(pedidoAImprimir?.notas);
+                  if (!notaEspecial) return null;
+                  return (
+                    <div className="comanda-item" style={{ marginTop: '6px' }}>
+                      <div className="comanda-item-detail">
+                        <strong>Nota: {notaEspecial}</strong>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
               
               <div className="comanda-divider"></div>
               
+              {/* 9. Mantener subtotal, delivery y total tal cual está */}
               <div className="comanda-totals">
                 {(() => {
                   const { subtotal, valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedidoAImprimir)
@@ -1207,7 +1408,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                       <div className="comanda-total-row">
                         SUBTOTAL: {formatCurrency(subtotal)}
                       </div>
-                      {pedidoAImprimir?.tipoEntrega === 'Delivery' && (
+                      {valorDelivery > 0 && (
                         <div className="comanda-total-row">
                           DELIVERY: {formatCurrency(valorDelivery)}
                         </div>

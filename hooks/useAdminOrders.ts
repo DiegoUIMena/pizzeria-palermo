@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Order, getAllOrders, updateOrderStatus, listenToRecentOrders } from '../lib/orders'
 
 function formatOrderCreatedAt(order: Order): string {
@@ -43,6 +43,9 @@ export const useAdminOrders = (estadoFiltro?: string) => {
   const [pedidos, setPedidos] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  
+  // Novedad: Guardar el estado optimista localmente para evitar "rebotes"
+  const pendingUpdates = useRef<Record<string, Order['estado']>>({})
 
   // Función para cargar pedidos iniciales (solo para refetch manual)
   const loadOrders = useCallback(async () => {
@@ -66,7 +69,31 @@ export const useAdminOrders = (estadoFiltro?: string) => {
   useEffect(() => {
     setIsLoading(true)
     const unsubscribe = listenToRecentOrders((updatedOrders) => {
-      setPedidos(updatedOrders)
+      // 1. Cruzar los pedidos nuevos con las actualizaciones optimistas pendientes
+      let finalOrders = updatedOrders.map(order => {
+        const pendingState = pendingUpdates.current[order.id!]
+        if (pendingState) {
+          // Si el servidor ya nos entregó el estado nuevo, o uno posterior, quitamos el pendiente
+          if (order.estado === pendingState || 
+             (order.estado !== "Pendiente" && pendingState === "En preparación") ||
+             (["Entregado", "Cancelado"].includes(order.estado))) {
+            delete pendingUpdates.current[order.id!]
+            return order
+          }
+          // De lo contrario, forzar el estado optimista para que la UI no "rebote"
+          return { ...order, estado: pendingState }
+        }
+        return order
+      })
+
+      // 2. Si el filtro actual es "activos", debemos asegurarnos de que el estado optimista no haya
+      // pasado el pedido a un estado inactivo ("Entregado" o "Cancelado"), de ser así lo ocultamos.
+      if (!estadoFiltro || estadoFiltro === 'activos') {
+        const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
+        finalOrders = finalOrders.filter(o => estadosActivos.includes(o.estado))
+      }
+
+      setPedidos(finalOrders)
       setIsLoading(false)
     }, 100, estadoFiltro) // Pasar filtro de estado al listener
 
@@ -77,19 +104,25 @@ export const useAdminOrders = (estadoFiltro?: string) => {
   const actualizarEstado = async (pedidoId: string, nuevoEstado: Order['estado']) => {
     try {
       // 🚀 OPTIMISTIC UPDATE: Actualizar UI inmediatamente
-      setPedidos(prevPedidos => 
-        prevPedidos.map(pedido => 
-          pedido.id === pedidoId 
-            ? { ...pedido, estado: nuevoEstado }
-            : pedido
+      pendingUpdates.current[pedidoId] = nuevoEstado
+      
+      setPedidos(prevPedidos => {
+        let next = prevPedidos.map(pedido => 
+          pedido.id === pedidoId ? { ...pedido, estado: nuevoEstado } : pedido
         )
-      )
+        // Ocultar inmediatamente de la lista si pasó a inactivo
+        if (!estadoFiltro || estadoFiltro === 'activos') {
+          const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
+          next = next.filter(o => estadosActivos.includes(o.estado))
+        }
+        return next
+      })
       
       // Luego actualizar en el servidor (en segundo plano)
-      // El listener en tiempo real corregirá si hay algún error
       updateOrderStatus(pedidoId, nuevoEstado).catch(error => {
         console.error('Error al actualizar estado en servidor:', error)
-        // El listener revertirá el cambio si falla
+        // Revertir optimistic en caso de error
+        delete pendingUpdates.current[pedidoId]
       })
     } catch (error) {
       console.error('Error al actualizar estado:', error)
@@ -210,7 +243,7 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
       })),
       total: order.total,
       subtotal: (order as any).subtotal ?? (order as any).priceCalculation?.subtotal,
-      valorDelivery: (order as any).valorDelivery ?? (order as any).deliveryFee ?? (order as any).priceCalculation?.deliveryFee,
+      valorDelivery: (order as any).valorDelivery ?? (order as any).deliveryFee ?? (order as any).delivery ?? (order as any).priceCalculation?.deliveryFee,
       paymentDetails: order.paymentDetails,
       estado: order.estado,
       tipoEntrega: order.tipoEntrega,

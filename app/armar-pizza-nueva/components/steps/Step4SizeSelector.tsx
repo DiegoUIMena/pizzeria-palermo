@@ -48,11 +48,10 @@ export function Step4SizeSelector({
     const pizzasSoloFamiliar = [
       '4 estaciones',
       'cuatro estaciones',
-      '4 quesos',
-      'cuatro quesos',
       'entre rios',
       'entre ríos',
-      'sevillana'
+      'sevillana',
+      'gaucha'
     ];
 
     // Si la pizza está en la lista, Mediana NO está disponible
