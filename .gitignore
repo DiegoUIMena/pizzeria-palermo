@@ -29,6 +29,7 @@ Thumbs.db
 .vscode/
 
 # Firebase local debug
+.firebase/
 firebase-debug.log
 firestore-debug.log
 

@@ -102,6 +102,11 @@ interface CreateOrderData {
   }
   tiempoEstimado?: string
   notas?: string
+  subtotal?: number
+  valorDelivery?: number
+  delivery?: number
+  deliveryFee?: number
+  total?: number
 }
 
 function cartReducer(state: CartState, action: CartAction): CartState {
@@ -330,7 +335,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
         tipoEntrega: orderData.tipoEntrega,
         direccion: orderData.direccion,
         items: orderItems,
-        total: getTotal(),
+        subtotal: orderData.subtotal ?? getTotal(),
+        valorDelivery: orderData.valorDelivery ?? 0,
+        delivery: orderData.valorDelivery ?? orderData.delivery ?? 0,
+        deliveryFee: orderData.valorDelivery ?? orderData.deliveryFee ?? 0,
+        total: orderData.total ?? getTotal(),
         metodoPago: orderData.metodoPago,
         isKhipu: orderData.isKhipu,
         voucherId: orderData.voucherId,

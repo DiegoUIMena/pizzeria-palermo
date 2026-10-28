@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast"
 import {
   getDeliveryDriverConfig,
   saveDeliveryDriverConfig,
+  cleanInitials,
   type DeliveryDriverContact,
 } from "../../../lib/delivery-driver-config"
 
@@ -84,8 +85,9 @@ export default function ZonasDeliveryPage() {
     const newContact: DeliveryDriverContact = {
       id: `repartidor-${Date.now()}`,
       nombre: "",
+      iniciales: "",
       telefono: "",
-      activo: deliveryContacts.length === 0,
+      activo: true,
     }
 
     setDeliveryContacts((prev) => [...prev, newContact])
@@ -93,7 +95,7 @@ export default function ZonasDeliveryPage() {
 
   const updateDeliveryContact = (
     id: string,
-    field: "nombre" | "telefono",
+    field: "nombre" | "telefono" | "iniciales",
     value: string
   ) => {
     setDeliveryContacts((prev) =>
@@ -101,41 +103,42 @@ export default function ZonasDeliveryPage() {
         contact.id === id
           ? {
               ...contact,
-              [field]: value,
+              [field]: field === "iniciales" 
+                ? value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4) 
+                : value,
             }
           : contact
       )
     )
   }
 
-  const setActiveDeliveryContact = (id: string) => {
+  const toggleActiveDeliveryContact = (id: string) => {
     setDeliveryContacts((prev) =>
-      prev.map((contact) => ({
-        ...contact,
-        activo: contact.id === id,
-      }))
+      prev.map((contact) =>
+        contact.id === id
+          ? { ...contact, activo: !contact.activo }
+          : contact
+      )
     )
   }
 
   const removeDeliveryContact = (id: string) => {
-    setDeliveryContacts((prev) => {
-      const next = prev.filter((contact) => contact.id !== id)
-
-      if (next.length > 0 && !next.some((contact) => contact.activo)) {
-        next[0] = { ...next[0], activo: true }
-      }
-
-      return next
-    })
+    setDeliveryContacts((prev) => prev.filter((contact) => contact.id !== id))
   }
 
   const saveDeliveryContacts = async () => {
     const cleaned = deliveryContacts
-      .map((contact) => ({
-        ...contact,
-        nombre: contact.nombre.trim(),
-        telefono: contact.telefono.trim(),
-      }))
+      .map((contact) => {
+        const nombre = contact.nombre.trim()
+        const iniciales = cleanInitials(contact.iniciales, nombre)
+        const telefono = contact.telefono.trim()
+        return {
+          ...contact,
+          nombre,
+          iniciales,
+          telefono,
+        }
+      })
       .filter((contact) => contact.nombre && contact.telefono)
 
     if (cleaned.length === 0) {
@@ -147,8 +150,18 @@ export default function ZonasDeliveryPage() {
       return
     }
 
-    if (!cleaned.some((contact) => contact.activo)) {
-      cleaned[0] = { ...cleaned[0], activo: true }
+    // Verificar si hay iniciales duplicadas
+    const initialsSet = new Set<string>()
+    for (const c of cleaned) {
+      if (initialsSet.has(c.iniciales)) {
+        toast({
+          title: "Iniciales duplicadas",
+          description: `El código/iniciales "${c.iniciales}" ya está asignado a otro repartidor. Cada repartidor debe tener un código único.`,
+          variant: "destructive",
+        })
+        return
+      }
+      initialsSet.add(c.iniciales)
     }
 
     setSavingContacts(true)
@@ -159,7 +172,7 @@ export default function ZonasDeliveryPage() {
 
       toast({
         title: "Configuración guardada",
-        description: "El número activo de delivery se actualizó correctamente.",
+        description: "Los repartidores y sus iniciales se actualizaron correctamente.",
       })
     } catch (error) {
       console.error("Error guardando contactos de delivery:", error)
@@ -448,71 +461,114 @@ export default function ZonasDeliveryPage() {
           )}
         </div>
 
-        <Card className="mt-10 bg-white dark:bg-gray-800 border dark:border-gray-700">
+        <Card className="mt-10 bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm">
           <CardHeader>
-            <CardTitle className="dark:text-white">Teléfonos de Repartidor</CardTitle>
-            <CardDescription className="dark:text-gray-400">
-              Configura varios números de delivery y deja activo solo el del turno actual.
-            </CardDescription>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <CardTitle className="dark:text-white flex items-center gap-2">
+                  <span>Repartidores y Teléfonos de Delivery</span>
+                </CardTitle>
+                <CardDescription className="dark:text-gray-400 mt-1">
+                  Configura los repartidores, sus iniciales identificatorias (código en mayúsculas) y teléfonos de WhatsApp. Puedes tener <strong>más de un repartidor activo simultáneamente</strong> para el turno.
+                </CardDescription>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingContacts ? (
               <p className="text-sm text-gray-500 dark:text-gray-400">Cargando configuración de repartidores...</p>
             ) : (
               <div className="space-y-4">
+                {/* Encabezados de columnas visibles en desktop */}
+                {deliveryContacts.length > 0 && (
+                  <div className="hidden md:grid md:grid-cols-12 gap-3 px-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    <div className="md:col-span-2 text-center">Iniciales / Cód.</div>
+                    <div className="md:col-span-4">Nombre Completo</div>
+                    <div className="md:col-span-3">WhatsApp (+56...)</div>
+                    <div className="md:col-span-2 text-center">Estado Turno</div>
+                    <div className="md:col-span-1 text-right">Acción</div>
+                  </div>
+                )}
+
                 {deliveryContacts.map((contact) => (
                   <div
                     key={contact.id}
-                    className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center border rounded-lg p-3"
+                    className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center border rounded-lg p-3 bg-gray-50/60 dark:bg-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
+                    <div className="md:col-span-2">
+                      <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider block mb-1 md:hidden">
+                        Iniciales / Código:
+                      </label>
+                      <Input
+                        placeholder="Ej: DP"
+                        maxLength={4}
+                        className="font-bold text-center uppercase tracking-widest text-pink-600 dark:text-pink-400 bg-white dark:bg-gray-900"
+                        value={contact.iniciales || ""}
+                        onChange={(e) => updateDeliveryContact(contact.id, "iniciales", e.target.value)}
+                      />
+                    </div>
                     <div className="md:col-span-4">
+                      <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider block mb-1 md:hidden">
+                        Nombre Repartidor:
+                      </label>
                       <Input
                         placeholder="Nombre del repartidor"
+                        className="bg-white dark:bg-gray-900"
                         value={contact.nombre}
                         onChange={(e) => updateDeliveryContact(contact.id, "nombre", e.target.value)}
                       />
                     </div>
-                    <div className="md:col-span-4">
+                    <div className="md:col-span-3">
+                      <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider block mb-1 md:hidden">
+                        WhatsApp:
+                      </label>
                       <Input
-                        placeholder="Teléfono (ej: +56912345678)"
+                        placeholder="+56912345678"
+                        className="bg-white dark:bg-gray-900"
                         value={contact.telefono}
                         onChange={(e) => updateDeliveryContact(contact.id, "telefono", e.target.value)}
                       />
                     </div>
-                    <div className="md:col-span-2 flex items-center gap-2">
+                    <div className="md:col-span-2 flex items-center justify-center">
                       <Button
                         type="button"
                         variant={contact.activo ? "default" : "outline"}
-                        className={contact.activo ? "bg-green-600 hover:bg-green-700" : ""}
-                        onClick={() => setActiveDeliveryContact(contact.id)}
+                        className={
+                          contact.activo
+                            ? "bg-emerald-600 hover:bg-emerald-700 text-white w-full font-semibold shadow-xs"
+                            : "text-gray-500 dark:text-gray-400 hover:text-gray-700 w-full"
+                        }
+                        onClick={() => toggleActiveDeliveryContact(contact.id)}
                       >
-                        {contact.activo ? "Activo" : "Activar"}
+                        {contact.activo ? "✓ Activo" : "Inactivo"}
                       </Button>
                     </div>
-                    <div className="md:col-span-2 flex justify-end">
+                    <div className="md:col-span-1 flex justify-end">
                       <Button
                         type="button"
-                        variant="outline"
-                        className="text-red-600 border-red-300 hover:bg-red-50"
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 p-2"
                         onClick={() => removeDeliveryContact(contact.id)}
+                        title="Eliminar repartidor"
                       >
-                        Eliminar
+                        ✕
                       </Button>
                     </div>
                   </div>
                 ))}
 
-                <div className="flex flex-wrap gap-3 pt-2">
+                <div className="flex flex-wrap gap-3 pt-3 border-t dark:border-gray-700">
                   <Button type="button" variant="outline" onClick={addDeliveryContact}>
-                    Agregar Número
+                    + Agregar Repartidor
                   </Button>
                   <Button
                     type="button"
-                    className="bg-pink-600 hover:bg-pink-700 text-white"
+                    className="bg-pink-600 hover:bg-pink-700 text-white font-semibold"
                     onClick={saveDeliveryContacts}
                     disabled={savingContacts}
                   >
-                    {savingContacts ? "Guardando..." : "Guardar Configuración"}
+                    {savingContacts ? "Guardando..." : "Guardar Repartidores"}
                   </Button>
                 </div>
               </div>

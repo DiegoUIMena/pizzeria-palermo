@@ -6,6 +6,7 @@ import { db } from "./firebase"
 export interface DeliveryDriverContact {
   id: string
   nombre: string
+  iniciales: string
   telefono: string
   activo: boolean
 }
@@ -23,12 +24,32 @@ function cleanPhone(phone: string): string {
   return (phone || "").replace(/[^\d+]/g, "")
 }
 
+export function cleanInitials(initials: string, fallbackName = ""): string {
+  const cleaned = (initials || "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase()
+    .slice(0, 4)
+
+  if (cleaned) return cleaned
+
+  if (fallbackName && fallbackName.trim()) {
+    const words = fallbackName.trim().split(/\s+/)
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase().slice(0, 4)
+    }
+    return fallbackName.trim().slice(0, 2).toUpperCase()
+  }
+
+  return "REP"
+}
+
 function buildDefaultConfig(): DeliveryDriverConfig {
   return {
     contactos: [
       {
         id: "repartidor-principal",
         nombre: "Repartidor Principal",
+        iniciales: "RP",
         telefono: DEFAULT_DELIVERY_PHONE,
         activo: true,
       },
@@ -39,30 +60,26 @@ function buildDefaultConfig(): DeliveryDriverConfig {
 function normalizeContacts(contacts: DeliveryDriverContact[]): DeliveryDriverContact[] {
   const safe = Array.isArray(contacts) ? contacts : []
 
-  const normalized = safe.map((contact, index) => ({
-    id: contact?.id || `repartidor-${index + 1}`,
-    nombre: (contact?.nombre || `Repartidor ${index + 1}`).trim(),
-    telefono: cleanPhone(contact?.telefono || ""),
-    activo: Boolean(contact?.activo),
-  }))
+  const normalized = safe.map((contact, index) => {
+    const nombre = (contact?.nombre || `Repartidor ${index + 1}`).trim()
+    const iniciales = cleanInitials(contact?.iniciales, nombre)
 
+    return {
+      id: contact?.id || `repartidor-${index + 1}`,
+      nombre,
+      iniciales,
+      telefono: cleanPhone(contact?.telefono || ""),
+      activo: Boolean(contact?.activo),
+    }
+  })
+
+  // Si hay contactos y ninguno está activo, marcar el primero como activo por defecto
   const activeContacts = normalized.filter((c) => c.activo)
-
   if (normalized.length > 0 && activeContacts.length === 0) {
     normalized[0].activo = true
   }
 
-  if (activeContacts.length > 1) {
-    let activeAssigned = false
-    for (const contact of normalized) {
-      if (contact.activo && !activeAssigned) {
-        activeAssigned = true
-      } else {
-        contact.activo = false
-      }
-    }
-  }
-
+  // Ahora se permite más de 1 repartidor activo simultáneamente
   return normalized
 }
 
@@ -101,13 +118,21 @@ export async function saveDeliveryDriverConfig(config: DeliveryDriverConfig): Pr
   await setDoc(ref, safeConfig, { merge: true })
 }
 
-export async function getActiveDeliveryPhone(): Promise<string> {
+export async function getActiveDeliveryDrivers(): Promise<DeliveryDriverContact[]> {
   try {
     const config = await getDeliveryDriverConfig()
-    const active = config.contactos.find((contact) => contact.activo)
+    return config.contactos.filter((contact) => contact.activo)
+  } catch (error) {
+    console.error("Error al obtener repartidores activos:", error)
+    return []
+  }
+}
 
-    if (active?.telefono) {
-      return cleanPhone(active.telefono)
+export async function getActiveDeliveryPhone(): Promise<string> {
+  try {
+    const drivers = await getActiveDeliveryDrivers()
+    if (drivers.length > 0 && drivers[0].telefono) {
+      return cleanPhone(drivers[0].telefono)
     }
 
     return DEFAULT_DELIVERY_PHONE

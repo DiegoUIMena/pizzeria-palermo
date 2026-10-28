@@ -48,6 +48,15 @@ export default function GlobalOrderMonitor() {
         const cuentas = JSON.parse(cuentasGuardadas)
         const timestamp = parseInt(ultimoUpdate, 10)
         
+        // Normalizar tiempos a minutos si vinieran en segundos (> 120) de versiones anteriores
+        if (tiempos && typeof tiempos === 'object') {
+          for (const id in tiempos) {
+            if (tiempos[id] > 120) {
+              tiempos[id] = Math.round(tiempos[id] / 60)
+            }
+          }
+        }
+        
         // Calcular cuánto tiempo ha pasado desde la última actualización
         const ahora = Date.now()
         const segundosTranscurridos = Math.floor((ahora - timestamp) / 1000)
@@ -213,11 +222,11 @@ export default function GlobalOrderMonitor() {
         const segundosTotales = minutos * 60
         const segundosRestantes = Math.max(0, segundosTotales - segundosTranscurridos)
         
-        // Actualizar estado si es diferente
-        if (tiemposEstimados[pedido.documentId] !== segundosTotales || 
+        // Actualizar estado si es diferente (tiemposEstimados guarda minutos, cuentasRegresivas guarda segundos)
+        if (tiemposEstimados[pedido.documentId] !== minutos || 
             cuentasRegresivas[pedido.documentId] !== segundosRestantes) {
           hasChanges = true
-          newTiemposEstimados[pedido.documentId] = segundosTotales
+          newTiemposEstimados[pedido.documentId] = minutos
           newCuentasRegresivas[pedido.documentId] = segundosRestantes
         } else {
           // Mantener los valores existentes
@@ -367,18 +376,18 @@ export default function GlobalOrderMonitor() {
         tiempoEstimadoFin,
       })
       
-      // Actualizar estados locales
+      // Actualizar estados locales (tiemposEstimados en minutos, cuentasRegresivas en segundos)
       const segundosTotales = minutos * 60
       
       setTiemposEstimados(prev => {
-        const newTiempos = { ...prev, [pedidoId]: segundosTotales }
+        const newTiempos = { ...prev, [pedidoId]: minutos }
         return newTiempos
       })
       
       setCuentasRegresivas(prev => {
         const newCuentas = { ...prev, [pedidoId]: segundosTotales }
         // También guardar en localStorage
-        guardarTiemposEnStorage({ ...tiemposEstimados, [pedidoId]: segundosTotales }, newCuentas)
+        guardarTiemposEnStorage({ ...tiemposEstimados, [pedidoId]: minutos }, newCuentas)
         return newCuentas
       })
       

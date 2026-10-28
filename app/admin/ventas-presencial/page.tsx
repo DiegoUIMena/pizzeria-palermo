@@ -879,7 +879,8 @@ export default function PresentialSalesPage() {
       notas: finalNotas,
       source: "IN_PERSON",
       orderChannel: "POS",
-      paymentStatus: paymentMethod === 'Por Pagar' ? ("pending" as const) : ("paid" as const)
+      paymentStatus: paymentMethod === 'Por Pagar' ? ("pending" as const) : ("paid" as const),
+      eraPorPagar: paymentMethod === 'Por Pagar'
     }
 
     try {
@@ -911,19 +912,25 @@ export default function PresentialSalesPage() {
         comments: item.comments
       }))
 
+      const deliveryFeeVal = parseFloat(deliveryAmount) || 0
+      const isPosDelivery = deliveryFeeVal > 0
+
       const payloadToSend = {
         customerType: "guest",
         cliente: payload.cliente,
-        tipoEntrega: payload.tipoEntrega,
+        tipoEntrega: isPosDelivery ? "Delivery" : payload.tipoEntrega,
         items: orderItems,
-        delivery: parseFloat(deliveryAmount) || 0,
+        delivery: deliveryFeeVal,
+        valorDelivery: deliveryFeeVal,
+        deliveryFee: deliveryFeeVal,
         total: total,
         metodoPago: payload.metodoPago,
         paymentDetails: payload.paymentDetails,
         notas: payload.notas,
         source: "IN_PERSON",
         orderChannel: "POS",
-        paymentStatus: payload.paymentStatus
+        paymentStatus: payload.paymentStatus,
+        eraPorPagar: paymentMethod === 'Por Pagar'
       }
 
       const functionResponse = await createOrderFunction(payloadToSend)
@@ -2103,7 +2110,7 @@ export default function PresentialSalesPage() {
               { id: 'Efectivo', label: 'Efectivo', icon: DollarSign },
               { id: 'Tarjeta', label: 'Tarjeta (MP)', icon: CreditCard },
               { id: 'Transferencia', label: 'Banco', icon: Send },
-              { id: 'Por Pagar', label: 'X Pagar', icon: Clock }
+              { id: 'Por Pagar', label: 'Por Pagar', icon: Clock }
             ].map(method => {
               const Icon = method.icon
               const isSelected = paymentMethod === method.id

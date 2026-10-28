@@ -84,7 +84,10 @@ export interface Order {
   total: number
   
   // Pago
-  metodoPago: "Efectivo" | "Webpay Plus" | "Transferencia"
+  metodoPago: "Efectivo" | "Webpay Plus" | "Transferencia" | "Por Pagar" | "Tarjeta" | string
+  eraPorPagar?: boolean
+  source?: string
+  orderChannel?: string
   paymentDetails?: {
     cashAmount?: number
     change?: number
@@ -128,6 +131,18 @@ export interface Order {
   
   // Notas
   notas?: string
+  
+  // Repartidor asignado para Delivery
+  repartidorId?: string
+  repartidorNombre?: string
+  repartidorIniciales?: string
+  repartidorAsignadoAt?: string
+  repartidor?: {
+    id: string
+    nombre: string
+    iniciales: string
+    telefono?: string
+  }
   
   // Control de inventario
   inventoryProcessed?: boolean
@@ -437,11 +452,67 @@ export const getOrdersPaginated = async (options: GetOrdersOptions = {}): Promis
  * Ver más detalles en inventory-policy.md
  */
 export const updateOrderStatus = async (orderId: string, newStatus: Order['estado']): Promise<void> => {
+  const now = new Date()
+  const nowIso = now.toISOString()
+
+  // 1. Si el estado es "Entregado", persistir DIRECTAMENTE en Firestore primero.
+  // Esto garantiza persistencia inmediata, offline-first y elimina demoras o cancelaciones si se cierra la pestaña.
+  if (newStatus === "Entregado") {
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, {
+        estado: "Entregado",
+        "timestamps.delivered": nowIso
+      })
+      console.log('✅ Estado "Entregado" persistido directamente en Firestore:', orderId)
+    } catch (directError: any) {
+      console.error('Error al persistir directamente "Entregado" en Firestore, intentando Cloud Function:', directError)
+    }
+
+    // Como respaldo y sincronización con backend/logs, invocar Cloud Function en segundo plano sin que un error de red revierta la entrega
+    try {
+      const updateOrderStatusFunction = httpsCallable(functions, 'updateOrderStatus')
+      await updateOrderStatusFunction({
+        orderId,
+        newStatus,
+        consumeInventory: false
+      })
+    } catch (cfError) {
+      console.warn('Cloud Function updateOrderStatus falló pero Firestore ya fue actualizado para Entregado:', cfError)
+    }
+    return
+  }
+
+  // 2. Si es "Pedido Listo" o "En camino", asegurar persistencia directa en Firestore y enviar WhatsApp vía Cloud Function
+  if (newStatus === "Pedido Listo" || newStatus === "En camino") {
+    try {
+      const orderRef = doc(db, 'orders', orderId)
+      await updateDoc(orderRef, {
+        estado: newStatus,
+        "timestamps.ready": nowIso
+      })
+      console.log(`✅ Estado "${newStatus}" persistido directamente en Firestore:`, orderId)
+    } catch (directError: any) {
+      console.error(`Error al persistir directamente "${newStatus}" en Firestore:`, directError)
+    }
+
+    // Intentar llamar a Cloud Function para enviar notificaciones WhatsApp si corresponde
+    try {
+      const updateOrderStatusFunction = httpsCallable(functions, 'updateOrderStatus')
+      await updateOrderStatusFunction({
+        orderId,
+        newStatus,
+        consumeInventory: false
+      })
+    } catch (cfError) {
+      console.warn(`Cloud Function updateOrderStatus (${newStatus}) falló pero Firestore ya fue actualizado:`, cfError)
+    }
+    return
+  }
+
+  // 3. Para "En preparación" y "Cancelado", es CRÍTICO ejecutar la Cloud Function porque maneja inventario y reembolsos
   try {
-    // Llamar a la Cloud Function updateOrderStatus
     const updateOrderStatusFunction = httpsCallable(functions, 'updateOrderStatus')
-    
-    // Determinar si se debe consumir inventario basado en el nuevo estado
     const consumeInventory = newStatus === "En preparación"
     
     const result = await updateOrderStatusFunction({
@@ -458,7 +529,7 @@ export const updateOrderStatus = async (orderId: string, newStatus: Order['estad
     
     console.log('Estado del pedido actualizado mediante Cloud Function:', orderId, newStatus)
   } catch (error: any) {
-    console.error('Error al actualizar estado del pedido:', error)
+    console.error('Error al actualizar estado del pedido en Cloud Function:', error)
     
     // Extraer mensaje de error de Firebase Functions
     if (error?.code === 'functions/unauthenticated') {

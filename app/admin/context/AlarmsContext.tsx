@@ -25,6 +25,65 @@ export const useAlarms = () => {
   return context;
 };
 
+// Constantes para coordinación entre pestañas
+const ALARMS_CHANNEL_NAME = 'palermo_admin_alarms_channel';
+const ACTIVE_TAB_STORAGE_KEY = 'palermo_admin_active_tab';
+const BACKGROUND_LEADER_STORAGE_KEY = 'palermo_admin_bg_leader';
+
+interface ActiveTabPayload {
+  tabId: string;
+  timestamp: number;
+  isVisible: boolean;
+}
+
+interface LeaderPayload {
+  tabId: string;
+  heartbeat: number;
+}
+
+// Helpers para localStorage
+function getActiveTabInfo(): ActiveTabPayload | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function setActiveTabInfo(info: ActiveTabPayload): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, JSON.stringify(info));
+  } catch {}
+}
+
+function soyLiderEnSegundoPlano(tabId: string): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const ahora = Date.now();
+    const raw = localStorage.getItem(BACKGROUND_LEADER_STORAGE_KEY);
+    if (!raw) {
+      localStorage.setItem(BACKGROUND_LEADER_STORAGE_KEY, JSON.stringify({ tabId, heartbeat: ahora }));
+      return true;
+    }
+    const leader: LeaderPayload = JSON.parse(raw);
+    if (leader.tabId === tabId) {
+      localStorage.setItem(BACKGROUND_LEADER_STORAGE_KEY, JSON.stringify({ tabId, heartbeat: ahora }));
+      return true;
+    }
+    // Si el líder no renueva heartbeat hace más de 4 segundos, asumimos el rol
+    if (ahora - leader.heartbeat > 4000) {
+      localStorage.setItem(BACKGROUND_LEADER_STORAGE_KEY, JSON.stringify({ tabId, heartbeat: ahora }));
+      return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 // Proveedor del contexto
 export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [alarmaActiva, setAlarmaActiva] = useState(false);
@@ -43,7 +102,97 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const alarmasTiempoCriticoPendientesRef = useRef<Set<string>>(new Set());
   const avisoBloqueoMostradoRef = useRef(false);
 
-  // Pre-cargar los audios usando elementos HTML5 estándar (altamente compatible con pestañas en segundo plano)
+  // Identificador único de pestaña y canal de broadcast
+  const tabIdRef = useRef<string>('');
+  const broadcastChannelRef = useRef<BroadcastChannel | null>(null);
+
+  if (typeof window !== 'undefined' && !tabIdRef.current) {
+    tabIdRef.current = window.name && window.name.startsWith('palermo_tab_')
+      ? window.name
+      : (window.name = `palermo_tab_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`);
+  }
+
+  // Comprueba si esta pestaña específica es la autorizada para reproducir sonido
+  const debeSonarEnEstaPestaña = useCallback((): boolean => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return false;
+
+    const tabId = tabIdRef.current;
+    const esVisible = document.visibilityState === 'visible';
+
+    // 1. Si esta pestaña está visible (en pantalla):
+    if (esVisible) {
+      setActiveTabInfo({ tabId, timestamp: Date.now(), isVisible: true });
+      return true;
+    }
+
+    // 2. Si esta pestaña está en segundo plano (oculta o minimizada):
+    const activeTab = getActiveTabInfo();
+    const ahora = Date.now();
+    // Si hay otra pestaña visible recientemente (< 4 segundos), ella reproducirá el sonido
+    if (activeTab && activeTab.isVisible && (ahora - activeTab.timestamp < 4000) && activeTab.tabId !== tabId) {
+      console.log(`🔇 [AlarmsContext] Alarma silenciada en pestaña en segundo plano (${tabId}) porque la pestaña ${activeTab.tabId} está activa y visible.`);
+      return false;
+    }
+
+    // 3. Si NINGUNA pestaña está visible (navegador minimizado en Windows):
+    // Una sola pestaña actúa como líder para que la alarma suene pero NUNCA se acople
+    const soyLider = soyLiderEnSegundoPlano(tabId);
+    if (!soyLider) {
+      console.log(`🔇 [AlarmsContext] Alarma silenciada en pestaña (${tabId}) para delegar a la pestaña líder en segundo plano.`);
+    }
+    return soyLider;
+  }, []);
+
+  // Función interna para detener la alarma repetitiva local
+  const detenerAlarmaRepetitivaLocal = useCallback(() => {
+    if (workerRef.current !== null) {
+      workerRef.current.postMessage('stop');
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    if (intervaloAlarmaRef.current !== null) {
+      clearInterval(intervaloAlarmaRef.current);
+      intervaloAlarmaRef.current = null;
+    }
+    setAlarmaActiva(false);
+  }, []);
+
+  // Función interna para detener audios locales
+  const detenerAudiosLocales = useCallback(() => {
+    sourcesActivosRef.current.forEach(audio => {
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch {}
+    });
+    sourcesActivosRef.current = [];
+    detenerAlarmaRepetitivaLocal();
+  }, [detenerAlarmaRepetitivaLocal]);
+
+  // Función para detener la alarma repetitiva (con sincronización global a todas las pestañas)
+  const detenerAlarmaRepetitiva = useCallback(() => {
+    detenerAlarmaRepetitivaLocal();
+    try {
+      broadcastChannelRef.current?.postMessage({
+        type: 'DETENER_AUDIOS_GLOBAL',
+        fromTabId: tabIdRef.current
+      });
+    } catch {}
+  }, [detenerAlarmaRepetitivaLocal]);
+
+  // Función para detener INMEDIATAMENTE todos los audios en reproducción (con sincronización global)
+  const detenerAudiosInmediatamente = useCallback(() => {
+    detenerAudiosLocales();
+    try {
+      broadcastChannelRef.current?.postMessage({
+        type: 'DETENER_AUDIOS_GLOBAL',
+        fromTabId: tabIdRef.current
+      });
+    } catch {}
+    console.log(`🔇 [AlarmsContext] Todos los audios detenidos y silenciados globalmente desde pestaña [${tabIdRef.current}]`);
+  }, [detenerAudiosLocales]);
+
+  // Pre-cargar los audios usando elementos HTML5 estándar
   useEffect(() => {
     if (typeof window !== "undefined") {
       audioNuevoPedidoRef.current = new Audio('/sounds/nuevo_pedido.mp3');
@@ -57,6 +206,68 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log("✅ Audios HTML5 pre-cargados en memoria");
     }
 
+    // Inicializar BroadcastChannel para sincronización entre pestañas
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const channel = new BroadcastChannel(ALARMS_CHANNEL_NAME);
+        broadcastChannelRef.current = channel;
+
+        channel.onmessage = (event) => {
+          const data = event.data;
+          if (!data || typeof data !== 'object') return;
+
+          // Si otra pestaña solicitó detener todos los audios inmediatamente
+          if (data.type === 'DETENER_AUDIOS_GLOBAL' && data.fromTabId !== tabIdRef.current) {
+            console.log(`🔇 [AlarmsContext] Detención de audios recibida desde pestaña ${data.fromTabId}`);
+            detenerAudiosLocales();
+          }
+
+          // Si otra pestaña reclama visibilidad activa
+          if (data.type === 'TAB_VISIBLE' && data.fromTabId !== tabIdRef.current) {
+            // Si estábamos sonando en segundo plano, cedemos el paso de inmediato a la pestaña visible
+            if (document.visibilityState !== 'visible') {
+              console.log(`👀 [AlarmsContext] Otra pestaña (${data.fromTabId}) pasó a estar activa; transfiriendo sonido.`);
+              detenerAudiosLocales();
+            }
+          }
+        };
+      }
+    } catch (e) {
+      console.warn("⚠️ BroadcastChannel no soportado, continuando con sincronización estándar:", e);
+    }
+
+    // Monitorear foco y visibilidad de la pestaña actual
+    const actualizarVisibilidad = () => {
+      const isVisible = document.visibilityState === 'visible';
+      if (isVisible) {
+        setActiveTabInfo({ tabId: tabIdRef.current, timestamp: Date.now(), isVisible: true });
+        broadcastChannelRef.current?.postMessage({ type: 'TAB_VISIBLE', fromTabId: tabIdRef.current });
+      }
+    };
+
+    actualizarVisibilidad();
+    document.addEventListener('visibilitychange', actualizarVisibilidad);
+    window.addEventListener('focus', actualizarVisibilidad);
+
+    // Heartbeat periódico si la pestaña está activa
+    const heartbeatTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        setActiveTabInfo({ tabId: tabIdRef.current, timestamp: Date.now(), isVisible: true });
+      } else {
+        // En segundo plano, renovar heartbeat solo si somos el líder
+        const ahora = Date.now();
+        const raw = localStorage.getItem(BACKGROUND_LEADER_STORAGE_KEY);
+        if (raw) {
+          try {
+            const leader = JSON.parse(raw);
+            if (leader.tabId === tabIdRef.current && (ahora - leader.heartbeat <= 4000)) {
+              localStorage.setItem(BACKGROUND_LEADER_STORAGE_KEY, JSON.stringify({ tabId: tabIdRef.current, heartbeat: ahora }));
+            }
+          } catch {}
+        }
+      }
+    }, 2000);
+
     const procesarAlarmasPendientes = () => {
       if (alarmaNuevoPedidoPendienteRef.current) {
         alarmaNuevoPedidoPendienteRef.current = false;
@@ -64,7 +275,7 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
 
       if (alarmasTiempoCriticoPendientesRef.current.size > 0) {
-        const pendientes = [...alarmasTiempoCriticoPendientesRef.current];
+        const pendientes = Array.from(alarmasTiempoCriticoPendientesRef.current);
         alarmasTiempoCriticoPendientesRef.current.clear();
         pendientes.forEach(id => {
           reproducirAlarmaTiempoAgotandose(id);
@@ -93,16 +304,21 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       document.removeEventListener('touchstart', desbloquearAudio);
     };
     
-    // Agregar listeners para desbloquear.
+    // Agregar listeners para desbloquear
     document.addEventListener('click', desbloquearAudio);
     document.addEventListener('keydown', desbloquearAudio);
     document.addEventListener('touchstart', desbloquearAudio);
     
     return () => {
+      clearInterval(heartbeatTimer);
+      document.removeEventListener('visibilitychange', actualizarVisibilidad);
+      window.removeEventListener('focus', actualizarVisibilidad);
       document.removeEventListener('click', desbloquearAudio);
       document.removeEventListener('keydown', desbloquearAudio);
       document.removeEventListener('touchstart', desbloquearAudio);
       
+      broadcastChannelRef.current?.close();
+
       // Detener cualquier audio activo al desmontar
       sourcesActivosRef.current.forEach(audio => {
         try {
@@ -110,11 +326,16 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         } catch {}
       });
     };
-  }, []);
+  }, [detenerAudiosLocales]);
 
   // Alarma para nuevo pedido (reproducción instantánea compatible con segundo plano)
   const reproducirAlarmaNuevoPedido = useCallback(() => {
     try {
+      // 🛡️ REGLA MULTI-PESTAÑA: Verificar si esta pestaña debe sonar
+      if (!debeSonarEnEstaPestaña()) {
+        return;
+      }
+
       if (!audioNuevoPedidoRef.current) {
         console.warn("Audio de nuevo pedido aún no cargado");
         return;
@@ -139,21 +360,25 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         sourcesActivosRef.current = sourcesActivosRef.current.filter(s => s !== clone);
       };
       
-      // El método .play() en HTML5 Audio es tolerado en pestañas inactivas si el dominio está desbloqueado
       clone.play().catch(error => {
         console.warn("🔊 Alarma de nuevo pedido bloqueada temporalmente en segundo plano:", error.message);
         alarmaNuevoPedidoPendienteRef.current = true;
       });
       
-      console.log("🔊 Alarma de nuevo pedido reproducida");
+      console.log(`🔊 Alarma de nuevo pedido reproducida exclusivamente en pestaña [${tabIdRef.current}]`);
     } catch (error) {
       console.error("Error al reproducir alarma de nuevo pedido:", error);
     }
-  }, []);
+  }, [debeSonarEnEstaPestaña]);
 
   // Alarma para tiempo agotándose (reproducción instantánea) - Solo 2 veces por pedido
   const reproducirAlarmaTiempoAgotandose = useCallback((pedidoId?: string) => {
     try {
+      // 🛡️ REGLA MULTI-PESTAÑA: Verificar si esta pestaña debe sonar
+      if (!debeSonarEnEstaPestaña()) {
+        return;
+      }
+
       const id = pedidoId || 'default';
       
       // Verificar si se reprodujo hace menos de 3 segundos (evitar duplicados)
@@ -201,11 +426,11 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       contadorTiempoCriticoRef.current.set(id, contadorActual + 1);
       ultimaReproduccionRef.current.set(id, ahora);
       
-      console.log(`🔊 Alarma de tiempo crítico reproducida (${contadorActual + 1}/2) para pedido ${id}`);
+      console.log(`🔊 Alarma de tiempo crítico reproducida (${contadorActual + 1}/2) en pestaña [${tabIdRef.current}] para pedido ${id}`);
     } catch (error) {
       console.error("Error al reproducir alarma de tiempo agotándose:", error);
     }
-  }, []);
+  }, [debeSonarEnEstaPestaña]);
 
   // Función para resetear el contador cuando un pedido cambia de estado
   const resetearContadorTiempoCritico = useCallback((pedidoId: string) => {
@@ -219,15 +444,18 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return; // La alarma ya está activa
     }
     
-    console.log("🔔 Iniciando alarma repetitiva (con soporte de Web Worker para segundo plano)");
+    // Si esta pestaña no es la autorizada para sonar, no iniciar reproducciones sonoras
+    if (!debeSonarEnEstaPestaña()) {
+      return;
+    }
+
+    console.log(`🔔 Iniciando alarma repetitiva en pestaña [${tabIdRef.current}] (Web Worker para segundo plano)`);
     setAlarmaActiva(true);
     
     // Ejecutar la alarma inmediatamente la primera vez
     reproducirAlarmaNuevoPedido();
     
-    // Intentar inicializar un Web Worker inline para el intervalo
-    // Esto asegura que la pestaña reciba el trigger de alarma cada 5 segundos
-    // sin verse afectada por el estrangulamiento (throttling) del navegador en segundo plano.
+    // Inicializar un Web Worker inline para el intervalo
     try {
       const code = `
         let timer = null;
@@ -252,49 +480,13 @@ export const AlarmsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       workerRef.current.postMessage('start');
     } catch (error) {
       console.warn("⚠️ No se pudo iniciar Web Worker para alarma, usando setInterval tradicional:", error);
-      // Fallback a setInterval tradicional
       intervaloAlarmaRef.current = window.setInterval(() => {
         reproducirAlarmaNuevoPedido();
       }, 5000);
     }
-  }, [reproducirAlarmaNuevoPedido]);
+  }, [debeSonarEnEstaPestaña, reproducirAlarmaNuevoPedido]);
 
-  // Función para detener la alarma repetitiva
-  const detenerAlarmaRepetitiva = useCallback(() => {
-    if (workerRef.current !== null) {
-      workerRef.current.postMessage('stop');
-      workerRef.current.terminate();
-      workerRef.current = null;
-    }
-    if (intervaloAlarmaRef.current !== null) {
-      clearInterval(intervaloAlarmaRef.current);
-      intervaloAlarmaRef.current = null;
-    }
-    setAlarmaActiva(false);
-  }, []);
-
-  // Función para detener INMEDIATAMENTE todos los audios en reproducción
-  const detenerAudiosInmediatamente = useCallback(() => {
-    // Detener todos los audios activos
-    sourcesActivosRef.current.forEach(audio => {
-      try {
-        audio.pause();
-        audio.currentTime = 0;
-      } catch (error) {
-        // Ignorar
-      }
-    });
-    
-    // Limpiar el array
-    sourcesActivosRef.current = [];
-    
-    // También detener la alarma repetitiva si está activa
-    detenerAlarmaRepetitiva();
-    
-    console.log("🔇 Todos los audios detenidos inmediatamente");
-  }, [detenerAlarmaRepetitiva]);
-
-  // Limpiar el intervalo de alarma y el worker al desmontar el componente
+  // Limpiar al desmontar el componente
   useEffect(() => {
     return () => {
       if (workerRef.current !== null) {

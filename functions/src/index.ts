@@ -544,9 +544,10 @@ export const createOrder = onCall(async (request) => {
         orderData.direccion
       );
       
-      // ✅ MEJORA: Para POS (Venta Presencial), permitir incorporar el valor de delivery ingresado manualmente
-      if ((orderData as any).orderChannel === "POS" && (orderData as any).delivery > 0) {
-        priceCalculation.deliveryFee = (orderData as any).delivery;
+      // ✅ MEJORA: Para POS (Venta Presencial) o pedidos con delivery explícito, asegurar incorporar el valor de delivery ingresado
+      const manualDeliveryFee = Number((orderData as any).delivery ?? (orderData as any).valorDelivery ?? (orderData as any).deliveryFee ?? 0);
+      if (manualDeliveryFee > 0 && ((orderData as any).orderChannel === "POS" || !priceCalculation.deliveryFee || priceCalculation.deliveryFee === 0)) {
+        priceCalculation.deliveryFee = manualDeliveryFee;
         priceCalculation.total = priceCalculation.subtotal + priceCalculation.deliveryFee;
       }
 

@@ -10,8 +10,8 @@ interface RateLimitRecord {
 
 const rateLimitMap = new Map<string, RateLimitRecord>();
 
-// Limpiar registros antiguos cada 5 minutos
-setInterval(() => {
+// Limpiar registros antiguos cada 5 minutos (unref para no bloquear el event loop)
+const cleanupInterval = setInterval(() => {
   const now = Date.now();
   const fiveMinutes = 5 * 60 * 1000;
   
@@ -21,6 +21,10 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000);
+
+if (typeof cleanupInterval.unref === 'function') {
+  cleanupInterval.unref();
+}
 
 export interface RateLimitConfig {
   maxRequests: number;

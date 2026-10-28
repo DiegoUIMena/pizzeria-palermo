@@ -20,6 +20,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   CreditCard,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import VentasChart from "./components/VentasChart"
 import ProductosChart from "./components/ProductosChart"
@@ -33,6 +37,7 @@ export default function AdminReportes() {
   const [periodoVentas, setPeriodoVentas] = useState("semana")
   const [periodoProductos, setPeriodoProductos] = useState("mes")
   const [reporteActivo, setReporteActivo] = useState("ventas")
+  const [mostrarKpis, setMostrarKpis] = useState(false)
   const { orders, kpis, getSalesSeries, getProductShare, inventory, clientesSeries, loading, getTopProducts, getVentasResumen, getCriticalInventory, getHighRotationInventory, getClientesResumen, getClientesSegmentacion } = useAdminReports()
   const ventasResumen = getVentasResumen(periodoVentas as any)
   const topProductos = getTopProducts(periodoProductos as any)
@@ -62,144 +67,201 @@ export default function AdminReportes() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-900">
       <main className="container mx-auto px-4 py-8">
-        <div className="no-print flex justify-between items-center mb-8">
+        <div className="no-print flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white mb-2">Reportes y Análisis</h1>
             <p className="text-gray-600 dark:text-gray-400">Estadísticas y métricas de rendimiento del negocio</p>
           </div>
-          <Button onClick={handleExportarReporte} variant="outline" className="flex items-center gap-2">
-            <Download className="w-4 h-4" />
-            Exportar Datos
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              onClick={() => setMostrarKpis(!mostrarKpis)}
+              variant="outline"
+              className="flex items-center gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
+            >
+              {mostrarKpis ? (
+                <>
+                  <EyeOff className="w-4 h-4 text-gray-500" />
+                  <span>Ocultar Métricas Clave</span>
+                  <ChevronDown className="w-4 h-4 text-gray-400 rotate-180 transition-transform duration-300" />
+                </>
+              ) : (
+                <>
+                  <Eye className="w-4 h-4 text-gray-500" />
+                  <span>Ver Métricas Clave (KPIs)</span>
+                  <ChevronDown className="w-4 h-4 text-gray-400 transition-transform duration-300" />
+                </>
+              )}
+            </Button>
+            <Button onClick={handleExportarReporte} variant="outline" className="flex items-center gap-2">
+              <Download className="w-4 h-4" />
+              Exportar Datos
+            </Button>
+          </div>
         </div>
 
-        {/* KPIs Principales */}
-        <div className="no-print grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium dark:text-gray-200">Ventas Totales</CardTitle>
-              <DollarSign className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold dark:text-white">${kpis.ventasTotal.toLocaleString()}</div>
-              <div className="flex items-center mt-1">
-                {kpis.ventasCrecimiento > 0 ? (
-                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
-                    <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.ventasCrecimiento}%
-                  </Badge>
-                ) : (
-                  <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
-                    <ArrowDownRight className="w-3 h-3 mr-1" />
-                    {kpis.ventasCrecimiento}%
-                  </Badge>
-                )}
-                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
-              </div>
-            </CardContent>
-          </Card>
+        {/* Estilos con !important para garantizar la animación fluida en cualquier navegador */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          .kpi-collapsible-wrapper {
+            display: grid !important;
+            transition: grid-template-rows 400ms cubic-bezier(0.16, 1, 0.3, 1),
+                        opacity 350ms ease,
+                        transform 400ms cubic-bezier(0.16, 1, 0.3, 1),
+                        margin-bottom 400ms ease !important;
+            will-change: grid-template-rows, opacity, transform;
+          }
+          .kpi-collapsible-wrapper.kpi-open {
+            grid-template-rows: 1fr !important;
+            opacity: 1 !important;
+            transform: translateY(0) !important;
+            margin-bottom: 2rem !important;
+            pointer-events: auto !important;
+          }
+          .kpi-collapsible-wrapper.kpi-closed {
+            grid-template-rows: 0fr !important;
+            opacity: 0 !important;
+            transform: translateY(-8px) !important;
+            margin-bottom: 0 !important;
+            pointer-events: none !important;
+          }
+        `}} />
 
-          <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium dark:text-gray-200">Ticket Promedio</CardTitle>
-              <Pizza className="h-4 w-4 text-blue-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold dark:text-white">${kpis.ticketPromedio.toLocaleString()}</div>
-              <div className="flex items-center mt-1">
-                {kpis.ticketCrecimiento > 0 ? (
-                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
-                    <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.ticketCrecimiento}%
-                  </Badge>
-                ) : (
-                  <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
-                    <ArrowDownRight className="w-3 h-3 mr-1" />
-                    {kpis.ticketCrecimiento}%
-                  </Badge>
-                )}
-                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
-              </div>
-            </CardContent>
-          </Card>
+        {/* KPIs Principales (Contenedor con animación fluida garantizada) */}
+        <div className={`no-print kpi-collapsible-wrapper ${mostrarKpis ? 'kpi-open' : 'kpi-closed'}`}>
+          <div style={{ overflow: 'hidden' }}>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 pt-1 pb-1">
+              <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium dark:text-gray-200">Ventas Totales</CardTitle>
+                  <DollarSign className="h-4 w-4 text-green-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold dark:text-white">${kpis.ventasTotal.toLocaleString()}</div>
+                  <div className="flex items-center mt-1">
+                    {kpis.ventasCrecimiento > 0 ? (
+                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
+                        <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.ventasCrecimiento}%
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
+                        <ArrowDownRight className="w-3 h-3 mr-1" />
+                        {kpis.ventasCrecimiento}%
+                      </Badge>
+                    )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
+                  </div>
+                </CardContent>
+              </Card>
 
-          <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium dark:text-gray-200">Clientes Nuevos</CardTitle>
-              <Users className="h-4 w-4 text-purple-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold dark:text-white">{kpis.clientesNuevos}</div>
-              <div className="flex items-center mt-1">
-                {kpis.clientesCrecimiento > 0 ? (
-                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
-                    <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.clientesCrecimiento}%
-                  </Badge>
-                ) : (
-                  <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
-                    <ArrowDownRight className="w-3 h-3 mr-1" />
-                    {kpis.clientesCrecimiento}%
-                  </Badge>
-                )}
-                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
-              </div>
-            </CardContent>
-          </Card>
+              <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium dark:text-gray-200">Ticket Promedio</CardTitle>
+                  <Pizza className="h-4 w-4 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold dark:text-white">${kpis.ticketPromedio.toLocaleString()}</div>
+                  <div className="flex items-center mt-1">
+                    {kpis.ticketCrecimiento > 0 ? (
+                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
+                        <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.ticketCrecimiento}%
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
+                        <ArrowDownRight className="w-3 h-3 mr-1" />
+                        {kpis.ticketCrecimiento}%
+                      </Badge>
+                    )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
+                  </div>
+                </CardContent>
+              </Card>
 
-          <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium dark:text-gray-200">Tiempo de Entrega</CardTitle>
-              <Clock className="h-4 w-4 text-orange-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold dark:text-white">{kpis.tiempoEntrega} min</div>
-              <div className="flex items-center mt-1">
-                {kpis.tiempoEntregaCrecimiento < 0 ? (
-                  <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
-                    <ArrowDownRight className="w-3 h-3 mr-1" />
-                    {kpis.tiempoEntregaCrecimiento}%
-                  </Badge>
-                ) : (
-                  <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
-                    <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.tiempoEntregaCrecimiento}%
-                  </Badge>
-                )}
-                <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
-              </div>
-            </CardContent>
-          </Card>
+              <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium dark:text-gray-200">Clientes Nuevos</CardTitle>
+                  <Users className="h-4 w-4 text-purple-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold dark:text-white">{kpis.clientesNuevos}</div>
+                  <div className="flex items-center mt-1">
+                    {kpis.clientesCrecimiento > 0 ? (
+                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
+                        <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.clientesCrecimiento}%
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
+                        <ArrowDownRight className="w-3 h-3 mr-1" />
+                        {kpis.clientesCrecimiento}%
+                      </Badge>
+                    )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-sm font-medium dark:text-gray-200">Tiempo de Entrega</CardTitle>
+                  <Clock className="h-4 w-4 text-orange-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold dark:text-white">{kpis.tiempoEntrega} min</div>
+                  <div className="flex items-center mt-1">
+                    {kpis.tiempoEntregaCrecimiento < 0 ? (
+                      <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100 hover:bg-green-100 dark:hover:bg-green-900">
+                        <ArrowDownRight className="w-3 h-3 mr-1" />
+                        {kpis.tiempoEntregaCrecimiento}%
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 hover:bg-red-100 dark:hover:bg-red-900">
+                        <ArrowUpRight className="w-3 h-3 mr-1" />+{kpis.tiempoEntregaCrecimiento}%
+                      </Badge>
+                    )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">vs mes anterior</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         </div>
 
         {/* Tabs de Reportes */}
         <Tabs defaultValue="ventas" className="space-y-6" onValueChange={setReporteActivo}>
-          <TabsList className="no-print grid grid-cols-5 md:w-[750px] bg-gray-100 dark:bg-gray-800">
+          <TabsList className="no-print grid grid-cols-5 md:w-[860px] bg-gray-100 dark:bg-gray-800">
             <TabsTrigger value="ventas" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
-              <BarChart3 className="w-4 h-4" />
+              <CreditCard className="w-4 h-4" />
               <span className="hidden sm:inline">Ventas</span>
+            </TabsTrigger>
+            <TabsTrigger value="reportes-comparativas" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+              <BarChart3 className="w-4 h-4" />
+              <span className="hidden sm:inline">Reportes y Comparativas</span>
             </TabsTrigger>
             <TabsTrigger value="productos" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <PieChart className="w-4 h-4" />
               <span className="hidden sm:inline">Productos</span>
             </TabsTrigger>
-            <TabsTrigger value="inventario" className="flex items-center gap-2">
+            <TabsTrigger value="inventario" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <TrendingDown className="w-4 h-4" />
               <span className="hidden sm:inline">Inventario</span>
             </TabsTrigger>
-            <TabsTrigger value="clientes" className="flex items-center gap-2">
+            <TabsTrigger value="clientes" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <TrendingUp className="w-4 h-4" />
               <span className="hidden sm:inline">Clientes</span>
             </TabsTrigger>
-            <TabsTrigger value="pagos" className="flex items-center gap-2">
-              <CreditCard className="w-4 h-4" />
-              <span className="hidden sm:inline">Pagos y Transacciones</span>
-            </TabsTrigger>
           </TabsList>
 
-          {/* Reporte de Ventas */}
-          <TabsContent value="ventas">
+          {/* Ventas (anteriormente Pagos y Transacciones) */}
+          <TabsContent value="ventas" className="no-print">
+            <PagosReport orders={orders} />
+          </TabsContent>
+
+          {/* Reporte de Ventas y Comparativas */}
+          <TabsContent value="reportes-comparativas">
             <Card className="no-print">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-xl">Reporte de Ventas</CardTitle>
-                  <CardDescription>Análisis de ventas por período</CardDescription>
+                  <CardTitle className="text-xl">Reportes y Comparativas</CardTitle>
+                  <CardDescription>Análisis de ventas por período y comparativas</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-gray-500" />
@@ -410,11 +472,6 @@ export default function AdminReportes() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-
-          {/* Reporte de Pagos */}
-          <TabsContent value="pagos" className="no-print">
-            <PagosReport orders={orders} />
           </TabsContent>
         </Tabs>
       </main>

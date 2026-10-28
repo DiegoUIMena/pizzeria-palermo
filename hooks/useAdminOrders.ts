@@ -38,13 +38,47 @@ function formatOrderCreatedAt(order: Order): string {
   return order.fechaCreacion || ''
 }
 
+// Claves y helpers para almacenamiento persistente de pedidos entregados (evita reaparición tras cierre)
+const ENTREGADOS_CACHE_KEY = 'admin_pedidos_entregados_ids'
+const ENTREGADOS_TTL_MS = 48 * 60 * 60 * 1000 // 48 horas
+
+function getEntregadosCache(): Record<string, number> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(ENTREGADOS_CACHE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    const now = Date.now()
+    const valid: Record<string, number> = {}
+    for (const id in parsed) {
+      if (now - parsed[id] < ENTREGADOS_TTL_MS) {
+        valid[id] = parsed[id]
+      }
+    }
+    return valid
+  } catch {
+    return {}
+  }
+}
+
+function registrarEntregadoEnCache(pedidoId: string) {
+  if (typeof window === 'undefined') return
+  try {
+    const cache = getEntregadosCache()
+    cache[pedidoId] = Date.now()
+    localStorage.setItem(ENTREGADOS_CACHE_KEY, JSON.stringify(cache))
+  } catch (e) {
+    console.error('Error guardando en cache de entregados:', e)
+  }
+}
+
 // Hook para obtener todos los pedidos (Admin) - OPTIMIZADO
 export const useAdminOrders = (estadoFiltro?: string) => {
   const [pedidos, setPedidos] = useState<Order[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Novedad: Guardar el estado optimista localmente para evitar "rebotes"
+  // Guardar el estado optimista localmente para evitar "rebotes"
   const pendingUpdates = useRef<Record<string, Order['estado']>>({})
 
   // Función para cargar pedidos iniciales (solo para refetch manual)
@@ -53,9 +87,12 @@ export const useAdminOrders = (estadoFiltro?: string) => {
       setIsLoading(true)
       setError(null)
       const allOrders = await getAllOrders()
-      // Filtrar solo activos
+      const entregadosCache = getEntregadosCache()
+      // Filtrar solo activos y excluir entregados confirmados
       const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
-      const activosOrders = allOrders.filter(order => estadosActivos.includes(order.estado))
+      const activosOrders = allOrders.filter(order => 
+        estadosActivos.includes(order.estado) && !entregadosCache[order.id!]
+      )
       setPedidos(activosOrders)
     } catch (err) {
       setError('Error al cargar pedidos')
@@ -69,15 +106,24 @@ export const useAdminOrders = (estadoFiltro?: string) => {
   useEffect(() => {
     setIsLoading(true)
     const unsubscribe = listenToRecentOrders((updatedOrders) => {
-      // 1. Cruzar los pedidos nuevos con las actualizaciones optimistas pendientes
+      const entregadosCache = getEntregadosCache()
+
+      // 1. Cruzar los pedidos nuevos con las actualizaciones optimistas pendientes y la caché local
       let finalOrders = updatedOrders.map(order => {
-        const pendingState = pendingUpdates.current[order.id!]
+        const orderId = order.id!
+
+        // Si el pedido ya fue registrado localmente como entregado, asegurar estado inactivo
+        if (entregadosCache[orderId]) {
+          return { ...order, estado: "Entregado" as const }
+        }
+
+        const pendingState = pendingUpdates.current[orderId]
         if (pendingState) {
           // Si el servidor ya nos entregó el estado nuevo, o uno posterior, quitamos el pendiente
           if (order.estado === pendingState || 
              (order.estado !== "Pendiente" && pendingState === "En preparación") ||
              (["Entregado", "Cancelado"].includes(order.estado))) {
-            delete pendingUpdates.current[order.id!]
+            delete pendingUpdates.current[orderId]
             return order
           }
           // De lo contrario, forzar el estado optimista para que la UI no "rebote"
@@ -86,11 +132,12 @@ export const useAdminOrders = (estadoFiltro?: string) => {
         return order
       })
 
-      // 2. Si el filtro actual es "activos", debemos asegurarnos de que el estado optimista no haya
-      // pasado el pedido a un estado inactivo ("Entregado" o "Cancelado"), de ser así lo ocultamos.
+      // 2. Si el filtro actual es "activos", excluir inactivos y los registrados en caché de entregados
       if (!estadoFiltro || estadoFiltro === 'activos') {
         const estadosActivos = ['Pendiente', 'En preparación', 'En camino', 'Pedido Listo']
-        finalOrders = finalOrders.filter(o => estadosActivos.includes(o.estado))
+        finalOrders = finalOrders.filter(o => 
+          estadosActivos.includes(o.estado) && !entregadosCache[o.id!]
+        )
       }
 
       setPedidos(finalOrders)
@@ -100,11 +147,14 @@ export const useAdminOrders = (estadoFiltro?: string) => {
     return () => unsubscribe()
   }, [estadoFiltro]) // Re-ejecutar cuando cambie el filtro
 
-  // Función para actualizar estado de un pedido con Optimistic Update
+  // Función para actualizar estado de un pedido con Optimistic Update y Persistencia Garantizada
   const actualizarEstado = async (pedidoId: string, nuevoEstado: Order['estado']) => {
     try {
       // 🚀 OPTIMISTIC UPDATE: Actualizar UI inmediatamente
       pendingUpdates.current[pedidoId] = nuevoEstado
+      if (nuevoEstado === "Entregado") {
+        registrarEntregadoEnCache(pedidoId)
+      }
       
       setPedidos(prevPedidos => {
         let next = prevPedidos.map(pedido => 
@@ -118,14 +168,17 @@ export const useAdminOrders = (estadoFiltro?: string) => {
         return next
       })
       
-      // Luego actualizar en el servidor (en segundo plano)
-      updateOrderStatus(pedidoId, nuevoEstado).catch(error => {
-        console.error('Error al actualizar estado en servidor:', error)
-        // Revertir optimistic en caso de error
-        delete pendingUpdates.current[pedidoId]
-      })
+      // Actualizar en el servidor esperando confirmación real
+      await updateOrderStatus(pedidoId, nuevoEstado)
+
+      // Limpiar pendingUpdate tras confirmación exitosa
+      delete pendingUpdates.current[pedidoId]
     } catch (error) {
-      console.error('Error al actualizar estado:', error)
+      console.error('Error al actualizar estado en servidor:', error)
+      // Si falló y no era Entregado, revertir optimistic
+      if (nuevoEstado !== "Entregado") {
+        delete pendingUpdates.current[pedidoId]
+      }
       throw error
     }
   }
@@ -253,7 +306,14 @@ export const useFormattedAdminOrders = (estadoFiltro?: string) => {
       tiempoEstimadoMinutos: order.tiempoEstimadoMinutos,
       tiempoEstimadoInicio: order.tiempoEstimadoInicio,
       tiempoEstimadoFin: order.tiempoEstimadoFin,
-      notas: order.notas
+      notas: order.notas,
+      repartidorId: order.repartidorId || (order as any).repartidor?.id,
+      repartidorNombre: order.repartidorNombre || (order as any).repartidor?.nombre,
+      repartidorIniciales: order.repartidorIniciales || (order as any).repartidor?.iniciales,
+      repartidorAsignadoAt: order.repartidorAsignadoAt || (order as any).repartidor?.asignadoAt,
+      source: (order as any).source,
+      orderChannel: (order as any).orderChannel,
+      eraPorPagar: (order as any).eraPorPagar || order.metodoPago === 'Por Pagar'
     };
   });
 
