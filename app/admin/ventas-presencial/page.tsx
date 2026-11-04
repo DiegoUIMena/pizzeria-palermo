@@ -31,6 +31,7 @@ import {
   RefreshCw,
   Printer,
   ChevronRight,
+  ChevronDown,
   AlertCircle,
   AlertTriangle,
   PackageX,
@@ -39,7 +40,8 @@ import {
   Info,
   XCircle,
   Layers,
-  Utensils
+  Utensils,
+  Landmark
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { mercadoPagoPointService } from "@/lib/mercadopago-point"
@@ -217,6 +219,72 @@ const getStorageUrl = (path: string) => {
   return path;
 };
 
+// Mapeo completo de ilustraciones oficiales para botones de ingredientes POS
+const INGREDIENT_ICON_MAP: Record<string, string> = {
+  // Simples
+  'aceituna negra': '/iconos/ingredientes/aceituna_negra.webp',
+  'aceituna verde': '/iconos/ingredientes/aceituna_verde.webp',
+  'cebolla morada': '/iconos/ingredientes/cebolla_morada.webp',
+  'cebolla': '/iconos/ingredientes/cebolla_morada.webp',
+  'champiñón': '/iconos/ingredientes/champiñones.webp',
+  'champiñon': '/iconos/ingredientes/champiñones.webp',
+  'champiñones': '/iconos/ingredientes/champiñones.webp',
+  'champinon': '/iconos/ingredientes/champiñones.webp',
+  'champinones': '/iconos/ingredientes/champiñones.webp',
+  'choclo': '/iconos/ingredientes/choclo.webp',
+  'chorizo': '/iconos/ingredientes/chorizo.webp',
+  'choricillo': '/iconos/ingredientes/chorizo.webp',
+  'jamón': '/iconos/ingredientes/jamon.webp',
+  'jamon': '/iconos/ingredientes/jamon.webp',
+  'pepperoni': '/iconos/ingredientes/pepperoni.webp',
+  'peperoni': '/iconos/ingredientes/pepperoni.webp',
+  'pesto de albahaca': '/iconos/ingredientes/pesto.webp',
+  'pesto': '/iconos/ingredientes/pesto.webp',
+  'pimentón': '/iconos/ingredientes/pimenton.webp',
+  'pimenton': '/iconos/ingredientes/pimenton.webp',
+  'rúcula': '/iconos/ingredientes/rucula.webp',
+  'rucula': '/iconos/ingredientes/rucula.webp',
+  'salame': '/iconos/ingredientes/salame.webp',
+  'tocino': '/iconos/ingredientes/tocino.webp',
+  'tomate': '/iconos/ingredientes/tomate.webp',
+
+  // Premium
+  'camarones': '/iconos/ingredientes/camarones.webp',
+  'camarón': '/iconos/ingredientes/camarones.webp',
+  'camaron': '/iconos/ingredientes/camarones.webp',
+  'carne mechada': '/iconos/ingredientes/carne_mechada.webp',
+  'mechada': '/iconos/ingredientes/carne_mechada.webp',
+  'espárragos': '/iconos/ingredientes/esparragos.webp',
+  'esparragos': '/iconos/ingredientes/esparragos.webp',
+  'extra queso': '/iconos/ingredientes/extra_queso.webp',
+  'doble queso': '/iconos/ingredientes/extra_queso.webp',
+  'jamón serrano': '/iconos/ingredientes/jamon_serrano.webp',
+  'jamon serrano': '/iconos/ingredientes/jamon_serrano.webp',
+  'piña caramelizada': '/iconos/ingredientes/piña.webp',
+  'pina caramelizada': '/iconos/ingredientes/piña.webp',
+  'piña': '/iconos/ingredientes/piña.webp',
+  'pina': '/iconos/ingredientes/piña.webp',
+  'pollo bbq': '/iconos/ingredientes/pollo.webp',
+  'pollo': '/iconos/ingredientes/pollo.webp',
+  'queso azul': '/iconos/ingredientes/queso_azul.webp'
+}
+
+function getIngredientIconUrl(name: string): string | null {
+  if (!name) return null
+  const clean = name.toLowerCase().trim()
+  if (INGREDIENT_ICON_MAP[clean]) {
+    return INGREDIENT_ICON_MAP[clean]
+  }
+  const norm = clean.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  for (const [key, path] of Object.entries(INGREDIENT_ICON_MAP)) {
+    const keyNorm = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    if (keyNorm === norm || norm.includes(keyNorm) || keyNorm.includes(norm)) {
+      return path
+    }
+  }
+  return null
+}
+
 // Listado de Bebidas Fijo (Tradicional + Zero) para evitar problemas en base de datos
 const BEBIDAS_LIST = [
   { id: 'lipton-lata', nombre: 'Lipton Lata', precio: 1500, imagen: '/bebidas/lipton_lata.jpg' },
@@ -305,6 +373,93 @@ interface POSItem {
   comments?: string
   extraSimple?: string[]
   extraPremium?: string[]
+}
+
+interface AnimatedCartItemProps {
+  item: POSItem
+  isRemoving: boolean
+  onUpdateQty: (id: string, qty: number) => void
+  onRemove: (id: string) => void
+  isConflicted: boolean
+  detailsText: string | null
+}
+
+function AnimatedCartItem({
+  item,
+  isRemoving,
+  onUpdateQty,
+  onRemove,
+  isConflicted,
+  detailsText
+}: AnimatedCartItemProps) {
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setIsMounted(true)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+
+  const isOpen = isMounted && !isRemoving
+
+  return (
+    <div className={`pos-item-accordion ${isOpen ? 'is-open' : ''}`}>
+      <div className="pos-item-accordion-inner">
+        <div 
+          className={`p-2.5 rounded-xl border flex items-start gap-2.5 transition-colors ${
+            isConflicted
+              ? 'bg-red-950/30 border-red-600/70 ring-1 ring-red-500/40'
+              : 'bg-gray-950/60 border-gray-800/80 hover:border-gray-800'
+          }`}
+        >
+          <img 
+            src={getStorageUrl(item.image)} 
+            alt={item.name}
+            className="w-10 h-10 object-cover rounded-md shrink-0"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-1">
+              <h4 className="font-semibold text-xs text-white truncate">{item.name}</h4>
+              {isConflicted && (
+                <span className="shrink-0 text-[9px] bg-red-950 text-red-400 border border-red-800/70 px-1 py-0.2 rounded font-bold">
+                  Sin Stock
+                </span>
+              )}
+            </div>
+            {detailsText && <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{detailsText}</p>}
+            <div className="flex justify-between items-center mt-1">
+              <div className="text-[11px] text-pink-500 font-bold">
+                ${(item.price * item.quantity).toLocaleString('es-CL')}
+              </div>
+              
+              <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded px-1.5 py-0.5">
+                <button 
+                  onClick={() => onUpdateQty(item.id, item.quantity - 1)}
+                  className="text-gray-400 hover:text-white"
+                >
+                  <Minus className="w-3 h-3" />
+                </button>
+                <span className="text-[11px] font-bold text-white px-1">{item.quantity}</span>
+                <button 
+                  onClick={() => onUpdateQty(item.id, item.quantity + 1)}
+                  className="text-gray-400 hover:text-white"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <button 
+            onClick={() => onRemove(item.id)}
+            className="text-gray-600 hover:text-red-500 shrink-0 p-0.5"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function PresentialSalesPage() {
@@ -416,6 +571,7 @@ export default function PresentialSalesPage() {
     sinSalsaTomate: false,
     comments: ''
   })
+  const [isDuoExtrasExpanded, setIsDuoExtrasExpanded] = useState(false)
 
   // Métodos de Pago
   const [paymentMethod, setPaymentMethod] = useState<'Efectivo' | 'Tarjeta' | 'Transferencia' | 'Por Pagar'>('Efectivo')
@@ -437,6 +593,13 @@ export default function PresentialSalesPage() {
   const [inventoryConflictItems, setInventoryConflictItems] = useState<string[]>([])
   
   const [deliveryAmount, setDeliveryAmount] = useState<string>('')
+  const [discountAmount, setDiscountAmount] = useState<string>('')
+  const [removingItemIds, setRemovingItemIds] = useState<string[]>([])
+
+  // Carrito activo (excluye ítems en proceso de animación de salida)
+  const activeCart = useMemo(() => {
+    return cart.filter(item => !removingItemIds.includes(item.id))
+  }, [cart, removingItemIds])
 
   // Mapeo en tiempo real del estado de ingredientes en Firestore para advertencias visuales
   const ingredientsStockMap = useMemo(() => {
@@ -458,10 +621,19 @@ export default function PresentialSalesPage() {
 
   // Totales
   const subtotal = useMemo(() => {
-    return cart.reduce((acc, item) => acc + item.price * item.quantity, 0)
-  }, [cart])
-  const discount = 0
-  const total = subtotal - discount + (parseFloat(deliveryAmount) || 0)
+    return activeCart.reduce((acc, item) => acc + item.price * item.quantity, 0)
+  }, [activeCart])
+  const discountVal = useMemo(() => {
+    const parsed = parseFloat(discountAmount)
+    return isNaN(parsed) || parsed < 0 ? 0 : parsed
+  }, [discountAmount])
+  const deliveryVal = useMemo(() => {
+    const parsed = parseFloat(deliveryAmount)
+    return isNaN(parsed) || parsed < 0 ? 0 : parsed
+  }, [deliveryAmount])
+  const total = useMemo(() => {
+    return Math.max(0, subtotal - discountVal + deliveryVal)
+  }, [subtotal, discountVal, deliveryVal])
 
   // Vuelto en Efectivo
   const changeAmount = useMemo(() => {
@@ -472,7 +644,7 @@ export default function PresentialSalesPage() {
 
   // Deshabilitar botón de cobro
   const isPaymentDisabled = useMemo(() => {
-    if (cart.length === 0) return true
+    if (activeCart.length === 0) return true
     if (isSubmitting) return true
     if (!clientName.trim()) return true
 
@@ -481,20 +653,8 @@ export default function PresentialSalesPage() {
       return isNaN(r) || r < total
     }
 
-    if (paymentMethod === 'Transferencia') {
-      return !transferConfirmed
-    }
-
-    if (paymentMethod === 'Tarjeta') {
-      return pointStatus !== 'PAID'
-    }
-
-    if (paymentMethod === 'Por Pagar') {
-      return false
-    }
-
     return false
-  }, [cart, isSubmitting, clientName, paymentMethod, receivedAmount, total, transferConfirmed, pointStatus])
+  }, [activeCart, isSubmitting, clientName, paymentMethod, receivedAmount, total])
 
   // Calcular precio total de Pizza Duo en tiempo real
   const calculatedDuoPrice = useMemo(() => {
@@ -542,15 +702,16 @@ export default function PresentialSalesPage() {
 
   // 1. Agregar Bebida/Acompañamiento rápido
   const handleAddItemFast = (product: any) => {
-    const existingIndex = cart.findIndex(c => c.id === product.id)
+    const pName = product.nombre || product.name
+    const existingIndex = cart.findIndex(c => (c.id === product.id || c.name === pName) && !removingItemIds.includes(c.id))
     if (existingIndex > -1) {
       const newCart = [...cart]
       newCart[existingIndex].quantity += 1
       setCart(newCart)
     } else {
       setCart([...cart, {
-        id: product.id,
-        name: product.nombre || product.name,
+        id: `${product.id || 'item'}-${Date.now()}`,
+        name: pName,
         price: product.precio,
         image: getStorageUrl(product.imagen || product.image),
         quantity: 1
@@ -561,15 +722,20 @@ export default function PresentialSalesPage() {
   // 2. Modificar cantidades en el pedido
   const handleUpdateQty = (id: string, qty: number) => {
     if (qty <= 0) {
-      setCart(cart.filter(item => item.id !== id))
+      handleRemoveItem(id)
     } else {
       setCart(cart.map(item => item.id === id ? { ...item, quantity: qty } : item))
     }
   }
 
-  // 3. Quitar item
+  // 3. Quitar item con animación fluida de salida
   const handleRemoveItem = (id: string) => {
-    setCart(cart.filter(item => item.id !== id))
+    if (removingItemIds.includes(id)) return
+    setRemovingItemIds(prev => [...prev, id])
+    setTimeout(() => {
+      setCart(prev => prev.filter(item => item.id !== id))
+      setRemovingItemIds(prev => prev.filter(itemId => itemId !== id))
+    }, 320)
   }
 
   // 4. Configurar Pizza del Menú
@@ -585,6 +751,7 @@ export default function PresentialSalesPage() {
       sinSalsaTomate: false,
       comments: ''
     })
+    setIsDuoExtrasExpanded(false)
   }
 
   const handleAddConfiguredPizza = () => {
@@ -692,6 +859,7 @@ export default function PresentialSalesPage() {
       sinSalsaTomate: false,
       comments: ''
     })
+    setIsDuoExtrasExpanded(false)
   }
 
   const toggleIngredientCustom = (name: string, isPremium: boolean) => {
@@ -772,6 +940,7 @@ export default function PresentialSalesPage() {
       sinSalsaTomate: false,
       comments: ''
     })
+    setIsDuoExtrasExpanded(false)
   }
 
   // Toggle ingredientes por mitad o extras generales
@@ -848,7 +1017,7 @@ export default function PresentialSalesPage() {
 
   // 8. Crear la Orden (Confirmar Cobro)
   const handleConfirmOrder = async () => {
-    if (cart.length === 0) return
+    if (activeCart.length === 0) return
     if (!clientName.trim()) {
       setNameError(true)
       clientNameInputRef.current?.focus()
@@ -871,7 +1040,7 @@ export default function PresentialSalesPage() {
         email: "caja-pos@pizzeriapalermo.cl"
       },
       tipoEntrega: "Retiro" as const,
-      metodoPago: paymentMethod === 'Por Pagar' ? 'Por Pagar' as const : (paymentMethod === 'Tarjeta' ? 'Webpay Plus' as const : (paymentMethod === 'Transferencia' ? 'Transferencia' as const : 'Efectivo' as const)),
+      metodoPago: paymentMethod === 'Por Pagar' ? ('Por Pagar' as const) : (paymentMethod === 'Tarjeta' ? ('Tarjeta' as const) : (paymentMethod === 'Transferencia' ? ('Transferencia' as const) : ('Efectivo' as const))),
       paymentDetails: paymentMethod === 'Efectivo' ? {
         cashAmount: parseFloat(receivedAmount),
         change: changeAmount
@@ -891,7 +1060,7 @@ export default function PresentialSalesPage() {
       
       const createOrderFunction = httpsCallable(functions, 'createOrder')
       
-      const orderItems = cart.map(item => ({
+      const orderItems = activeCart.map(item => ({
         nombre: item.name,
         cantidad: item.quantity,
         precio: item.price,
@@ -913,6 +1082,7 @@ export default function PresentialSalesPage() {
       }))
 
       const deliveryFeeVal = parseFloat(deliveryAmount) || 0
+      const discountFeeVal = parseFloat(discountAmount) || 0
       const isPosDelivery = deliveryFeeVal > 0
 
       const payloadToSend = {
@@ -920,9 +1090,13 @@ export default function PresentialSalesPage() {
         cliente: payload.cliente,
         tipoEntrega: isPosDelivery ? "Delivery" : payload.tipoEntrega,
         items: orderItems,
+        subtotal: subtotal,
         delivery: deliveryFeeVal,
         valorDelivery: deliveryFeeVal,
         deliveryFee: deliveryFeeVal,
+        descuento: discountFeeVal,
+        discount: discountFeeVal,
+        discountAmount: discountFeeVal,
         total: total,
         metodoPago: payload.metodoPago,
         paymentDetails: payload.paymentDetails,
@@ -945,7 +1119,10 @@ export default function PresentialSalesPage() {
           orderNumber: result.orderNumber,
           cliente: payload.cliente,
           items: orderItems,
-          delivery: parseFloat(deliveryAmount) || 0,
+          subtotal: subtotal,
+          delivery: deliveryFeeVal,
+          descuento: discountFeeVal,
+          discountAmount: discountFeeVal,
           total: total,
           metodoPago: paymentMethod,
           notas: finalNotas,
@@ -1111,9 +1288,10 @@ export default function PresentialSalesPage() {
 
             <div class="comanda-divider"></div>
 
-            <!-- 9. Mantener subtotal, delivery y total -->
+            <!-- 9. Mantener subtotal, descuento, delivery y total -->
             <div class="comanda-totals">
-              <div class="comanda-total-row">SUBTOTAL: $${(successOrder.total - successOrder.delivery).toLocaleString('es-CL')}</div>
+              <div class="comanda-total-row">SUBTOTAL: $${(successOrder.subtotal || (successOrder.total + (successOrder.descuento || 0) - successOrder.delivery)).toLocaleString('es-CL')}</div>
+              ${(successOrder.descuento && successOrder.descuento > 0) ? `<div class="comanda-total-row font-bold">DESCUENTO: -$${successOrder.descuento.toLocaleString('es-CL')}</div>` : ''}
               ${successOrder.delivery > 0 ? `<div class="comanda-total-row">DELIVERY: $${successOrder.delivery.toLocaleString('es-CL')}</div>` : ''}
               <div class="comanda-total-row comanda-total-strong" style="margin-top: 4px;">TOTAL: $${successOrder.total.toLocaleString('es-CL')}</div>
             </div>
@@ -1134,9 +1312,11 @@ export default function PresentialSalesPage() {
   // Reiniciar estado para una nueva venta
   const handleResetPOS = () => {
     setCart([])
+    setRemovingItemIds([])
     setClientName('')
     setClientPhone('')
     setDeliveryAmount('')
+    setDiscountAmount('')
     setMesaNum('')
     setOrderNotes('')
     setReceivedAmount('')
@@ -1146,6 +1326,7 @@ export default function PresentialSalesPage() {
     setSuccessOrder(null)
     setShowSuccessDialog(false)
     setSaleError(null)
+    setIsDuoExtrasExpanded(false)
     setShowInventoryBanner(false)
     setInventoryConflictItems([])
     setActiveCategory('pizzas')
@@ -1282,7 +1463,7 @@ export default function PresentialSalesPage() {
 
           {/* CATEGORÍA: ARMAR PIZZA */}
           {activeCategory === 'armar' && (
-            <div className="bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6 max-w-4xl mx-auto">
+            <div className="bg-[#11141c] border border-gray-800 rounded-2xl p-6 space-y-6 max-w-5xl mx-auto shadow-2xl">
               <div className="flex items-center justify-between border-b border-gray-800 pb-4">
                 <h3 className="text-lg font-bold text-white font-semibold">Arma una Pizza entera a tu gusto</h3>
                 <div className="flex gap-2">
@@ -1334,78 +1515,172 @@ export default function PresentialSalesPage() {
               </div>
 
               {/* Ingredientes Simples */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-gray-300">
-                  Ingredientes Simples (+${getPreciosSegunTamano(customPizza.size).simple})
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              <div className="space-y-3.5">
+                <div className="flex items-center justify-between border-b border-gray-800/80 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-gray-100 uppercase tracking-wider">
+                      Ingredientes
+                    </h4>
+                    <span className="text-[11px] font-medium text-gray-400">
+                      (Básicos del menú)
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2.5 py-1 rounded-full">
+                    +${getPreciosSegunTamano(customPizza.size).simple.toLocaleString('es-CL')} c/u
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3">
                   {ingredientesSimples.map(ing => {
                     const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                     const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                     const isSelected = customPizza.simpleIngredients.includes(ing.nombre)
+                    const iconUrl = getIngredientIconUrl(ing.nombre)
 
                     return (
-                      <Button
+                      <button
+                        type="button"
                         key={ing.id}
+                        disabled={isAgotado}
                         onClick={() => toggleIngredientCustom(ing.nombre, false)}
-                        variant="outline"
-                        className={`justify-between truncate px-2.5 py-2 text-xs border transition-all ${
-                          isSelected
-                            ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                            : isAgotado
-                            ? 'bg-gray-950/80 border-red-900/50 text-gray-400 hover:border-red-700'
-                            : 'bg-gray-900 border-gray-800 hover:bg-gray-800 text-gray-300'
+                        className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[116px] sm:h-[122px] ${
+                          isAgotado
+                            ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                            : isSelected
+                            ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                            : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-gray-400 hover:!bg-[#242936] hover:!shadow-md'
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 min-w-0 truncate">
-                          <Check className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'opacity-100 text-pink-500' : 'opacity-0'}`} />
-                          <span className="truncate">{getIngredientDisplayName(ing, customPizza.size)}</span>
-                        </div>
+                        {/* Indicador de Selección con Check */}
+                        {isSelected && (
+                          <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+
+                        {/* Badge de Agotado */}
                         {isAgotado && (
-                          <span className="shrink-0 text-[9px] bg-red-950/90 text-red-400 border border-red-800/60 px-1 py-0.2 rounded font-semibold ml-1">
+                          <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
                             Agotado
                           </span>
                         )}
-                      </Button>
+
+                        {/* Imagen del Ingrediente */}
+                        <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={ing.nombre}
+                              className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <Pizza className="w-12 h-12 text-gray-500 group-hover:text-pink-400 !transition-colors" />
+                          )}
+                        </div>
+
+                        {/* Nombre del Ingrediente */}
+                        <div className="w-full shrink-0 flex flex-col items-center px-1 pb-0.5 z-10">
+                          <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                            isSelected 
+                              ? '!text-pink-200' 
+                              : 'text-gray-200 group-hover:text-white'
+                          }`}>
+                            {ing.nombre.toUpperCase()}
+                          </span>
+                          {ing.esPrecioEspecial && (
+                            <span className="text-[9px] text-pink-400 font-bold mt-0.5 leading-none">
+                              +${getIngredientPrice(ing, customPizza.size, false).toLocaleString('es-CL')}
+                            </span>
+                          )}
+                        </div>
+                      </button>
                     )
                   })}
                 </div>
               </div>
 
               {/* Ingredientes Premium */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-gray-300">
-                  Ingredientes Premium (+${getPreciosSegunTamano(customPizza.size).premium})
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              <div className="space-y-3.5 pt-2">
+                <div className="flex items-center justify-between border-b border-amber-900/40 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm sm:text-base font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                      <span>Ingredientes Premium</span>
+                    </h4>
+                    <span className="text-[11px] font-medium text-amber-400/80">
+                      (Calidad gourmet)
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2.5 py-1 rounded-full">
+                    +${getPreciosSegunTamano(customPizza.size).premium.toLocaleString('es-CL')} c/u
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-3">
                   {ingredientesPremium.map(ing => {
                     const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                     const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                     const isSelected = customPizza.premiumIngredients.includes(ing.nombre)
+                    const iconUrl = getIngredientIconUrl(ing.nombre)
 
                     return (
-                      <Button
+                      <button
+                        type="button"
                         key={ing.id}
+                        disabled={isAgotado}
                         onClick={() => toggleIngredientCustom(ing.nombre, true)}
-                        variant="outline"
-                        className={`justify-between truncate px-2.5 py-2 text-xs border transition-all ${
-                          isSelected
-                            ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                            : isAgotado
-                            ? 'bg-gray-950/80 border-red-900/50 text-gray-400 hover:border-red-700'
-                            : 'bg-gray-900 border-gray-800 hover:bg-gray-800 text-gray-300'
+                        className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[116px] sm:h-[122px] ${
+                          isAgotado
+                            ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                            : isSelected
+                            ? '!bg-[#2c2211] !border-2 !border-amber-400 !ring-2 !ring-amber-400/60 !shadow-lg !shadow-amber-950/50 is-selected'
+                            : '!bg-[#1c202a] !border !border-amber-600/50 hover:!border-amber-400 hover:!bg-[#26241c] hover:!shadow-md hover:!shadow-amber-950/30'
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 min-w-0 truncate">
-                          <Check className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'opacity-100 text-pink-500' : 'opacity-0'}`} />
-                          <span className="truncate">{getIngredientDisplayName(ing, customPizza.size, true)}</span>
-                        </div>
+                        {/* Indicador de Selección con Check Dorado */}
+                        {isSelected && (
+                          <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+
+                        {/* Badge de Agotado */}
                         {isAgotado && (
-                          <span className="shrink-0 text-[9px] bg-red-950/90 text-red-400 border border-red-800/60 px-1 py-0.2 rounded font-semibold ml-1">
+                          <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
                             Agotado
                           </span>
                         )}
-                      </Button>
+
+                        {/* Imagen del Ingrediente */}
+                        <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={ing.nombre}
+                              className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <Pizza className="w-12 h-12 text-amber-500/70 group-hover:text-amber-400 !transition-colors" />
+                          )}
+                        </div>
+
+                        {/* Nombre del Ingrediente */}
+                        <div className="w-full shrink-0 flex flex-col items-center px-1 pb-0.5 z-10">
+                          <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                            isSelected 
+                              ? '!text-amber-200 font-bold' 
+                              : 'text-amber-100/90 group-hover:text-amber-300'
+                          }`}>
+                            {ing.nombre.toUpperCase()}
+                          </span>
+                          {ing.esPrecioEspecial && (
+                            <span className="text-[9px] text-amber-400 font-bold mt-0.5 leading-none">
+                              +${getIngredientPrice(ing, customPizza.size, true).toLocaleString('es-CL')}
+                            </span>
+                          )}
+                        </div>
+                      </button>
                     )
                   })}
                 </div>
@@ -1444,7 +1719,7 @@ export default function PresentialSalesPage() {
 
           {/* CATEGORÍA: PIZZAS DUO */}
           {activeCategory === 'duo' && (
-            <div className="bg-gray-950 border border-gray-800 rounded-xl p-6 space-y-6 max-w-4xl mx-auto">
+            <div className="bg-gray-950 border border-gray-800 rounded-xl p-5 sm:p-6 space-y-6 w-full max-w-6xl mx-auto">
               <div className="flex items-center justify-between border-b border-gray-800 pb-4">
                 <h3 className="text-lg font-bold text-white font-semibold">Armar Pizza Duo (Mitad y Mitad)</h3>
                 <div className="flex gap-2">
@@ -1479,20 +1754,26 @@ export default function PresentialSalesPage() {
                 {/* MITAD 1 */}
                 <div className="space-y-3 bg-gray-900/40 p-4 rounded-xl border border-gray-800">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-semibold text-gray-300">Mitad 1 (Izquierda)</label>
-                    <div className="flex gap-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                    <span className="text-base sm:text-lg font-black tracking-wide text-pink-500 uppercase drop-shadow-sm">
+                      MITAD 1
+                    </span>
+                    <div className="flex gap-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800 shadow-inner">
                       <button
                         onClick={() => setDuoPizza(prev => ({ ...prev, half1Type: 'menu', half1Simple: [], half1Premium: [] }))}
-                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-all ${
-                          duoPizza.half1Type === 'menu' ? 'bg-pink-600 text-white' : 'text-gray-400 hover:text-white'
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          duoPizza.half1Type === 'menu'
+                            ? 'bg-pink-600 text-white shadow-md shadow-pink-900/30'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-900/60'
                         }`}
                       >
                         Variedad
                       </button>
                       <button
                         onClick={() => setDuoPizza(prev => ({ ...prev, half1Type: 'custom', pizza1Name: '' }))}
-                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-all ${
-                          duoPizza.half1Type === 'custom' ? 'bg-pink-600 text-white' : 'text-gray-400 hover:text-white'
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          duoPizza.half1Type === 'custom'
+                            ? 'bg-pink-600 text-white shadow-md shadow-pink-900/30'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-900/60'
                         }`}
                       >
                         Armar
@@ -1501,74 +1782,207 @@ export default function PresentialSalesPage() {
                   </div>
 
                   {duoPizza.half1Type === 'menu' ? (
-                    <select
-                      className="w-full bg-gray-950 border border-gray-800 text-white rounded-lg p-2.5 text-xs outline-none"
-                      value={duoPizza.pizza1Name}
-                      onChange={e => setDuoPizza(prev => ({ ...prev, pizza1Name: e.target.value }))}
-                    >
-                      <option value="">Selecciona Variedad...</option>
-                      {pizzasParaDuo
-                        .filter(p => duoPizza.size === 'familiar' || !(p.nombre || '').toLowerCase().includes('sevillana'))
-                        .slice()
-                        .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
-                        .map(p => (
-                        <option key={p.id} value={p.nombre}>
-                          {p.nombre} (${(duoPizza.size === 'mediana' ? p.precioMediana : p.precio).toLocaleString()})
-                        </option>
-                      ))}
-                    </select>
+                    /* Grid de botones tipo card para seleccionar variedad de pizza */
+                    <div className="pos-half-mode-enter space-y-2">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">
+                        Selecciona la variedad
+                      </p>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {pizzasParaDuo
+                          .filter(p => duoPizza.size === 'familiar' || !(p.nombre || '').toLowerCase().includes('sevillana'))
+                          .slice()
+                          .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+                          .map(p => {
+                            const isSelected = duoPizza.pizza1Name === p.nombre
+                            const imgUrl = getStorageUrl(p.imagen)
+                            const precio = duoPizza.size === 'mediana' ? p.precioMediana : p.precio
+                            return (
+                              <button
+                                type="button"
+                                key={`half1-var-${p.id}`}
+                                onClick={() => setDuoPizza(prev => ({ ...prev, pizza1Name: p.nombre }))}
+                                className={`pos-pizza-card group flex flex-col items-center justify-between p-0 !transition-all !duration-200 select-none text-center h-[108px] sm:h-[114px] ${
+                                  isSelected
+                                    ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                                    : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-pink-400/60 hover:!bg-[#242936] hover:!shadow-md'
+                                }`}
+                              >
+                                {/* Check de selección */}
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+
+                                {/* Imagen de la pizza — recortada y centrada */}
+                                <div className="w-full flex-1 min-h-0 overflow-hidden rounded-t-2xl">
+                                  <img
+                                    src={imgUrl}
+                                    alt={p.nombre}
+                                    className="pos-pizza-img"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).src = '/placeholder.svg?height=100&width=100'
+                                    }}
+                                  />
+                                </div>
+
+                                {/* Nombre y precio */}
+                                <div className="w-full shrink-0 flex flex-col items-center px-1 pb-0.5 pt-0.5 z-10">
+                                  <span className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider leading-tight line-clamp-2 w-full text-center !transition-colors ${
+                                    isSelected ? '!text-pink-200' : 'text-gray-200 group-hover:text-white'
+                                  }`}>
+                                    {p.nombre.toUpperCase()}
+                                  </span>
+                                  <span className={`text-[8px] font-semibold mt-0.5 leading-none ${
+                                    isSelected ? '!text-pink-300' : 'text-gray-500 group-hover:text-pink-400'
+                                  }`}>
+                                    ${precio.toLocaleString('es-CL')}
+                                  </span>
+                                </div>
+                              </button>
+                            )
+                          })}
+                      </div>
+                    </div>
                   ) : (
-                    <div className="space-y-2">
-                      <p className="text-[10px] text-gray-500">Selecciona ingredientes para esta mitad:</p>
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] text-gray-400 font-semibold">Simples (+${getPreciosSegunTamano(duoPizza.size).simple})</p>
-                        <div className="flex flex-wrap gap-1.5">
+                    <div className="pos-half-mode-enter space-y-4">
+                      {/* Simples Mitad 1 */}
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-gray-800 pb-1.5">
+                          <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                            Ingredientes Simples
+                          </span>
+                          <span className="text-[11px] font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2 py-0.5 rounded-full">
+                            +${getPreciosSegunTamano(duoPizza.size).simple.toLocaleString('es-CL')} c/u
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                           {ingredientesSimples.map(ing => {
                             const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                             const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                             const isSelected = duoPizza.half1Simple.includes(ing.nombre)
+                            const iconUrl = getIngredientIconUrl(ing.nombre)
 
                             return (
                               <button
-                                key={ing.id}
+                                type="button"
+                                key={`h1-s-${ing.id}`}
+                                disabled={isAgotado}
                                 onClick={() => toggleHalfIngredient('half1', ing.nombre, false)}
-                                className={`px-2 py-1 rounded text-[10px] border transition-all flex items-center gap-1 ${
-                                  isSelected
-                                    ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                                    : isAgotado
-                                    ? 'bg-gray-950 border-red-900/40 text-gray-400 hover:border-red-700'
-                                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                                className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[106px] sm:h-[112px] ${
+                                  isAgotado
+                                    ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                                    : isSelected
+                                    ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                                    : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-gray-400 hover:!bg-[#242936] hover:!shadow-md'
                                 }`}
                               >
-                                <span>{getIngredientDisplayName(ing, duoPizza.size)}</span>
-                                {isAgotado && <span className="text-[8px] bg-red-950 text-red-400 border border-red-800 px-0.5 rounded">Agotado</span>}
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+                                {isAgotado && (
+                                  <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
+                                    Agotado
+                                  </span>
+                                )}
+                                <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                                  {iconUrl ? (
+                                    <img
+                                      src={iconUrl}
+                                      alt={ing.nombre}
+                                      className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <Pizza className="w-10 h-10 text-gray-500 group-hover:text-pink-400 !transition-colors" />
+                                  )}
+                                </div>
+                                <div className="w-full shrink-0 flex flex-col items-center px-0.5 pb-0.5 z-10">
+                                  <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                                    isSelected ? '!text-pink-200' : 'text-gray-200 group-hover:text-white'
+                                  }`}>
+                                    {ing.nombre.toUpperCase()}
+                                  </span>
+                                  {ing.esPrecioEspecial && (
+                                    <span className="text-[9px] text-pink-400 font-bold mt-0.5 leading-none">
+                                      +${getIngredientPrice(ing, duoPizza.size, false).toLocaleString('es-CL')}
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             )
                           })}
                         </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] text-gray-400 font-semibold">Premium (+${getPreciosSegunTamano(duoPizza.size).premium})</p>
-                        <div className="flex flex-wrap gap-1.5">
+
+                      {/* Premium Mitad 1 */}
+                      <div className="space-y-2.5 pt-2">
+                        <div className="flex items-center justify-between border-b border-amber-900/40 pb-1.5">
+                          <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                            Ingredientes Premium
+                          </span>
+                          <span className="text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2 py-0.5 rounded-full">
+                            +${getPreciosSegunTamano(duoPizza.size).premium.toLocaleString('es-CL')} c/u
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                           {ingredientesPremium.map(ing => {
                             const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                             const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                             const isSelected = duoPizza.half1Premium.includes(ing.nombre)
+                            const iconUrl = getIngredientIconUrl(ing.nombre)
 
                             return (
                               <button
-                                key={ing.id}
+                                type="button"
+                                key={`h1-p-${ing.id}`}
+                                disabled={isAgotado}
                                 onClick={() => toggleHalfIngredient('half1', ing.nombre, true)}
-                                className={`px-2 py-1 rounded text-[10px] border transition-all flex items-center gap-1 ${
-                                  isSelected
-                                    ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                                    : isAgotado
-                                    ? 'bg-gray-950 border-red-900/40 text-gray-400 hover:border-red-700'
-                                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                                className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[106px] sm:h-[112px] ${
+                                  isAgotado
+                                    ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                                    : isSelected
+                                    ? '!bg-[#2c2211] !border-2 !border-amber-400 !ring-2 !ring-amber-400/60 !shadow-lg !shadow-amber-950/50 is-selected'
+                                    : '!bg-[#1c202a] !border !border-amber-600/50 hover:!border-amber-400 hover:!bg-[#26241c] hover:!shadow-md hover:!shadow-amber-950/30'
                                 }`}
                               >
-                                <span>{getIngredientDisplayName(ing, duoPizza.size, true)}</span>
-                                {isAgotado && <span className="text-[8px] bg-red-950 text-red-400 border border-red-800 px-0.5 rounded">Agotado</span>}
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+                                {isAgotado && (
+                                  <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
+                                    Agotado
+                                  </span>
+                                )}
+                                <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                                  {iconUrl ? (
+                                    <img
+                                      src={iconUrl}
+                                      alt={ing.nombre}
+                                      className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <Pizza className="w-10 h-10 text-amber-500/70 group-hover:text-amber-400 !transition-colors" />
+                                  )}
+                                </div>
+                                <div className="w-full shrink-0 flex flex-col items-center px-0.5 pb-0.5 z-10">
+                                  <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                                    isSelected ? '!text-amber-200 font-bold' : 'text-amber-100/90 group-hover:text-amber-300'
+                                  }`}>
+                                    {ing.nombre.toUpperCase()}
+                                  </span>
+                                  {ing.esPrecioEspecial && (
+                                    <span className="text-[9px] text-amber-400 font-bold mt-0.5 leading-none">
+                                      +${getIngredientPrice(ing, duoPizza.size, true).toLocaleString('es-CL')}
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             )
                           })}
@@ -1581,20 +1995,26 @@ export default function PresentialSalesPage() {
                 {/* MITAD 2 */}
                 <div className="space-y-3 bg-gray-900/40 p-4 rounded-xl border border-gray-800">
                   <div className="flex items-center justify-between">
-                    <label className="text-sm font-semibold text-gray-300">Mitad 2 (Derecha)</label>
-                    <div className="flex gap-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800">
+                    <span className="text-base sm:text-lg font-black tracking-wide text-pink-500 uppercase drop-shadow-sm">
+                      MITAD 2
+                    </span>
+                    <div className="flex gap-1.5 bg-gray-950 p-1 rounded-xl border border-gray-800 shadow-inner">
                       <button
                         onClick={() => setDuoPizza(prev => ({ ...prev, half2Type: 'menu', half2Simple: [], half2Premium: [] }))}
-                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-all ${
-                          duoPizza.half2Type === 'menu' ? 'bg-pink-600 text-white' : 'text-gray-400 hover:text-white'
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          duoPizza.half2Type === 'menu'
+                            ? 'bg-pink-600 text-white shadow-md shadow-pink-900/30'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-900/60'
                         }`}
                       >
                         Variedad
                       </button>
                       <button
                         onClick={() => setDuoPizza(prev => ({ ...prev, half2Type: 'custom', pizza2Name: '' }))}
-                        className={`px-2.5 py-1 rounded text-[10px] font-medium transition-all ${
-                          duoPizza.half2Type === 'custom' ? 'bg-pink-600 text-white' : 'text-gray-400 hover:text-white'
+                        className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          duoPizza.half2Type === 'custom'
+                            ? 'bg-pink-600 text-white shadow-md shadow-pink-900/30'
+                            : 'text-gray-400 hover:text-white hover:bg-gray-900/60'
                         }`}
                       >
                         Armar
@@ -1603,74 +2023,207 @@ export default function PresentialSalesPage() {
                   </div>
 
                   {duoPizza.half2Type === 'menu' ? (
-                    <select
-                      className="w-full bg-gray-950 border border-gray-800 text-white rounded-lg p-2.5 text-xs outline-none"
-                      value={duoPizza.pizza2Name}
-                      onChange={e => setDuoPizza(prev => ({ ...prev, pizza2Name: e.target.value }))}
-                    >
-                      <option value="">Selecciona Variedad...</option>
-                      {pizzasParaDuo
-                        .filter(p => duoPizza.size === 'familiar' || !(p.nombre || '').toLowerCase().includes('sevillana'))
-                        .slice()
-                        .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
-                        .map(p => (
-                        <option key={p.id} value={p.nombre}>
-                          {p.nombre} (${(duoPizza.size === 'mediana' ? p.precioMediana : p.precio).toLocaleString()})
-                        </option>
-                      ))}
-                    </select>
+                    /* Grid de botones tipo card para seleccionar variedad de pizza */
+                    <div className="pos-half-mode-enter space-y-2">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider font-medium">
+                        Selecciona la variedad
+                      </p>
+                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                        {pizzasParaDuo
+                          .filter(p => duoPizza.size === 'familiar' || !(p.nombre || '').toLowerCase().includes('sevillana'))
+                          .slice()
+                          .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''))
+                          .map(p => {
+                            const isSelected = duoPizza.pizza2Name === p.nombre
+                            const imgUrl = getStorageUrl(p.imagen)
+                            const precio = duoPizza.size === 'mediana' ? p.precioMediana : p.precio
+                            return (
+                              <button
+                                type="button"
+                                key={`half2-var-${p.id}`}
+                                onClick={() => setDuoPizza(prev => ({ ...prev, pizza2Name: p.nombre }))}
+                                className={`pos-pizza-card group flex flex-col items-center justify-between p-0 !transition-all !duration-200 select-none text-center h-[108px] sm:h-[114px] ${
+                                  isSelected
+                                    ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                                    : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-pink-400/60 hover:!bg-[#242936] hover:!shadow-md'
+                                }`}
+                              >
+                                {/* Check de selección */}
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+
+                                {/* Imagen de la pizza — recortada y centrada */}
+                                <div className="w-full flex-1 min-h-0 overflow-hidden rounded-t-2xl">
+                                  <img
+                                    src={imgUrl}
+                                    alt={p.nombre}
+                                    className="pos-pizza-img"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).src = '/placeholder.svg?height=100&width=100'
+                                    }}
+                                  />
+                                </div>
+
+                                {/* Nombre y precio */}
+                                <div className="w-full shrink-0 flex flex-col items-center px-1 pb-0.5 pt-0.5 z-10">
+                                  <span className={`text-[9px] sm:text-[10px] font-bold uppercase tracking-wider leading-tight line-clamp-2 w-full text-center !transition-colors ${
+                                    isSelected ? '!text-pink-200' : 'text-gray-200 group-hover:text-white'
+                                  }`}>
+                                    {p.nombre.toUpperCase()}
+                                  </span>
+                                  <span className={`text-[8px] font-semibold mt-0.5 leading-none ${
+                                    isSelected ? '!text-pink-300' : 'text-gray-500 group-hover:text-pink-400'
+                                  }`}>
+                                    ${precio.toLocaleString('es-CL')}
+                                  </span>
+                                </div>
+                              </button>
+                            )
+                          })}
+                      </div>
+                    </div>
                   ) : (
-                    <div className="space-y-2">
-                      <p className="text-[10px] text-gray-500">Selecciona ingredientes para esta mitad:</p>
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] text-gray-400 font-semibold">Simples (+${getPreciosSegunTamano(duoPizza.size).simple})</p>
-                        <div className="flex flex-wrap gap-1.5">
+                    <div className="pos-half-mode-enter space-y-4">
+                      {/* Simples Mitad 2 */}
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-gray-800 pb-1.5">
+                          <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                            Ingredientes Simples
+                          </span>
+                          <span className="text-[11px] font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2 py-0.5 rounded-full">
+                            +${getPreciosSegunTamano(duoPizza.size).simple.toLocaleString('es-CL')} c/u
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                           {ingredientesSimples.map(ing => {
                             const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                             const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                             const isSelected = duoPizza.half2Simple.includes(ing.nombre)
+                            const iconUrl = getIngredientIconUrl(ing.nombre)
 
                             return (
                               <button
-                                key={ing.id}
+                                type="button"
+                                key={`h2-s-${ing.id}`}
+                                disabled={isAgotado}
                                 onClick={() => toggleHalfIngredient('half2', ing.nombre, false)}
-                                className={`px-2 py-1 rounded text-[10px] border transition-all flex items-center gap-1 ${
-                                  isSelected
-                                    ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                                    : isAgotado
-                                    ? 'bg-gray-950 border-red-900/40 text-gray-400 hover:border-red-700'
-                                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                                className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[106px] sm:h-[112px] ${
+                                  isAgotado
+                                    ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                                    : isSelected
+                                    ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                                    : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-gray-400 hover:!bg-[#242936] hover:!shadow-md'
                                 }`}
                               >
-                                <span>{getIngredientDisplayName(ing, duoPizza.size)}</span>
-                                {isAgotado && <span className="text-[8px] bg-red-950 text-red-400 border border-red-800 px-0.5 rounded">Agotado</span>}
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+                                {isAgotado && (
+                                  <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
+                                    Agotado
+                                  </span>
+                                )}
+                                <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                                  {iconUrl ? (
+                                    <img
+                                      src={iconUrl}
+                                      alt={ing.nombre}
+                                      className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <Pizza className="w-10 h-10 text-gray-500 group-hover:text-pink-400 !transition-colors" />
+                                  )}
+                                </div>
+                                <div className="w-full shrink-0 flex flex-col items-center px-0.5 pb-0.5 z-10">
+                                  <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                                    isSelected ? '!text-pink-200' : 'text-gray-200 group-hover:text-white'
+                                  }`}>
+                                    {ing.nombre.toUpperCase()}
+                                  </span>
+                                  {ing.esPrecioEspecial && (
+                                    <span className="text-[9px] text-pink-400 font-bold mt-0.5 leading-none">
+                                      +${getIngredientPrice(ing, duoPizza.size, false).toLocaleString('es-CL')}
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             )
                           })}
                         </div>
                       </div>
-                      <div className="space-y-1.5">
-                        <p className="text-[10px] text-gray-400 font-semibold">Premium (+${getPreciosSegunTamano(duoPizza.size).premium})</p>
-                        <div className="flex flex-wrap gap-1.5">
+
+                      {/* Premium Mitad 2 */}
+                      <div className="space-y-2.5 pt-2">
+                        <div className="flex items-center justify-between border-b border-amber-900/40 pb-1.5">
+                          <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                            Ingredientes Premium
+                          </span>
+                          <span className="text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2 py-0.5 rounded-full">
+                            +${getPreciosSegunTamano(duoPizza.size).premium.toLocaleString('es-CL')} c/u
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                           {ingredientesPremium.map(ing => {
                             const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                             const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                             const isSelected = duoPizza.half2Premium.includes(ing.nombre)
+                            const iconUrl = getIngredientIconUrl(ing.nombre)
 
                             return (
                               <button
-                                key={ing.id}
+                                type="button"
+                                key={`h2-p-${ing.id}`}
+                                disabled={isAgotado}
                                 onClick={() => toggleHalfIngredient('half2', ing.nombre, true)}
-                                className={`px-2 py-1 rounded text-[10px] border transition-all flex items-center gap-1 ${
-                                  isSelected
-                                    ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                                    : isAgotado
-                                    ? 'bg-gray-950 border-red-900/40 text-gray-400 hover:border-red-700'
-                                    : 'bg-gray-950 border-gray-800 text-gray-400 hover:border-gray-700'
+                                className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[106px] sm:h-[112px] ${
+                                  isAgotado
+                                    ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                                    : isSelected
+                                    ? '!bg-[#2c2211] !border-2 !border-amber-400 !ring-2 !ring-amber-400/60 !shadow-lg !shadow-amber-950/50 is-selected'
+                                    : '!bg-[#1c202a] !border !border-amber-600/50 hover:!border-amber-400 hover:!bg-[#26241c] hover:!shadow-md hover:!shadow-amber-950/30'
                                 }`}
                               >
-                                <span>{getIngredientDisplayName(ing, duoPizza.size, true)}</span>
-                                {isAgotado && <span className="text-[8px] bg-red-950 text-red-400 border border-red-800 px-0.5 rounded">Agotado</span>}
+                                {isSelected && (
+                                  <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </div>
+                                )}
+                                {isAgotado && (
+                                  <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
+                                    Agotado
+                                  </span>
+                                )}
+                                <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                                  {iconUrl ? (
+                                    <img
+                                      src={iconUrl}
+                                      alt={ing.nombre}
+                                      className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <Pizza className="w-10 h-10 text-amber-500/70 group-hover:text-amber-400 !transition-colors" />
+                                  )}
+                                </div>
+                                <div className="w-full shrink-0 flex flex-col items-center px-0.5 pb-0.5 z-10">
+                                  <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                                    isSelected ? '!text-amber-200 font-bold' : 'text-amber-100/90 group-hover:text-amber-300'
+                                  }`}>
+                                    {ing.nombre.toUpperCase()}
+                                  </span>
+                                  {ing.esPrecioEspecial && (
+                                    <span className="text-[9px] text-amber-400 font-bold mt-0.5 leading-none">
+                                      +${getIngredientPrice(ing, duoPizza.size, true).toLocaleString('es-CL')}
+                                    </span>
+                                  )}
+                                </div>
                               </button>
                             )
                           })}
@@ -1681,72 +2234,188 @@ export default function PresentialSalesPage() {
                 </div>
               </div>
 
-              {/* Ingredientes Extra Generales (para toda la pizza) */}
-              <div className="space-y-3">
-                <h4 className="text-sm font-semibold text-gray-300">
-                  Ingredientes Extra para toda la pizza (+${getPreciosSegunTamano(duoPizza.size).simple} / +${getPreciosSegunTamano(duoPizza.size).premium})
-                </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {ingredientesSimples.map(ing => {
-                    const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
-                    const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
-                    const isSelected = duoPizza.extraSimple.includes(ing.nombre)
+              {/* Ingredientes Extra Generales (para toda la pizza) - Acordeón Desplegable */}
+              <div className="space-y-4 pt-2 border-t border-gray-800/80">
+                <button
+                  type="button"
+                  onClick={() => setIsDuoExtrasExpanded(prev => !prev)}
+                  className="w-full flex items-center gap-3 p-3 sm:p-3.5 rounded-xl bg-gray-900/60 hover:bg-gray-900 border border-gray-800 hover:border-gray-700 transition-all text-left group select-none cursor-pointer"
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                    (duoPizza.extraSimple.length + duoPizza.extraPremium.length) > 0 
+                      ? 'bg-pink-600 text-white shadow-md shadow-pink-900/40' 
+                      : 'bg-gray-800 text-gray-400 group-hover:text-white'
+                  }`}>
+                    <Plus className={`w-4 h-4 transition-transform duration-200 ${isDuoExtrasExpanded ? 'rotate-45' : ''}`} />
+                  </div>
 
-                    return (
-                      <Button
-                        key={`extra-s-${ing.id}`}
-                        onClick={() => toggleHalfIngredient('extra', ing.nombre, false)}
-                        variant="outline"
-                        className={`justify-between truncate px-2.5 py-2 text-xs border transition-all ${
-                          isSelected
-                            ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                            : isAgotado
-                            ? 'bg-gray-950/80 border-red-900/50 text-gray-400 hover:border-red-700'
-                            : 'bg-gray-900 border-gray-800 hover:bg-gray-800 text-gray-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0 truncate">
-                          <Check className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'opacity-100 text-pink-500' : 'opacity-0'}`} />
-                          <span className="truncate">{getIngredientDisplayName(ing, duoPizza.size)}</span>
-                        </div>
-                        {isAgotado && (
-                          <span className="shrink-0 text-[9px] bg-red-950/90 text-red-400 border border-red-800/60 px-1 py-0.2 rounded font-semibold ml-1">
-                            Agotado
-                          </span>
-                        )}
-                      </Button>
-                    )
-                  })}
-                  {ingredientesPremium.map(ing => {
-                    const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
-                    const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
-                    const isSelected = duoPizza.extraPremium.includes(ing.nombre)
+                  <div className="flex items-center gap-2.5 flex-wrap min-w-0 flex-1">
+                    <span className="text-sm font-bold text-white uppercase tracking-wider">
+                      INGREDIENTES EXTRA PARA TODA LA PIZZA
+                    </span>
+                    {(duoPizza.extraSimple.length + duoPizza.extraPremium.length) > 0 && (
+                      <span className="text-[11px] font-bold bg-pink-900/80 text-pink-300 border border-pink-700/60 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                        <Check className="w-3 h-3 stroke-[3]" />
+                        {duoPizza.extraSimple.length + duoPizza.extraPremium.length} seleccionado{(duoPizza.extraSimple.length + duoPizza.extraPremium.length) > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                </button>
 
-                    return (
-                      <Button
-                        key={`extra-p-${ing.id}`}
-                        onClick={() => toggleHalfIngredient('extra', ing.nombre, true)}
-                        variant="outline"
-                        className={`justify-between truncate px-2.5 py-2 text-xs border transition-all ${
-                          isSelected
-                            ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                            : isAgotado
-                            ? 'bg-gray-950/80 border-red-900/50 text-gray-400 hover:border-red-700'
-                            : 'bg-gray-900 border-gray-800 hover:bg-gray-800 text-gray-300'
-                        }`}
-                      >
-                        <div className="flex items-center gap-1.5 min-w-0 truncate">
-                          <Check className={`w-3.5 h-3.5 shrink-0 ${isSelected ? 'opacity-100 text-pink-500' : 'opacity-0'}`} />
-                          <span className="truncate">{getIngredientDisplayName(ing, duoPizza.size, true)}</span>
-                        </div>
-                        {isAgotado && (
-                          <span className="shrink-0 text-[9px] bg-red-950/90 text-red-400 border border-red-800/60 px-1 py-0.2 rounded font-semibold ml-1">
-                            Agotado
+                {/* Contenido desplegable con animaciones fluidas */}
+                <div className={`pos-duo-accordion ${isDuoExtrasExpanded ? 'is-open' : ''}`}>
+                  <div className="pos-duo-accordion-inner">
+                    <div className="space-y-4 pt-1">
+                    {/* Extras Simples */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between border-b border-gray-800 pb-1.5">
+                        <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
+                          Extras Simples
+                        </span>
+                        <span className="text-[11px] font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2.5 py-0.5 rounded-full">
+                          +${getPreciosSegunTamano(duoPizza.size).simple.toLocaleString('es-CL')} c/u
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-2.5">
+                        {ingredientesSimples.map(ing => {
+                          const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
+                          const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
+                          const isSelected = duoPizza.extraSimple.includes(ing.nombre)
+                          const iconUrl = getIngredientIconUrl(ing.nombre)
+
+                          return (
+                            <button
+                              type="button"
+                              key={`extra-s-${ing.id}`}
+                              disabled={isAgotado}
+                              onClick={() => toggleHalfIngredient('extra', ing.nombre, false)}
+                              className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[116px] sm:h-[122px] ${
+                                isAgotado
+                                  ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                                  : isSelected
+                                  ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                                  : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-gray-400 hover:!bg-[#242936] hover:!shadow-md'
+                              }`}
+                            >
+                              {isSelected && (
+                                <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                </div>
+                              )}
+                              {isAgotado && (
+                                <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
+                                  Agotado
+                                </span>
+                              )}
+                              <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                                {iconUrl ? (
+                                  <img
+                                    src={iconUrl}
+                                    alt={ing.nombre}
+                                    className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <Pizza className="w-12 h-12 text-gray-500 group-hover:text-pink-400 !transition-colors" />
+                                )}
+                              </div>
+                              <div className="w-full shrink-0 flex flex-col items-center px-0.5 pb-0.5 z-10">
+                                <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                                  isSelected ? '!text-pink-200' : 'text-gray-200 group-hover:text-white'
+                                }`}>
+                                  {ing.nombre.toUpperCase()}
+                                </span>
+                                {ing.esPrecioEspecial && (
+                                  <span className="text-[9px] text-pink-400 font-bold mt-0.5 leading-none">
+                                    +${getIngredientPrice(ing, duoPizza.size, false).toLocaleString('es-CL')}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Extras Premium */}
+                    <div className="space-y-2.5 pt-2">
+                      <div className="flex items-center justify-between border-b border-amber-900/40 pb-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                            Extras Premium
                           </span>
-                        )}
-                      </Button>
-                    )
-                  })}
+                          <span className="text-[11px] font-medium text-amber-400/80">
+                            (Calidad gourmet)
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2.5 py-0.5 rounded-full">
+                          +${getPreciosSegunTamano(duoPizza.size).premium.toLocaleString('es-CL')} c/u
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 xl:grid-cols-8 gap-2.5">
+                        {ingredientesPremium.map(ing => {
+                          const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
+                          const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
+                          const isSelected = duoPizza.extraPremium.includes(ing.nombre)
+                          const iconUrl = getIngredientIconUrl(ing.nombre)
+
+                          return (
+                            <button
+                              type="button"
+                              key={`extra-p-${ing.id}`}
+                              disabled={isAgotado}
+                              onClick={() => toggleHalfIngredient('extra', ing.nombre, true)}
+                              className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[116px] sm:h-[122px] ${
+                                isAgotado
+                                  ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                                  : isSelected
+                                  ? '!bg-[#2c2211] !border-2 !border-amber-400 !ring-2 !ring-amber-400/60 !shadow-lg !shadow-amber-950/50 is-selected'
+                                  : '!bg-[#1c202a] !border !border-amber-600/50 hover:!border-amber-400 hover:!bg-[#26241c] hover:!shadow-md hover:!shadow-amber-950/30'
+                              }`}
+                            >
+                              {isSelected && (
+                                <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                                  <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                </div>
+                              )}
+                              {isAgotado && (
+                                <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
+                                  Agotado
+                                </span>
+                              )}
+                              <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                                {iconUrl ? (
+                                  <img
+                                    src={iconUrl}
+                                    alt={ing.nombre}
+                                    className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                                    loading="lazy"
+                                  />
+                                ) : (
+                                  <Pizza className="w-12 h-12 text-amber-500/70 group-hover:text-amber-400 !transition-colors" />
+                                )}
+                              </div>
+                              <div className="w-full shrink-0 flex flex-col items-center px-0.5 pb-0.5 z-10">
+                                <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                                  isSelected ? '!text-amber-200 font-bold' : 'text-amber-100/90 group-hover:text-amber-300'
+                                }`}>
+                                  {ing.nombre.toUpperCase()}
+                                </span>
+                                {ing.esPrecioEspecial && (
+                                  <span className="text-[9px] text-amber-400 font-bold mt-0.5 leading-none">
+                                    +${getIngredientPrice(ing, duoPizza.size, true).toLocaleString('es-CL')}
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1872,7 +2541,7 @@ export default function PresentialSalesPage() {
       </div>
 
       {/* SECCIÓN DERECHA: RESUMEN DE COMPRA / CARRITO POS */}
-      <div className="w-full lg:w-96 bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-4">
+      <div className="w-full lg:w-96 bg-gray-900 border border-gray-800 rounded-2xl p-4 flex flex-col gap-3.5 self-start pos-smooth-shift !transition-all !duration-300">
         <div className="flex justify-between items-center border-b border-gray-800 pb-2">
           <div className="flex items-center gap-2">
             <ShoppingCart className="w-5 h-5 text-pink-500" />
@@ -1890,7 +2559,7 @@ export default function PresentialSalesPage() {
 
         {/* Inputs de Referencia Cliente */}
         <div className={`grid grid-cols-2 gap-2 bg-gray-950/50 p-2.5 rounded-xl border transition-all ${
-          (!clientName.trim() && (nameError || cart.length > 0))
+          (!clientName.trim() && (nameError || activeCart.length > 0))
             ? 'border-red-500/80 ring-1 ring-red-500/40 bg-red-950/10'
             : 'border-gray-800'
         }`}>
@@ -1906,12 +2575,12 @@ export default function PresentialSalesPage() {
                 }
               }}
               className={`bg-gray-950 text-xs h-8 text-white transition-all ${
-                (!clientName.trim() && (nameError || cart.length > 0))
+                (!clientName.trim() && (nameError || activeCart.length > 0))
                   ? 'border-red-500 focus-visible:ring-red-500 placeholder:text-red-400/70'
                   : 'border-gray-800 focus-visible:ring-pink-500'
               }`}
             />
-            {(!clientName.trim() && (nameError || cart.length > 0)) && (
+            {(!clientName.trim() && (nameError || activeCart.length > 0)) && (
               <p className="text-[10px] text-red-400 font-semibold flex items-center gap-1 mt-1.5 animate-pulse">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 Ingresa el nombre del cliente o mesa para habilitar el pedido
@@ -1966,292 +2635,248 @@ export default function PresentialSalesPage() {
           </div>
         )}
 
-        {/* Listado de Items en Carrito */}
-        <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[200px]">
-          {cart.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-gray-500 text-center gap-2">
-              <ShoppingCart className="w-8 h-8 opacity-25" />
-              <p className="text-xs">El pedido está vacío.</p>
+        {/* Listado de Items en Carrito (Ubicado justo debajo de los datos del pedido) */}
+        {activeCart.length === 0 ? (
+          <div className="flex items-center justify-center gap-2 py-3 px-3 rounded-xl border border-dashed border-gray-800 bg-gray-950/30 text-gray-500 text-xs pos-smooth-shift !transition-all !duration-300">
+            <ShoppingCart className="w-3.5 h-3.5 opacity-40" />
+            <span>Sin productos en el pedido</span>
+          </div>
+        ) : (
+          <div className="space-y-1.5 pos-smooth-shift !transition-all !duration-300">
+            <div className="flex items-center justify-between text-[11px] text-gray-400 font-semibold px-0.5">
+              <span>Productos ({activeCart.reduce((acc, item) => acc + item.quantity, 0)})</span>
+              <span className="text-[10px] text-gray-500 font-normal">
+                {activeCart.length} {activeCart.length === 1 ? 'ítem' : 'ítems'}
+              </span>
             </div>
-          ) : (
-            cart.map(item => {
-              const isDuo = item.pizzaType === 'duo' || Boolean(item.half1 || item.half2)
-              const half1Extras = [
-                ...(item.half1?.simpleIngredients || []).map(i => `+${i}`),
-                ...(item.half1?.premiumIngredients || []).map(i => `+${i} (P)`)
-              ]
-              const half2Extras = [
-                ...(item.half2?.simpleIngredients || []).map(i => `+${i}`),
-                ...(item.half2?.premiumIngredients || []).map(i => `+${i} (P)`)
-              ]
-              const todaExtras = [
-                ...(item.extraSimple || []).map(i => `+${i} (Toda)`),
-                ...(item.extraPremium || []).map(i => `+${i} (P Toda)`)
-              ]
 
-              const half1Label = item.half1?.variety || item.pizza1 || 'Personalizada'
-              const half2Label = item.half2?.variety || item.pizza2 || 'Personalizada'
+            <div className="pos-smooth-shift !transition-all !duration-300">
+              {cart.map(item => {
+                const isRemoving = removingItemIds.includes(item.id)
+                const isDuo = item.pizzaType === 'duo' || Boolean(item.half1 || item.half2)
+                const half1Extras = [
+                  ...(item.half1?.simpleIngredients || []).map(i => `+${i}`),
+                  ...(item.half1?.premiumIngredients || []).map(i => `+${i} (P)`)
+                ]
+                const half2Extras = [
+                  ...(item.half2?.simpleIngredients || []).map(i => `+${i}`),
+                  ...(item.half2?.premiumIngredients || []).map(i => `+${i} (P)`)
+                ]
+                const todaExtras = [
+                  ...(item.extraSimple || []).map(i => `+${i} (Toda)`),
+                  ...(item.extraPremium || []).map(i => `+${i} (P Toda)`)
+                ]
 
-              const detailsText = isDuo ? [
-                item.size === 'mediana' ? 'Mediana' : 'Familiar',
-                item.sinOregano ? 'Sin Orégano' : null,
-                item.sinQueso ? 'Sin Queso' : null,
-                item.sinSalsaTomate ? 'Sin Salsa' : null,
-                `1/2 ${half1Label}${half1Extras.length > 0 ? ` (${half1Extras.join(', ')})` : ''}`,
-                `1/2 ${half2Label}${half2Extras.length > 0 ? ` (${half2Extras.join(', ')})` : ''}`,
-                todaExtras.length > 0 ? todaExtras.join(', ') : null,
-                item.comments ? `"${item.comments}"` : null
-              ].filter(Boolean).join(', ') : [
-                item.size === 'mediana' ? 'Mediana' : (item.size === 'familiar' ? 'Familiar' : null),
-                item.sinOregano ? 'Sin Orégano' : null,
-                item.sinQueso ? 'Sin Queso' : null,
-                item.sinSalsaTomate ? 'Sin Salsa' : null,
-                ...(item.ingredients || []).map(i => `+${i}`),
-                ...(item.premiumIngredients || []).map(i => `+${i} (P)`),
-                item.comments ? `"${item.comments}"` : null
-              ].filter(Boolean).join(', ')
+                const half1Label = item.half1?.variety || item.pizza1 || 'Personalizada'
+                const half2Label = item.half2?.variety || item.pizza2 || 'Personalizada'
 
-              const isConflicted = inventoryConflictItems.some(name => 
-                item.name.toLowerCase().includes(name) || name.includes(item.name.toLowerCase())
-              )
+                const detailsText = isDuo ? [
+                  item.size === 'mediana' ? 'Mediana' : 'Familiar',
+                  item.sinOregano ? 'Sin Orégano' : null,
+                  item.sinQueso ? 'Sin Queso' : null,
+                  item.sinSalsaTomate ? 'Sin Salsa' : null,
+                  `1/2 ${half1Label}${half1Extras.length > 0 ? ` (${half1Extras.join(', ')})` : ''}`,
+                  `1/2 ${half2Label}${half2Extras.length > 0 ? ` (${half2Extras.join(', ')})` : ''}`,
+                  todaExtras.length > 0 ? todaExtras.join(', ') : null,
+                  item.comments ? `"${item.comments}"` : null
+                ].filter(Boolean).join(', ') : [
+                  item.size === 'mediana' ? 'Mediana' : (item.size === 'familiar' ? 'Familiar' : null),
+                  item.sinOregano ? 'Sin Orégano' : null,
+                  item.sinQueso ? 'Sin Queso' : null,
+                  item.sinSalsaTomate ? 'Sin Salsa' : null,
+                  ...(item.ingredients || []).map(i => `+${i}`),
+                  ...(item.premiumIngredients || []).map(i => `+${i} (P)`),
+                  item.comments ? `"${item.comments}"` : null
+                ].filter(Boolean).join(', ')
 
-              return (
-                <div 
-                  key={item.id}
-                  className={`p-2.5 rounded-xl border flex items-start gap-2.5 transition-all ${
-                    isConflicted
-                      ? 'bg-red-950/30 border-red-600/70 ring-1 ring-red-500/40'
-                      : 'bg-gray-950/60 border-gray-800/80 hover:border-gray-800'
-                  }`}
-                >
-                  <img 
-                    src={getStorageUrl(item.image)} 
-                    alt={item.name}
-                    className="w-10 h-10 object-cover rounded-md shrink-0"
+                const isConflicted = inventoryConflictItems.some(name => 
+                  item.name.toLowerCase().includes(name) || name.includes(item.name.toLowerCase())
+                )
+
+                return (
+                  <AnimatedCartItem
+                    key={item.id}
+                    item={item}
+                    isRemoving={isRemoving}
+                    onUpdateQty={handleUpdateQty}
+                    onRemove={handleRemoveItem}
+                    isConflicted={isConflicted}
+                    detailsText={detailsText || null}
                   />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-1">
-                      <h4 className="font-semibold text-xs text-white truncate">{item.name}</h4>
-                      {isConflicted && (
-                        <span className="shrink-0 text-[9px] bg-red-950 text-red-400 border border-red-800/70 px-1 py-0.2 rounded font-bold">
-                          Sin Stock
-                        </span>
-                      )}
-                    </div>
-                    {detailsText && <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{detailsText}</p>}
-                    <div className="flex justify-between items-center mt-1">
-                      <div className="text-[11px] text-pink-500 font-bold">
-                        ${(item.price * item.quantity).toLocaleString('es-CL')}
-                      </div>
-                      
-                      <div className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded px-1.5 py-0.5">
-                        <button 
-                          onClick={() => handleUpdateQty(item.id, item.quantity - 1)}
-                          className="text-gray-400 hover:text-white"
-                        >
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <span className="text-[11px] font-bold text-white px-1">{item.quantity}</span>
-                        <button 
-                          onClick={() => handleUpdateQty(item.id, item.quantity + 1)}
-                          className="text-gray-400 hover:text-white"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => handleRemoveItem(item.id)}
-                    className="text-gray-600 hover:text-red-500 shrink-0 p-0.5"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* Subtotales */}
-        <div className="border-t border-gray-800 pt-3 space-y-1.5 text-xs">
-          <div className="flex justify-between text-gray-400">
-            <span>Subtotal</span>
-            <span>${subtotal.toLocaleString('es-CL')}</span>
-          </div>
-          <div className="flex justify-between text-gray-400">
-            <span>Descuento</span>
-            <span>-$0</span>
-          </div>
-          <div className="flex justify-between items-center text-red-500 font-bold">
-            <span>+ Delivery</span>
-            <div className="flex items-center">
-              <span>$</span>
-              <Input
-                type="number"
-                value={deliveryAmount}
-                onChange={(e) => setDeliveryAmount(e.target.value)}
-                placeholder="0"
-                className="w-20 h-6 text-xs font-bold text-right text-red-500 bg-gray-900 border-red-900/50 focus-visible:ring-red-500 ml-1"
-              />
+                )
+              })}
             </div>
           </div>
-          <div className="flex justify-between text-white font-bold text-base border-t border-gray-800/50 pt-2">
-            <span>Total</span>
-            <span className="text-pink-500 font-bold">${total.toLocaleString('es-CL')}</span>
-          </div>
-        </div>
+        )}
 
-        {/* Selector de Método de Pago */}
-        <div className="space-y-2">
-          <label className="text-[10px] text-gray-500 uppercase font-semibold">Método de Pago</label>
-          <div className="grid grid-cols-2 gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800">
-            {[
-              { id: 'Efectivo', label: 'Efectivo', icon: DollarSign },
-              { id: 'Tarjeta', label: 'Tarjeta (MP)', icon: CreditCard },
-              { id: 'Transferencia', label: 'Banco', icon: Send },
-              { id: 'Por Pagar', label: 'Por Pagar', icon: Clock }
-            ].map(method => {
-              const Icon = method.icon
-              const isSelected = paymentMethod === method.id
-              return (
-                <button
-                  key={method.id}
-                  onClick={() => setPaymentMethod(method.id as any)}
-                  className={`flex flex-col items-center py-2 rounded-lg text-[10px] font-medium transition-all ${
-                    isSelected
-                      ? 'bg-pink-600 text-white'
-                      : 'text-gray-400 hover:text-white hover:bg-gray-900'
-                  }`}
-                >
-                  <Icon className="w-4 h-4 mb-1" />
-                  <span>{method.label}</span>
-                </button>
-              )
-            })}
-          </div>
-        </div>
+        {/* Bloque Final de Cierre (Se desplaza hacia abajo suavemente con animación) */}
+        <div className="border-t border-gray-800/80 pt-3 space-y-3.5 pos-smooth-shift !transition-all !duration-300 !ease-in-out">
+          {/* Subtotales y Totales */}
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between text-gray-400">
+              <span>Subtotal</span>
+              <span>${subtotal.toLocaleString('es-CL')}</span>
+            </div>
 
-        {/* Detalle del Pago Seleccionado */}
-        <div className="bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs min-h-[92px] flex flex-col justify-center">
-          
-          {/* EFECTIVO */}
-          {paymentMethod === 'Efectivo' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-400 shrink-0">Recibido: $</span>
+            {/* Descuento (Resta del total - diferenciado en verde esmeralda) */}
+            <div className="flex justify-between items-center text-emerald-400 font-bold bg-emerald-950/20 px-2 py-1 rounded-lg border border-emerald-900/40">
+              <span>- Descuento</span>
+              <div className="flex items-center">
+                <span>$</span>
                 <Input
                   type="number"
-                  placeholder="Monto entregado por cliente"
-                  value={receivedAmount}
-                  onChange={e => setReceivedAmount(e.target.value)}
-                  className="bg-gray-900 border-gray-800 text-xs h-8 text-white"
+                  min="0"
+                  value={discountAmount}
+                  onChange={(e) => setDiscountAmount(e.target.value)}
+                  placeholder="0"
+                  className="w-20 h-6 text-xs font-bold text-right text-emerald-400 bg-gray-900 border-emerald-800/60 focus-visible:ring-emerald-500 ml-1"
                 />
               </div>
-              {parseFloat(receivedAmount) >= total && (
-                <div className="text-green-500 font-bold text-center">
-                  Vuelto a entregar: ${changeAmount.toLocaleString('es-CL')}
-                </div>
-              )}
             </div>
-          )}
 
-          {/* TARJETA (MERCADO PAGO POINT SMART 2) */}
-          {paymentMethod === 'Tarjeta' && (
-            <div className="flex flex-col items-center gap-2">
-              {!pointStatus && (
-                <Button 
-                  onClick={handleStartPointPayment}
-                  className="w-full bg-pink-600 hover:bg-pink-700 text-white font-semibold text-xs h-8"
-                >
-                  Enviar monto a Point Smart
-                </Button>
-              )}
-
-              {pointStatus === 'PROCESSING' && (
-                <div className="w-full flex flex-col items-center gap-1.5 text-center">
-                  <div className="flex items-center gap-2 text-pink-500 animate-pulse">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Esperando tarjeta en terminal...</span>
-                  </div>
-                  <div className="flex gap-1.5 mt-1">
-                    <Button onClick={simularPagoExitoso} size="sm" variant="outline" className="text-[10px] h-7 bg-green-900/30 border-green-800 text-green-500">Aprobar (QA)</Button>
-                    <Button onClick={simularPagoFallido} size="sm" variant="outline" className="text-[10px] h-7 bg-red-900/30 border-red-800 text-red-500">Rechazar (QA)</Button>
-                    <Button onClick={simularPagoCancelado} size="sm" variant="outline" className="text-[10px] h-7 bg-gray-900 border-gray-800 text-gray-400">Cancelar (QA)</Button>
-                  </div>
-                </div>
-              )}
-
-              {pointStatus === 'PAID' && (
-                <div className="text-green-500 font-bold text-center flex items-center gap-2 justify-center">
-                  <Check className="w-4 h-4 bg-green-500 text-black rounded-full p-0.5" />
-                  <span>Pago Aprobado en Point Smart 2</span>
-                </div>
-              )}
-
-              {pointStatus === 'FAILED' && (
-                <div className="w-full text-center space-y-1.5">
-                  <span className="text-red-500 font-semibold block">⚠️ Pago Rechazado o Fallido</span>
-                  <Button onClick={handleStartPointPayment} size="sm" className="h-7 text-[10px] bg-pink-600 hover:bg-pink-700 text-white font-semibold">Reintentar Cobro</Button>
-                </div>
-              )}
-
-              {pointStatus === 'CANCELLED' && (
-                <div className="w-full text-center space-y-1.5">
-                  <span className="text-gray-400 block">Cobro cancelado.</span>
-                  <Button onClick={handleStartPointPayment} size="sm" className="h-7 text-[10px] bg-pink-600 hover:bg-pink-700 text-white font-semibold">Reintentar</Button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TRANSFERENCIA */}
-          {paymentMethod === 'Transferencia' && (
-            <div className="space-y-2">
-              <div className="bg-gray-900 p-2 rounded-lg border border-gray-800 text-[10px] text-gray-400 leading-tight space-y-0.5">
-                <div><strong>Cuenta Santander Palermo</strong></div>
-                <div>Francisco Soto | RUT: 15.682.774-6</div>
-                <div>Cta Corriente: 0000 7905 8750 | info@palermopizzas.cl</div>
-              </div>
-              <label className="flex items-center gap-2 cursor-pointer text-xs select-none">
-                <input
-                  type="checkbox"
-                  checked={transferConfirmed}
-                  onChange={e => setTransferConfirmed(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded bg-gray-900 border-gray-800 text-pink-600 focus:ring-0"
+            {/* Delivery (Suma al total - toda en mayúsculas DELIVERY y rojo) */}
+            <div className="flex justify-between items-center text-red-500 font-bold bg-red-950/20 px-2 py-1 rounded-lg border border-red-900/40">
+              <span>+ DELIVERY</span>
+              <div className="flex items-center">
+                <span>$</span>
+                <Input
+                  type="number"
+                  min="0"
+                  value={deliveryAmount}
+                  onChange={(e) => setDeliveryAmount(e.target.value)}
+                  placeholder="0"
+                  className="w-20 h-6 text-xs font-bold text-right text-red-500 bg-gray-900 border-red-900/50 focus-visible:ring-red-500 ml-1"
                 />
-                <span className="text-[11px] text-gray-300">Confirmación manual de transferencia recibida</span>
-              </label>
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Botón de Cobro Primario */}
-        <Button
-          onClick={handleConfirmOrder}
-          disabled={isPaymentDisabled}
-          className={`w-full font-bold py-5 text-sm rounded-xl transition-all shadow-lg ${
-            isPaymentDisabled
-              ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700 shadow-none'
-              : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-900/30'
-          }`}
-        >
-          {isSubmitting ? (
-            <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-          ) : (
-            <ShoppingCart className="w-4 h-4 mr-2" />
-          )}
-          {!clientName.trim() && cart.length > 0
-            ? 'Ingresa Nombre de Cliente para Confirmar'
-            : (
-              <>
-                {paymentMethod === 'Efectivo' && `Confirmar Pago en Efectivo`}
-                {paymentMethod === 'Tarjeta' && `Cobrar $${total.toLocaleString('es-CL')}`}
-                {paymentMethod === 'Transferencia' && `Confirmar Venta por Transferencia`}
-                {paymentMethod === 'Por Pagar' && `Confirmar Pedido (Por Pagar)`}
-              </>
+            <div className="flex justify-between text-white font-bold text-base border-t border-gray-800/50 pt-2">
+              <span>Total</span>
+              <span className="text-pink-500 font-bold">${total.toLocaleString('es-CL')}</span>
+            </div>
+          </div>
+
+          {/* Selector de Método de Pago */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] text-gray-500 uppercase font-semibold">Método de Pago</label>
+            <div className="grid grid-cols-2 gap-1 bg-gray-950 p-1 rounded-xl border border-gray-800">
+              {[
+                { id: 'Efectivo', label: 'Efectivo', icon: DollarSign },
+                { id: 'Tarjeta', label: 'Tarjeta', icon: CreditCard },
+                { id: 'Transferencia', label: 'Transferencia', icon: Landmark },
+                { id: 'Por Pagar', label: 'Por Pagar', icon: Clock }
+              ].map(method => {
+                const Icon = method.icon
+                const isSelected = paymentMethod === method.id
+                return (
+                  <button
+                    key={method.id}
+                    onClick={() => setPaymentMethod(method.id as any)}
+                    className={`flex flex-col items-center py-2 rounded-lg text-[10px] font-medium transition-all ${
+                      isSelected
+                        ? 'bg-pink-600 text-white'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-900'
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 mb-1" />
+                    <span>{method.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Detalle del Pago Seleccionado */}
+          <div className="bg-gray-950 border border-gray-800 rounded-xl p-3 text-xs min-h-[92px] flex flex-col justify-center">
+            
+            {/* EFECTIVO */}
+            {paymentMethod === 'Efectivo' && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-400 shrink-0">Recibido: $</span>
+                  <Input
+                    type="number"
+                    placeholder="Monto entregado por cliente"
+                    value={receivedAmount}
+                    onChange={e => setReceivedAmount(e.target.value)}
+                    className="bg-gray-900 border-gray-800 text-xs h-8 text-white"
+                  />
+                </div>
+                {parseFloat(receivedAmount) >= total && (
+                  <div className="text-green-500 font-bold text-center">
+                    Vuelto a entregar: ${changeAmount.toLocaleString('es-CL')}
+                  </div>
+                )}
+              </div>
             )}
-        </Button>
+
+            {/* TARJETA */}
+            {paymentMethod === 'Tarjeta' && (
+              <div className="text-center py-2 space-y-1">
+                <div className="flex items-center justify-center gap-2 text-pink-400 font-semibold text-xs">
+                  <CreditCard className="w-4 h-4" />
+                  <span>Cobro con Tarjeta</span>
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  Cobrar <strong className="text-white">${total.toLocaleString('es-CL')}</strong> externamente en la máquina POS Point.
+                </p>
+              </div>
+            )}
+
+            {/* TRANSFERENCIA */}
+            {paymentMethod === 'Transferencia' && (
+              <div className="text-center py-2 space-y-1">
+                <div className="flex items-center justify-center gap-2 text-pink-400 font-semibold text-xs">
+                  <Landmark className="w-4 h-4" />
+                  <span>Pago por Transferencia</span>
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  Venta presencial pagada mediante transferencia bancaria.
+                </p>
+              </div>
+            )}
+
+            {/* POR PAGAR */}
+            {paymentMethod === 'Por Pagar' && (
+              <div className="text-center py-2 space-y-1">
+                <div className="flex items-center justify-center gap-2 text-amber-400 font-semibold text-xs">
+                  <Clock className="w-4 h-4" />
+                  <span>Pedido Por Pagar</span>
+                </div>
+                <p className="text-[11px] text-gray-400">
+                  El pedido quedará registrado pendiente de cobro posterior.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Botón de Cobro Primario */}
+          <Button
+            onClick={handleConfirmOrder}
+            disabled={isPaymentDisabled}
+            className={`w-full font-bold py-5 text-sm rounded-xl transition-all shadow-lg ${
+              isPaymentDisabled
+                ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700 shadow-none'
+                : 'bg-pink-600 hover:bg-pink-700 text-white shadow-pink-900/30'
+            }`}
+          >
+            {isSubmitting ? (
+              <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+            ) : (
+              <ShoppingCart className="w-4 h-4 mr-2" />
+            )}
+            {!clientName.trim() && activeCart.length > 0
+              ? 'Ingresa Nombre de Cliente para Confirmar'
+              : (
+                <>
+                  {paymentMethod === 'Efectivo' && `Confirmar Pago en Efectivo`}
+                  {paymentMethod === 'Tarjeta' && `Confirmar Venta con Tarjeta ($${total.toLocaleString('es-CL')})`}
+                  {paymentMethod === 'Transferencia' && `Confirmar Venta por Transferencia ($${total.toLocaleString('es-CL')})`}
+                  {paymentMethod === 'Por Pagar' && `Confirmar Pedido (Por Pagar)`}
+                </>
+              )}
+          </Button>
+        </div>
       </div>
 
       {/* DIÁLOGO: CONFIGURACIÓN COMPACTA DE PIZZA DEL MENÚ */}
@@ -2470,6 +3095,13 @@ export default function PresentialSalesPage() {
             </div>
 
             <div className="flex flex-col gap-2 pt-2">
+              <Button 
+                onClick={handlePrintReceipt}
+                className="w-full bg-white hover:bg-gray-200 text-black font-bold text-xs py-2 flex items-center justify-center gap-1.5"
+              >
+                <Printer className="w-4 h-4" />
+                Imprimir Comanda
+              </Button>
               <Button 
                 onClick={() => {
                   handleResetPOS()

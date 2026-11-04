@@ -141,7 +141,7 @@ function getPedidoMontos(pedido: Pedido | null | undefined) {
   const totalGuardado = Number(pedido?.total || 0)
   const valorDelivery = Math.max(0, Number(pedido?.valorDelivery || 0))
     
-  let discountAmount = Number(pedido?.discountAmount || 0)
+  let discountAmount = Number(pedido?.discountAmount || (pedido as any)?.descuento || (pedido as any)?.discount || 0)
   const voucherDiscount = Number(pedido?.voucherDiscount || 0)
 
   const subtotalGuardado = Number(pedido?.subtotal || 0)
@@ -1388,13 +1388,9 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                         )
                       })}
                       {(() => {
-                        const { subtotal, valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedido)
+                        const { valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedido)
                         return (
-                          <>
-                            <div className="border-t pt-2 flex justify-between dark:text-white">
-                              <span>Subtotal</span>
-                              <span>{formatCurrency(subtotal)}</span>
-                            </div>
+                          <div className="border-t border-gray-200 dark:border-gray-700 pt-2 space-y-1">
                             {valorDelivery > 0 && (
                               <div className="flex justify-between dark:text-white">
                                 <span>Delivery</span>
@@ -1403,15 +1399,15 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                             )}
                             {descuentos > 0 && (
                               <div className="flex justify-between text-green-600 dark:text-green-400">
-                                <span>Descuento {discountCode ? `(${discountCode})` : voucherCode ? `(${voucherCode})` : '(Promoción)'}</span>
+                                <span>Descuento{discountCode ? ` (${discountCode})` : voucherCode ? ` (${voucherCode})` : ''}</span>
                                 <span>-{formatCurrency(descuentos)}</span>
                               </div>
                             )}
-                            <div className="font-bold flex justify-between dark:text-white mt-1 border-t border-dashed border-gray-200 dark:border-gray-700 pt-1">
+                            <div className={`font-bold flex justify-between dark:text-white ${valorDelivery > 0 || descuentos > 0 ? 'mt-1 border-t border-dashed border-gray-200 dark:border-gray-700 pt-1' : ''}`}>
                               <span>Total</span>
                               <span>{formatCurrency(totalConDelivery)}</span>
                             </div>
-                          </>
+                          </div>
                         )
                       })()}
                       {(() => {
@@ -1977,7 +1973,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                       )}
                       {descuentos > 0 && (
                         <div className="comanda-total-row">
-                          DESCUENTO {discountCode ? `(${discountCode})` : voucherCode ? `(${voucherCode})` : '(PROMO)'}: -{formatCurrency(descuentos)}
+                          DESCUENTO{discountCode ? ` (${discountCode})` : voucherCode ? ` (${voucherCode})` : ''}: -{formatCurrency(descuentos)}
                         </div>
                       )}
                       <div className="comanda-total-row comanda-total-strong" style={{ marginTop: "4px" }}>

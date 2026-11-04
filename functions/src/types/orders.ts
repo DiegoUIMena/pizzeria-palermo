@@ -79,7 +79,7 @@ export interface CreateOrderData {
   tipoEntrega: "Delivery" | "Retiro";
   direccion?: OrderAddress;
   items: OrderItem[];
-  metodoPago: "Efectivo" | "Webpay Plus" | "Transferencia";
+  metodoPago: "Efectivo" | "Webpay Plus" | "Transferencia" | "Tarjeta" | "Por Pagar" | string;
   isKhipu?: boolean;
   paymentDetails?: {
     cashAmount?: number;
@@ -87,6 +87,13 @@ export interface CreateOrderData {
   };
   notas?: string;
   discountCode?: string;
+  descuento?: number;
+  discount?: number;
+  discountAmount?: number;
+  subtotal?: number;
+  delivery?: number;
+  valorDelivery?: number;
+  deliveryFee?: number;
 }
 
 export interface Order extends CreateOrderData {

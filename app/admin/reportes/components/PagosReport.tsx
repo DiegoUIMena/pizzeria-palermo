@@ -23,6 +23,7 @@ interface PagosReportProps {
 // con las propiedades de Webpay, fechas y estados de pago que no están en la interfaz base
 export type ExtendedOrder = Omit<Order, 'paymentStatus'> & {
   paymentStatus?: "pending" | "paid" | "failed" | "refunded" | string;
+  documentId?: string;
   source?: string;
   orderChannel?: string;
   valorDelivery?: number;

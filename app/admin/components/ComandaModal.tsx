@@ -34,7 +34,7 @@ const formatCurrency = (value: number) => `$${Math.round(value).toLocaleString('
 function getPedidoMontos(pedido: any) {
   const totalGuardado = Number(pedido?.total || 0)
   const valorDelivery = Math.max(0, Number(pedido?.valorDelivery ?? pedido?.delivery ?? 0))
-  let discountAmount = Number(pedido?.discountAmount || 0)
+  let discountAmount = Number(pedido?.discountAmount || (pedido as any)?.descuento || (pedido as any)?.discount || 0)
   const voucherDiscount = Number(pedido?.voucherDiscount || 0)
   const subtotalGuardado = Number(pedido?.subtotal || 0)
 
@@ -363,7 +363,7 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
               )}
               {descuentos > 0 && (
                 <div className="comanda-total-row">
-                  DESCUENTO {discountCode ? `(${discountCode})` : voucherCode ? `(${voucherCode})` : '(PROMO)'}: -{formatCurrency(descuentos)}
+                  DESCUENTO{discountCode ? ` (${discountCode})` : voucherCode ? ` (${voucherCode})` : ''}: -{formatCurrency(descuentos)}
                 </div>
               )}
               <div className="comanda-total-row comanda-total-strong" style={{ marginTop: "4px" }}>

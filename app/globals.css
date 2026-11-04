@@ -35,6 +35,98 @@
 }
 
 /* Animaciones para ClosedBanner */
+/* Animaciones y transiciones con !important para desplazamiento del carrito POS */
+.pos-item-accordion {
+  display: grid !important;
+  grid-template-rows: 0fr !important;
+  opacity: 0 !important;
+  margin-bottom: 0 !important;
+  transition: grid-template-rows 320ms cubic-bezier(0.25, 1, 0.5, 1),
+              opacity 280ms ease,
+              margin-bottom 320ms cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
+.pos-item-accordion.is-open {
+  grid-template-rows: 1fr !important;
+  opacity: 1 !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.pos-item-accordion-inner {
+  min-height: 0 !important;
+  overflow: hidden !important;
+  transition: transform 320ms cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
+.pos-item-accordion:not(.is-open) .pos-item-accordion-inner {
+  transform: translateY(-12px) scale(0.97) !important;
+}
+
+.pos-item-accordion.is-open .pos-item-accordion-inner {
+  transform: translateY(0) scale(1) !important;
+}
+
+.pos-smooth-shift {
+  transition: all 320ms cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
+/* Botones de ingredientes estilo Palermo POS con animaciones sutiles */
+.pos-ingredient-card {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              border-color 180ms ease,
+              background-color 180ms ease,
+              box-shadow 180ms ease !important;
+}
+
+.pos-ingredient-card:hover:not(:disabled) {
+  transform: translateY(-4px) scale(1.04) !important;
+}
+
+.pos-ingredient-card:active:not(:disabled) {
+  transform: scale(0.96) !important;
+}
+
+.pos-ingredient-card.is-selected {
+  transform: scale(1.02) !important;
+}
+
+.pos-ingredient-img {
+  transform: scale(1.24) !important;
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  transform-origin: center center !important;
+}
+
+.pos-ingredient-card:hover:not(:disabled) .pos-ingredient-img {
+  transform: scale(1.36) !important;
+}
+
+/* Acordeón con animación suave para Ingredientes Extra en Pizza Duo */
+.pos-duo-accordion {
+  display: grid !important;
+  grid-template-rows: 0fr !important;
+  opacity: 0 !important;
+  transition: grid-template-rows 360ms cubic-bezier(0.25, 1, 0.5, 1),
+              opacity 300ms ease !important;
+}
+
+.pos-duo-accordion.is-open {
+  grid-template-rows: 1fr !important;
+  opacity: 1 !important;
+}
+
+.pos-duo-accordion-inner {
+  min-height: 0 !important;
+  overflow: hidden !important;
+  transition: transform 360ms cubic-bezier(0.25, 1, 0.5, 1) !important;
+}
+
+.pos-duo-accordion:not(.is-open) .pos-duo-accordion-inner {
+  transform: translateY(-16px) !important;
+}
+
+.pos-duo-accordion.is-open .pos-duo-accordion-inner {
+  transform: translateY(0) !important;
+}
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -802,4 +894,66 @@ textarea:focus {
   transform-origin: top left !important;
   animation: popoverPaymentIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both !important;
   will-change: transform, opacity !important;
+}
+
+/* ============================================================
+   POS — Botones de Pizza Variedad (Mitades Duo)
+   Misma familia que pos-ingredient-card pero con imagen real
+   ============================================================ */
+.pos-pizza-card {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  border-radius: 1rem !important;
+  overflow: hidden !important;
+  cursor: pointer !important;
+  transition: transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              box-shadow 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+              border-color 200ms ease,
+              background-color 200ms ease !important;
+  user-select: none !important;
+  text-align: center !important;
+}
+
+.pos-pizza-card:hover:not(:disabled) {
+  transform: scale(1.03) !important;
+}
+
+.pos-pizza-card.is-selected {
+  transform: scale(1.03) !important;
+}
+
+/* Imagen de pizza dentro del card — enfocada/cuadrada */
+.pos-pizza-img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center center !important;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+  transform: scale(1.05) !important;
+  transform-origin: center center !important;
+}
+
+.pos-pizza-card:hover:not(:disabled) .pos-pizza-img {
+  transform: scale(1.14) !important;
+}
+
+/* ============================================================
+   Animacion de transicion entre modos Variedad / Armar
+   ============================================================ */
+@keyframes pos-half-mode-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.pos-half-mode-enter {
+  animation: pos-half-mode-in 280ms cubic-bezier(0.25, 1, 0.5, 1) both !important;
 }

@@ -43,7 +43,11 @@ import {
 import {
   refundWebpayTransaction,
 } from "./services/webpay.service";
-import {sendWelcomeEmail, sendRefundNotificationEmail} from "./services/email.service";
+import {
+  sendWelcomeEmail,
+  sendRefundNotificationEmail,
+  sendDriverSettlementEmail,
+} from "./services/email.service";
 import {
   sendWelcomeWhatsApp,
   sendRefundNotificationWhatsApp,
@@ -551,8 +555,10 @@ export const createOrder = onCall(async (request) => {
         priceCalculation.total = priceCalculation.subtotal + priceCalculation.deliveryFee;
       }
 
+      // ✅ MEJORA: Para POS (Venta Presencial), soportar descuento manual ingresado en caja
+      const manualDiscount = Math.max(0, Number((orderData as any).descuento ?? (orderData as any).discount ?? (orderData as any).discountAmount ?? 0));
       let discountCode: string | undefined;
-      let discountFromCode = 0;
+      let discountFromCode = (orderData as any).orderChannel === "POS" ? manualDiscount : 0;
       let promoRefToUpdate: admin.firestore.DocumentReference | undefined;
       let promoCurrentUses = 0;
 
@@ -612,8 +618,8 @@ export const createOrder = onCall(async (request) => {
       }
 
       // 7. Determinar el estado inicial según el método de pago (Webpay y Khipu son pasarelas en línea)
-      const isOnlinePayment = orderData.metodoPago === "Webpay Plus" || 
-        (orderData.metodoPago === "Transferencia" && orderData.isKhipu === true);
+      const isOnlinePayment = ((orderData as any).orderChannel !== "POS") && (orderData.metodoPago === "Webpay Plus" || 
+        (orderData.metodoPago === "Transferencia" && orderData.isKhipu === true));
 
       const initialEstado = isOnlinePayment 
         ? "Pago Pendiente" 
@@ -681,6 +687,12 @@ export const createOrder = onCall(async (request) => {
         },
         inventoryProcessed: shouldConsumeInventoryOnCreate,
         inventoryStatus: shouldConsumeInventoryOnCreate ? "processed" : "pending",
+        subtotal: priceCalculation.subtotal,
+        delivery: manualDeliveryFee,
+        valorDelivery: manualDeliveryFee,
+        deliveryFee: manualDeliveryFee,
+        descuento: manualDiscount,
+        discountAmount: discountFromCode,
         priceCalculation: {
           subtotal: priceCalculation.subtotal,
           deliveryFee: priceCalculation.deliveryFee,
@@ -2950,4 +2962,37 @@ export const obtenerConteoPendientes = onCall({ cors: true }, async (request) =>
     throw new HttpsError("internal", error.message || "Error al obtener conteo");
   }
 });
+
+/**
+ * Cloud Function para enviar la planilla de liquidación de un repartidor por email
+ */
+export const enviarLiquidacionRepartidorEmail = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "No estás autenticado.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden enviar liquidaciones por correo.");
+
+  const { emailDestino, settlementData } = request.data || {};
+  if (!emailDestino || typeof emailDestino !== "string" || !emailDestino.includes("@")) {
+    throw new HttpsError("invalid-argument", "Debes ingresar un correo electrónico válido.");
+  }
+  if (!settlementData || !settlementData.repartidorIniciales) {
+    throw new HttpsError("invalid-argument", "Los datos de la planilla son requeridos.");
+  }
+
+  try {
+    const result = await sendDriverSettlementEmail(emailDestino.trim(), settlementData);
+    if (!result.success) {
+      throw new Error(result.error || "No se pudo enviar el correo");
+    }
+    return { success: true, messageId: result.messageId };
+  } catch (error: any) {
+    logger.error("Error al enviar liquidación por email:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al enviar la planilla por correo.");
+  }
+});
+
 
