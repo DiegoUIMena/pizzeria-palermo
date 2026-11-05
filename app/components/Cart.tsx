@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect, useCallback } from "react"
 import { createPortal } from "react-dom"
@@ -75,6 +75,7 @@ const Cart = ({ onClose }: CartProps) => {
   const [serverCalculation, setServerCalculation] = useState<{ subtotal: number; deliveryFee: number; total: number } | null>(null)
   const [isServerCalcLoading, setIsServerCalcLoading] = useState(false)
   const [serverCalcError, setServerCalcError] = useState<string | null>(null)
+  const [gauchitosDisponible, setGauchitosDisponible] = useState<boolean>(true)
   const [bebidasDisponibles, setBebidasDisponibles] = useState<BebidasDisponiblesConfig>({
     liptonLata: true,
     liptonBotella: true,
@@ -244,6 +245,7 @@ const Cart = ({ onClose }: CartProps) => {
   useEffect(() => {
     const unsubscribe = subscribeAgregadosConfig((config) => {
       setBebidasDisponibles(config.bebidasDisponibles)
+      setGauchitosDisponible(config.gauchitosDisponible)
     })
 
     return () => unsubscribe()
@@ -1385,6 +1387,7 @@ const Cart = ({ onClose }: CartProps) => {
       "Coca Cola Lata": 1500,
       "Coca Cola 1.5L": 2900,
       "Rollitos de Canela": 4900,
+      "Gauchitos x24": 7000,
       Gauchitos: 4000,
     }
 
@@ -2797,23 +2800,36 @@ const Cart = ({ onClose }: CartProps) => {
                     <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
                       {[
                         { id: 15, name: "Rollitos de Canela", price: 4900, image: "/acompañamientos/canela.jpg" },
-                        { id: 16, name: "Gauchitos", price: 4000, image: "/acompañamientos/gauchitos.jpg" },
+                        { id: 16, name: "Gauchitos", price: 4000, image: "/acompañamientos/gauchitos.jpg", isGauchito: true },
+                        { id: 21, name: "Gauchitos x24", price: 7000, image: "/acompañamientos/Gauchitosx24.webp", isGauchito: true },
                       ].map(snack => {
                         const cartItem = items.find(item => item.id === String(snack.id))
                         const isInCart = !!cartItem
                         const quantity = cartItem?.quantity || 1
+                        const isAvailable = (snack as any).isGauchito ? gauchitosDisponible : true
 
                         return (
                           <div key={snack.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                            <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
+                            <label className={`flex items-center gap-1.5 sm:gap-2 flex-1 ${isAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                               <input
                                 type="checkbox"
                                 checked={isInCart}
+                                disabled={!isAvailable}
                                 onChange={(e) => {
+                                  if (!isAvailable) {
+                                    toast({
+                                      title: 'Producto sin stock',
+                                      description: `${snack.name} no tiene stock disponible.`,
+                                      variant: 'destructive',
+                                    })
+                                    return
+                                  }
+
                                   if (e.target.checked) {
                                     const imageMap: Record<string, string> = {
                                       "Rollitos de Canela": "/acompañamientos/canela.jpg",
-                                      "Gauchitos": "/acompañamientos/gauchitos.jpg"
+                                      "Gauchitos": "/acompañamientos/gauchitos.jpg",
+                                      "Gauchitos x24": "/acompañamientos/Gauchitosx24.webp"
                                     };
                                     addItem({
                                       id: String(snack.id),
@@ -2829,7 +2845,9 @@ const Cart = ({ onClose }: CartProps) => {
                                 className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
                               />
                               <span className="text-xs sm:text-sm text-gray-700">{snack.name}</span>
-                              <span className="text-xs sm:text-sm text-gray-500">${snack.price.toLocaleString()}</span>
+                              <span className={`text-xs sm:text-sm ${isAvailable ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
+                                {isAvailable ? `$${snack.price.toLocaleString()}` : 'Sin Stock'}
+                              </span>
                             </label>
 
                             {isInCart && (

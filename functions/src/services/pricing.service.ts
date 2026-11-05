@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Servicio de Validación y Cálculo de Precios
  * Calcula precios desde el servidor para evitar manipulación
  */
@@ -115,6 +115,7 @@ async function getPriceConfig(): Promise<PriceConfig> {
       "coca cola 1.5l": 2900,
       "rollitos de canela": 4900,
       gauchitos: 4000,
+      "gauchitos x24": 7000,
     },
   };
 

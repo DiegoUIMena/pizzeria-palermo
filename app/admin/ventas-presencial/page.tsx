@@ -1398,8 +1398,8 @@ export default function PresentialSalesPage() {
         <div className="flex justify-between items-center gap-4">
           <h2 className="text-xl font-bold text-white capitalize">
             {activeCategory === 'pizzas' && 'Pizzas del Menú'}
-            {activeCategory === 'armar' && 'Armar Pizza Personalizada'}
-            {activeCategory === 'duo' && 'Armar Pizza Duo (Mitad y Mitad)'}
+            {activeCategory === 'armar' && 'ARMAR PIZZA PERSONALIZADA ENTERA'}
+            {activeCategory === 'duo' && 'ARMAR PIZZA DUO'}
             {activeCategory === 'agregados' && 'Acompañamientos y Agregados'}
             {activeCategory === 'bebidas' && 'Bebidas'}
           </h2>
@@ -1464,20 +1464,20 @@ export default function PresentialSalesPage() {
           {/* CATEGORÍA: ARMAR PIZZA */}
           {activeCategory === 'armar' && (
             <div className="bg-[#11141c] border border-gray-800 rounded-2xl p-6 space-y-6 max-w-5xl mx-auto shadow-2xl">
-              <div className="flex items-center justify-between border-b border-gray-800 pb-4">
-                <h3 className="text-lg font-bold text-white font-semibold">Arma una Pizza entera a tu gusto</h3>
-                <div className="flex gap-2">
+              {/* Selector de tamaño centrado y espacioso */}
+              <div className="flex justify-center items-center border-b border-gray-800 pb-5">
+                <div className="flex justify-center gap-6 sm:gap-8 w-full max-w-md">
                   {(['mediana', 'familiar'] as const).map(sz => (
                     <Button
                       key={sz}
                       onClick={() => setCustomPizza(prev => ({ ...prev, size: sz }))}
-                      className={`capitalize ${
+                      className={`flex-1 py-3 px-6 text-sm font-bold tracking-wider uppercase rounded-xl transition-all shadow-md ${
                         customPizza.size === sz
-                          ? 'bg-pink-600 text-white font-semibold'
-                          : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800'
+                          ? 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-900/40 ring-2 ring-pink-500/50'
+                          : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800 hover:text-white'
                       }`}
                     >
-                      {sz}
+                      {sz.toUpperCase()}
                     </Button>
                   ))}
                 </div>
@@ -1525,7 +1525,7 @@ export default function PresentialSalesPage() {
                       (Básicos del menú)
                     </span>
                   </div>
-                  <span className="text-xs font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2.5 py-1 rounded-full">
+                  <span className="text-sm sm:text-base font-extrabold text-pink-400 bg-pink-950/60 border border-pink-800/70 px-3.5 py-1 rounded-full shadow-sm">
                     +${getPreciosSegunTamano(customPizza.size).simple.toLocaleString('es-CL')} c/u
                   </span>
                 </div>
@@ -1589,7 +1589,7 @@ export default function PresentialSalesPage() {
                             {ing.nombre.toUpperCase()}
                           </span>
                           {ing.esPrecioEspecial && (
-                            <span className="text-[9px] text-pink-400 font-bold mt-0.5 leading-none">
+                            <span className="text-[10px] sm:text-[11px] text-pink-400 font-extrabold mt-0.5 leading-none">
                               +${getIngredientPrice(ing, customPizza.size, false).toLocaleString('es-CL')}
                             </span>
                           )}
@@ -1611,7 +1611,7 @@ export default function PresentialSalesPage() {
                       (Calidad gourmet)
                     </span>
                   </div>
-                  <span className="text-xs font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2.5 py-1 rounded-full">
+                  <span className="text-sm sm:text-base font-extrabold text-amber-300 bg-amber-950/60 border border-amber-700/70 px-3.5 py-1 rounded-full shadow-sm">
                     +${getPreciosSegunTamano(customPizza.size).premium.toLocaleString('es-CL')} c/u
                   </span>
                 </div>
@@ -1675,7 +1675,7 @@ export default function PresentialSalesPage() {
                             {ing.nombre.toUpperCase()}
                           </span>
                           {ing.esPrecioEspecial && (
-                            <span className="text-[9px] text-amber-400 font-bold mt-0.5 leading-none">
+                            <span className="text-[10px] sm:text-[11px] text-amber-400 font-extrabold mt-0.5 leading-none">
                               +${getIngredientPrice(ing, customPizza.size, true).toLocaleString('es-CL')}
                             </span>
                           )}
@@ -1699,17 +1699,22 @@ export default function PresentialSalesPage() {
 
               {/* Agregar */}
               <div className="flex justify-between items-center border-t border-gray-800 pt-4">
-                <div className="text-lg font-bold text-white">
-                  Total Pizza: ${ (() => {
-                    let totalCustom = getPreciosSegunTamano(customPizza.size).baseCustom
-                    customPizza.simpleIngredients.forEach(i => { totalCustom += getIngredientPrice(i, customPizza.size, false) })
-                    customPizza.premiumIngredients.forEach(i => { totalCustom += getIngredientPrice(i, customPizza.size, true) })
-                    return totalCustom.toLocaleString('es-CL')
-                  })() }
+                <div className="flex items-baseline gap-2">
+                  <span className="text-base sm:text-lg font-bold text-gray-300">
+                    Total Pizza:
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black tracking-tight text-pink-500 drop-shadow-md">
+                    ${ (() => {
+                      let totalCustom = getPreciosSegunTamano(customPizza.size).baseCustom
+                      customPizza.simpleIngredients.forEach(i => { totalCustom += getIngredientPrice(i, customPizza.size, false) })
+                      customPizza.premiumIngredients.forEach(i => { totalCustom += getIngredientPrice(i, customPizza.size, true) })
+                      return totalCustom.toLocaleString('es-CL')
+                    })() }
+                  </span>
                 </div>
                 <Button 
                   onClick={handleAddCustomPizza}
-                  className="bg-pink-600 hover:bg-pink-700 text-white font-semibold"
+                  className="bg-pink-600 hover:bg-pink-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg shadow-pink-900/30 text-sm"
                 >
                   Agregar al Pedido
                 </Button>
@@ -1720,9 +1725,9 @@ export default function PresentialSalesPage() {
           {/* CATEGORÍA: PIZZAS DUO */}
           {activeCategory === 'duo' && (
             <div className="bg-gray-950 border border-gray-800 rounded-xl p-5 sm:p-6 space-y-6 w-full max-w-6xl mx-auto">
-              <div className="flex items-center justify-between border-b border-gray-800 pb-4">
-                <h3 className="text-lg font-bold text-white font-semibold">Armar Pizza Duo (Mitad y Mitad)</h3>
-                <div className="flex gap-2">
+              {/* Selector de tamaño centrado y espacioso */}
+              <div className="flex justify-center items-center border-b border-gray-800 pb-5">
+                <div className="flex justify-center gap-6 sm:gap-8 w-full max-w-md">
                   {(['mediana', 'familiar'] as const).map(sz => (
                     <Button
                       key={sz}
@@ -1737,13 +1742,13 @@ export default function PresentialSalesPage() {
                           pizza2Name: resetH2 ? '' : prev.pizza2Name 
                         };
                       })}
-                      className={`capitalize ${
+                      className={`flex-1 py-3 px-6 text-sm font-bold tracking-wider uppercase rounded-xl transition-all shadow-md ${
                         duoPizza.size === sz
-                          ? 'bg-pink-600 text-white font-semibold'
-                          : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800'
+                          ? 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-900/40 ring-2 ring-pink-500/50'
+                          : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800 hover:text-white'
                       }`}
                     >
-                      {sz}
+                      {sz.toUpperCase()}
                     </Button>
                   ))}
                 </div>
@@ -1853,7 +1858,7 @@ export default function PresentialSalesPage() {
                           <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
                             Ingredientes Simples
                           </span>
-                          <span className="text-[11px] font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2 py-0.5 rounded-full">
+                          <span className="text-sm sm:text-base font-extrabold text-pink-400 bg-pink-950/60 border border-pink-800/70 px-3 py-0.5 rounded-full shadow-sm">
                             +${getPreciosSegunTamano(duoPizza.size).simple.toLocaleString('es-CL')} c/u
                           </span>
                         </div>
@@ -1924,7 +1929,7 @@ export default function PresentialSalesPage() {
                           <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
                             Ingredientes Premium
                           </span>
-                          <span className="text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2 py-0.5 rounded-full">
+                          <span className="text-sm sm:text-base font-extrabold text-amber-300 bg-amber-950/60 border border-amber-700/70 px-3 py-0.5 rounded-full shadow-sm">
                             +${getPreciosSegunTamano(duoPizza.size).premium.toLocaleString('es-CL')} c/u
                           </span>
                         </div>
@@ -2094,7 +2099,7 @@ export default function PresentialSalesPage() {
                           <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
                             Ingredientes Simples
                           </span>
-                          <span className="text-[11px] font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2 py-0.5 rounded-full">
+                          <span className="text-sm sm:text-base font-extrabold text-pink-400 bg-pink-950/60 border border-pink-800/70 px-3 py-0.5 rounded-full shadow-sm">
                             +${getPreciosSegunTamano(duoPizza.size).simple.toLocaleString('es-CL')} c/u
                           </span>
                         </div>
@@ -2165,7 +2170,7 @@ export default function PresentialSalesPage() {
                           <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">
                             Ingredientes Premium
                           </span>
-                          <span className="text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2 py-0.5 rounded-full">
+                          <span className="text-sm sm:text-base font-extrabold text-amber-300 bg-amber-950/60 border border-amber-700/70 px-3 py-0.5 rounded-full shadow-sm">
                             +${getPreciosSegunTamano(duoPizza.size).premium.toLocaleString('es-CL')} c/u
                           </span>
                         </div>
@@ -2272,7 +2277,7 @@ export default function PresentialSalesPage() {
                         <span className="text-xs font-bold text-gray-300 uppercase tracking-wider">
                           Extras Simples
                         </span>
-                        <span className="text-[11px] font-bold text-pink-400 bg-pink-950/40 border border-pink-900/50 px-2.5 py-0.5 rounded-full">
+                        <span className="text-sm sm:text-base font-extrabold text-pink-400 bg-pink-950/60 border border-pink-800/70 px-3 py-0.5 rounded-full shadow-sm">
                           +${getPreciosSegunTamano(duoPizza.size).simple.toLocaleString('es-CL')} c/u
                         </span>
                       </div>
@@ -2349,7 +2354,7 @@ export default function PresentialSalesPage() {
                             (Calidad gourmet)
                           </span>
                         </div>
-                        <span className="text-[11px] font-bold text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2.5 py-0.5 rounded-full">
+                        <span className="text-sm sm:text-base font-extrabold text-amber-300 bg-amber-950/60 border border-amber-700/70 px-3 py-0.5 rounded-full shadow-sm">
                           +${getPreciosSegunTamano(duoPizza.size).premium.toLocaleString('es-CL')} c/u
                         </span>
                       </div>
@@ -2463,13 +2468,18 @@ export default function PresentialSalesPage() {
 
               {/* Agregar */}
               <div className="flex justify-between items-center border-t border-gray-800 pt-4">
-                <div className="text-lg font-bold text-white">
-                  Total Pizza Duo: ${calculatedDuoPrice.toLocaleString('es-CL')}
+                <div className="flex items-baseline gap-2">
+                  <span className="text-base sm:text-lg font-bold text-gray-300">
+                    Total Pizza Duo:
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black tracking-tight text-pink-500 drop-shadow-md">
+                    ${calculatedDuoPrice.toLocaleString('es-CL')}
+                  </span>
                 </div>
                 <Button
                   onClick={handleAddDuoPizza}
                   disabled={!isDuoValid}
-                  className="bg-pink-600 hover:bg-pink-700 text-white font-semibold"
+                  className="bg-pink-600 hover:bg-pink-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg shadow-pink-900/30 text-sm"
                 >
                   Agregar al Pedido
                 </Button>

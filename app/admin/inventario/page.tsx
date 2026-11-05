@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import type React from "react"
 
@@ -1174,7 +1174,7 @@ export default function AdminInventario() {
                       />
                     </div>
                     <div className="flex-1 space-y-2">
-                      <Label htmlFor="gauchitosDisponible">Gauchitos</Label>
+                      <Label htmlFor="gauchitosDisponible">Gauchitos / Gauchitos x24</Label>
                       <div className="h-10 px-3 border rounded-md flex items-center justify-between">
                         <span className={`text-sm font-medium ${gauchitosDisponible ? 'text-green-600' : 'text-red-600'}`}>
                           {gauchitosDisponible ? 'Disponible' : 'Sin Stock'}

@@ -1,4 +1,4 @@
-"use client"
+﻿"use client"
 
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
@@ -13,7 +13,7 @@ import { isItemAvailable } from '../../lib/recipes'
 import { db } from "@/lib/firebase"
 import { collection, onSnapshot, doc } from "firebase/firestore"
 import { listenIngredientes } from "@/lib/inventory"
-import { getAgregadosConfig } from "@/lib/agregados-config"
+import { getAgregadosConfig, subscribeAgregadosConfig } from "@/lib/agregados-config"
 
 // Mapeo de nombres de productos a archivos de imagen conocidos (normalizados sin acentos)
 const imageMap: Record<string, string> = {
@@ -58,6 +58,7 @@ const imageMap: Record<string, string> = {
   'salsa bbq': 'salsa_bbq',
   'salsa pesto': 'salsa_pesto',
   'gauchitos': 'gauchitos',
+  'gauchitos x24': 'gauchitos_x24',
   'rollitos de canela': 'canela',
   'canela': 'canela'
 }
@@ -242,9 +243,12 @@ export default function PromoSection() {
       setIngredients(items)
     })
 
-    getAgregadosConfig().then(setAgregadosConfig).catch(console.error)
+    const unsubAgregados = subscribeAgregadosConfig((config) => {
+      setAgregadosConfig(config)
+    })
 
     return () => {
+      if (typeof unsubAgregados === 'function') unsubAgregados()
       unsubConfig()
       unsubPromos()
       unsubIng()
@@ -760,12 +764,15 @@ export default function PromoSection() {
             const recipe = (item.receta) ? item.receta : undefined
             const avail = recipe ? isItemAvailable(recipe, ingredientsById, 1) : { available: true }
             const disabled = !avail.available
+            const isItemGauchito = (item.name || '').toLowerCase().includes('gauchito')
+            const isGauchitoDisabled = isItemGauchito && agregadosConfig && !agregadosConfig.gauchitosDisponible
+            const finalDisabled = disabled || isGauchitoDisabled
 
             return (
             <Card 
               key={item.id}
               data-product-id={item.id}
-              className={`card-enhanced overflow-hidden group ${disabled ? 'opacity-60 grayscale' : ''}`}
+              className={`card-enhanced overflow-hidden group ${finalDisabled ? "opacity-60 grayscale" : ""}`}
             >
               <CardContent className="p-0">
                 <div className="flex flex-col h-full">
@@ -925,7 +932,7 @@ export default function PromoSection() {
                                 </span>
                               )}
                             </div>
-                            {disabled ? (
+                            {finalDisabled ? (
                               <div className="text-sm text-gray-500 font-semibold">No disponible</div>
                             ) : (
                               <Button
@@ -969,7 +976,7 @@ export default function PromoSection() {
                             )}
                           </>
                         ) : (
-                          disabled ? (
+                          finalDisabled ? (
                             <div className="text-sm text-gray-500 font-semibold ml-auto">No disponible</div>
                           ) : (
                             <Button
