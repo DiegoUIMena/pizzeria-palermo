@@ -2995,4 +2995,161 @@ export const enviarLiquidacionRepartidorEmail = onCall({ cors: true }, async (re
   }
 });
 
+/**
+ * Cloud Function para crear un nuevo usuario administrador (solo admin)
+ */
+export const crearUsuarioAdmin = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden crear nuevos administradores.");
+
+  const { email, password, name } = request.data || {};
+  if (!email || typeof email !== "string" || !email.includes("@")) {
+    throw new HttpsError("invalid-argument", "Debes ingresar un correo electrónico válido.");
+  }
+  if (!password || typeof password !== "string" || password.length < 6) {
+    throw new HttpsError("invalid-argument", "La contraseña debe tener al menos 6 caracteres.");
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = (name && typeof name === "string" && name.trim()) ? name.trim() : "Administrador";
+
+  try {
+    let targetUid: string;
+    let isExisting = false;
+
+    // 1. Verificar si el usuario ya existe en Firebase Auth
+    try {
+      const existingUser = await admin.auth().getUserByEmail(cleanEmail);
+      targetUid = existingUser.uid;
+      isExisting = true;
+      // Actualizar contraseña y nombre si ya existía
+      await admin.auth().updateUser(targetUid, {
+        password: password,
+        displayName: cleanName,
+      });
+    } catch (notFoundError: any) {
+      if (notFoundError.code === "auth/user-not-found") {
+        // Crear usuario nuevo
+        const newUser = await admin.auth().createUser({
+          email: cleanEmail,
+          password: password,
+          displayName: cleanName,
+        });
+        targetUid = newUser.uid;
+      } else {
+        throw notFoundError;
+      }
+    }
+
+    // 2. Asignar Custom Claim de administrador
+    await admin.auth().setCustomUserClaims(targetUid, { role: "admin" });
+
+    // 3. Crear o actualizar documento en Firestore
+    await admin.firestore().collection("users").doc(targetUid).set({
+      id: targetUid,
+      email: cleanEmail,
+      name: cleanName,
+      role: "admin",
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    return {
+      success: true,
+      isExisting,
+      user: {
+        id: targetUid,
+        email: cleanEmail,
+        name: cleanName,
+        role: "admin",
+      },
+    };
+  } catch (error: any) {
+    logger.error("Error al crear usuario administrador:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al crear el usuario administrador.");
+  }
+});
+
+/**
+ * Cloud Function para listar todos los administradores (solo admin)
+ */
+export const listarUsuariosAdmin = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden ver la lista.");
+
+  try {
+    const snapshot = await admin.firestore().collection("users").where("role", "==", "admin").get();
+    const admins = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        email: data.email || "",
+        name: data.name || "Administrador",
+        role: "admin",
+        createdAt: data.createdAt ? data.createdAt.toDate().toISOString() : null,
+      };
+    });
+
+    return { admins };
+  } catch (error: any) {
+    logger.error("Error al listar usuarios administradores:", error);
+    throw new HttpsError("internal", error.message || "Error al obtener administradores.");
+  }
+});
+
+/**
+ * Cloud Function para eliminar un usuario administrador (solo admin)
+ */
+export const eliminarUsuarioAdmin = onCall({ cors: true }, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Debes iniciar sesión.");
+  }
+  await verifyAdminAccess(request.auth.uid, "Solo los administradores pueden eliminar cuentas.");
+
+  const { targetUid } = request.data || {};
+  if (!targetUid || typeof targetUid !== "string") {
+    throw new HttpsError("invalid-argument", "UID de usuario inválido.");
+  }
+
+  // Comprobación de seguridad: No permitir que el admin se elimine a sí mismo
+  if (request.auth.uid === targetUid) {
+    throw new HttpsError("failed-precondition", "No puedes eliminar tu propia cuenta de administrador en uso.");
+  }
+
+  // Comprobación de seguridad: No permitir eliminar si queda solo 1 administrador
+  const snapshot = await admin.firestore().collection("users").where("role", "==", "admin").get();
+  if (snapshot.size <= 1) {
+    throw new HttpsError("failed-precondition", "No es posible eliminar al único administrador del sistema.");
+  }
+
+  try {
+    // 1. Eliminar de Firebase Auth (si existe)
+    try {
+      await admin.auth().deleteUser(targetUid);
+    } catch (authError: any) {
+      if (authError.code !== "auth/user-not-found") {
+        logger.warn("Aviso al eliminar de Auth:", authError);
+      }
+    }
+
+    // 2. Eliminar de Firestore
+    await admin.firestore().collection("users").doc(targetUid).delete();
+
+    return { success: true };
+  } catch (error: any) {
+    logger.error("Error al eliminar usuario administrador:", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", error.message || "Error al eliminar el administrador.");
+  }
+});
+
+
 

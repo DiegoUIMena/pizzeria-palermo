@@ -97,6 +97,25 @@ const toDate = (v?: any): Date | null => {
 
 const currencyRound = (v: number) => Math.round(v)
 
+// Validar si una orden está efectivamente pagada (excluye cancelados, rechazados, fallidos y pendientes)
+export const isOrderPaid = (o: Order): boolean => {
+  // 1. Excluir pedidos cancelados y pagos rechazados
+  if (o.estado === "Cancelado" || o.estado === "Pago Rechazado") return false
+  if ((o as any).paymentStatus === "cancelled" || (o as any).paymentStatus === "failed" || (o as any).paymentStatus === "refunded") return false
+  if (o.webpay?.status === "rejected") return false
+
+  // 2. Excluir pedidos pendientes de pago
+  if (o.paymentStatus === "pending" || o.estado === "Pago Pendiente" || o.metodoPago === "Por Pagar") return false
+
+  // 3. Pagado confirmado
+  if (o.paymentStatus === "paid") return true
+
+  // 4. Pedidos presenciales o efectivo ya entregados
+  if (o.estado === "Entregado") return true
+
+  return false
+}
+
 export function useAdminReports(): UseAdminReportsReturn {
   const [orders, setOrders] = useState<Order[]>([])
   const [inventory, setInventory] = useState<InventoryItem[]>([])
@@ -155,6 +174,7 @@ export function useAdminReports(): UseAdminReportsReturn {
         break
     }
     return orders.filter(o => {
+      if (!isOrderPaid(o)) return false
       const d = toDate(o.timestamps?.created)
       return d && d >= start && d <= now
     })
@@ -176,6 +196,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     // Map de primer pedido por usuario
     const firstOrderDate: Record<string, Date> = {}
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const created = toDate(o.timestamps?.created)
       if (!created) return
       if (!firstOrderDate[o.userId] || firstOrderDate[o.userId] > created) {
@@ -184,6 +205,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     })
 
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const created = toDate(o.timestamps?.created)
       if (!created) return
       const delivered = toDate(o.timestamps?.delivered)
@@ -239,6 +261,7 @@ export function useAdminReports(): UseAdminReportsReturn {
       const start = new Date(y, m, 1)
       const end = new Date(y, m + 1, 0, 23, 59, 59, 999)
       filtered = orders.filter(o => {
+        if (!isOrderPaid(o)) return false
         const d = toDate(o.timestamps?.created)
         return d ? d >= start && d <= end : false
       })
@@ -247,6 +270,7 @@ export function useAdminReports(): UseAdminReportsReturn {
       const start = new Date(y, 0, 1)
       const end = new Date(y, 11, 31, 23, 59, 59, 999)
       filtered = orders.filter(o => {
+        if (!isOrderPaid(o)) return false
         const d = toDate(o.timestamps?.created)
         return d ? d >= start && d <= end : false
       })
@@ -451,6 +475,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     const { startCurrent, startPrev, endPrev, now } = getPeriodBounds(periodo)
     let ventasCurr=0, ventasPrev=0, pedidosCurr=0, pedidosPrev=0
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const created = toDate(o.timestamps?.created)
       if (!created) return
       if (created >= startCurrent && created <= now) {
@@ -495,6 +520,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     const { startCurrent, startPrev, endPrev, now } = getPeriodBounds(periodo)
     const firstOrderDate: Record<string, Date> = {}
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const created = toDate(o.timestamps?.created)
       if (!created) return
       if (!firstOrderDate[o.userId] || firstOrderDate[o.userId] > created) firstOrderDate[o.userId] = created
@@ -504,6 +530,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     let ventasCurr = 0, ventasPrev = 0
     const returningCurr = new Set<string>()
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const created = toDate(o.timestamps?.created)
       if (!created) return
       if (created >= startCurrent && created <= now) {
@@ -536,6 +563,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     const { startCurrent, now } = getPeriodBounds(periodo)
     const pedidosPorCliente: Record<string, { pedidos: number; total: number }> = {}
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const created = toDate(o.timestamps?.created)
       if (!created) return
       if (created >= startCurrent && created <= now) {
@@ -585,6 +613,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     // Map first order date per user
     const firstOrder: Record<string, Date> = {}
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const d = toDate(o.timestamps?.created)
       if (!d) return
       if (!firstOrder[o.userId] || firstOrder[o.userId] > d) firstOrder[o.userId] = d
@@ -592,6 +621,7 @@ export function useAdminReports(): UseAdminReportsReturn {
     const byMonth: Record<string, { nuevos: Set<string>; activos: Set<string> }> = {}
     months.forEach(m => { byMonth[m] = { nuevos: new Set(), activos: new Set() } })
     orders.forEach(o => {
+      if (!isOrderPaid(o)) return
       const d = toDate(o.timestamps?.created)
       if (!d) return
       const label = format(d, 'MMM', { locale: es })

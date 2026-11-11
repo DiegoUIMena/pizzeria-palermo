@@ -9,7 +9,8 @@ import {
   Dialog,
   DialogContent,
   DialogHeader,
-  DialogTitle
+  DialogTitle,
+  DialogDescription
 } from "@/components/ui/dialog"
 
 import {
@@ -127,7 +128,7 @@ interface Pedido {
 
 const formatCurrency = (value: number) => `$${Math.round(value).toLocaleString('es-CL')}`
 
-export function esPedidoPresencial(pedido: Pedido | null | undefined): boolean {
+function esPedidoPresencial(pedido: Pedido | null | undefined): boolean {
   if (!pedido) return false
   if (pedido.source === "IN_PERSON") return true
   if (pedido.orderChannel === "POS") return true
@@ -235,6 +236,10 @@ export default function AdminPedidos() {
   // Estado para repartidores y envío de WhatsApp
   const [repartidores, setRepartidores] = useState<DeliveryDriverContact[]>([])
   const [enviandoWhatsAppId, setEnviandoWhatsAppId] = useState<string | null>(null)
+
+  // Estado para confirmación de cancelación de pedido
+  const [pedidoACancelar, setPedidoACancelar] = useState<Pedido | null>(null)
+  const [cancelandoPedido, setCancelandoPedido] = useState(false)
 
   const cargarRepartidores = useCallback(async () => {
     try {
@@ -449,6 +454,29 @@ export default function AdminPedidos() {
       });
     }
   }
+
+  // Confirmar cancelación de pedido
+  const handleConfirmarCancelacion = async () => {
+    if (!pedidoACancelar) return;
+    setCancelandoPedido(true);
+    try {
+      await actualizarEstado(pedidoACancelar.documentId, "Cancelado");
+      toast({
+        title: "Pedido cancelado",
+        description: `El pedido ${pedidoACancelar.id.startsWith('#') ? pedidoACancelar.id : `#${pedidoACancelar.id}`} ha sido cancelado.`,
+      });
+      setPedidoACancelar(null);
+    } catch (error: any) {
+      console.error("Error al cancelar pedido:", error);
+      toast({
+        title: "Error al cancelar",
+        description: error?.message || "No se pudo cancelar el pedido.",
+        variant: "destructive"
+      });
+    } finally {
+      setCancelandoPedido(false);
+    }
+  };
 
   // Funciones auxiliares
   const getStatusIcon = (status: string) => {
@@ -1107,7 +1135,19 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
         </div>
         <div className="grid gap-6">
           {pedidosFiltrados.map(pedido => (
-            <Card key={pedido.documentId} className={`hover:shadow-md transition-shadow ${pedidosNuevosSinAtender.has(pedido.documentId) ? 'border-2 border-red-500 animate-pulse' : ''}`}>
+            <Card key={pedido.documentId} className={`relative hover:shadow-md transition-shadow ${pedidosNuevosSinAtender.has(pedido.documentId) ? 'border-2 border-red-500 animate-pulse' : ''}`}>
+              {/* Botón de cancelar ubicado en el extremo superior derecho del contenedor */}
+              {pedido.estado !== "Entregado" && pedido.estado !== "Cancelado" && (
+                <button
+                  type="button"
+                  title="Cancelar pedido"
+                  onClick={() => setPedidoACancelar(pedido)}
+                  disabled={botonesEnProceso.has(pedido.documentId)}
+                  className="absolute top-2.5 right-2.5 z-20 w-7 h-7 rounded-full bg-red-50 hover:bg-red-600 text-red-600 hover:text-white dark:bg-red-950/40 dark:hover:bg-red-600 dark:text-red-400 dark:hover:text-white flex items-center justify-center transition-all border border-red-200 dark:border-red-800/80 shadow-xs disabled:opacity-50"
+                >
+                  <span className="text-lg font-bold leading-none select-none">×</span>
+                </button>
+              )}
               <CardHeader className="pb-2">
                 <div className="grid grid-cols-1 md:grid-cols-3 items-center gap-3">
                   {/* Columna 1 Header: Estado e información de fecha/pago */}
@@ -1286,7 +1326,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                   </div>
 
                   {/* Columna 3 Header: Acción Aceptar (solo si está pendiente) */}
-                  <div className="flex justify-start md:justify-end items-center gap-2">
+                  <div className="flex justify-start md:justify-end items-center gap-2 pr-8 md:pr-10">
                     {pedido.estado === "Pendiente" && (
                       <Button 
                         disabled={botonesEnProceso.has(pedido.documentId)}
@@ -1694,16 +1734,6 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                           💳 Reembolsar
                         </Button>
                       )}
-                      
-                      {/* Botón de cancelar simplificado */}
-                      {pedido.estado !== "Entregado" && pedido.estado !== "Cancelado" && (
-                        <Button size="sm" variant="outline" 
-                          disabled={botonesEnProceso.has(pedido.documentId)}
-                          className="bg-red-600 text-white hover:bg-red-700" 
-                          onClick={async () => await actualizarEstado(pedido.documentId, "Cancelado")}>
-                          <span className="text-lg font-bold">×</span>
-                        </Button>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -1993,6 +2023,48 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
             >
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Confirmar Impresión
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de confirmación para cancelar pedido */}
+      <Dialog 
+        open={!!pedidoACancelar} 
+        onOpenChange={(open) => {
+          if (!open && !cancelandoPedido) setPedidoACancelar(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600 dark:text-red-400">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              ¿Cancelar pedido {pedidoACancelar?.id.startsWith('#') ? pedidoACancelar?.id : `#${pedidoACancelar?.id}`}?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600 dark:text-gray-300 pt-2">
+              ¿Estás seguro de que deseas cancelar este pedido de{" "}
+              <strong className="text-gray-900 dark:text-white">
+                {pedidoACancelar?.cliente?.nombre || "Cliente"}
+              </strong>
+              ? El pedido pasará a estado <strong>Cancelado</strong> y no se sumará a los totales en los reportes de ventas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-3 mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={cancelandoPedido}
+              onClick={() => setPedidoACancelar(null)}
+            >
+              Volver
+            </Button>
+            <Button
+              type="button"
+              disabled={cancelandoPedido}
+              onClick={handleConfirmarCancelacion}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold"
+            >
+              {cancelandoPedido ? "Cancelando..." : "Sí, cancelar pedido"}
             </Button>
           </div>
         </DialogContent>

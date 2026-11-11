@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react"
 import {
   type User as FirebaseUser,
   signInWithEmailAndPassword,
@@ -10,6 +10,9 @@ import {
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
 } from "firebase/auth"
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
@@ -53,6 +56,7 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>
+  loginAdmin: (email: string, password: string) => Promise<void>
   register: (userData: RegisterData) => Promise<{ uid: string; email: string; name: string; phone: string; password: string }>
   loginWithGoogle: () => Promise<void>
   logout: () => Promise<void>
@@ -69,14 +73,90 @@ interface RegisterData {
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+const ADMIN_TAB_SESSION_KEY = "palermo_admin_tab_session_active"
+const ADMIN_TAB_LAST_UNLOAD_KEY = "palermo_admin_tab_last_unload"
+
+function getNavigationType(): string | null {
+  if (typeof window === "undefined" || typeof performance === "undefined") return null
+  const entries = performance.getEntriesByType?.("navigation") as PerformanceNavigationTiming[] | undefined
+  return entries && entries.length > 0 ? entries[0].type : null
+}
+
+function markAdminTabSessionActive(): void {
+  if (typeof window === "undefined") return
+  try {
+    sessionStorage.setItem(ADMIN_TAB_SESSION_KEY, "1")
+    sessionStorage.removeItem(ADMIN_TAB_LAST_UNLOAD_KEY)
+  } catch {
+    // Ignorar errores de almacenamiento
+  }
+}
+
+function clearAdminTabSession(): void {
+  if (typeof window === "undefined") return
+  try {
+    sessionStorage.removeItem(ADMIN_TAB_SESSION_KEY)
+    sessionStorage.removeItem(ADMIN_TAB_LAST_UNLOAD_KEY)
+  } catch {
+    // Ignorar errores de almacenamiento
+  }
+}
+
+function hasValidAdminTabSession(): boolean {
+  if (typeof window === "undefined") return true
+  try {
+    const isActive = sessionStorage.getItem(ADMIN_TAB_SESSION_KEY) === "1"
+    if (!isActive) return false
+
+    const lastUnload = sessionStorage.getItem(ADMIN_TAB_LAST_UNLOAD_KEY)
+    if (lastUnload) {
+      const navType = getNavigationType()
+      if (navType !== "reload") {
+        // La pestaña fue cerrada/restaurada o navegada externamente, no recargada con F5
+        return false
+      }
+      sessionStorage.removeItem(ADMIN_TAB_LAST_UNLOAD_KEY)
+    }
+
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { initialized } = useFirebase();
+  const interactiveLoginRef = useRef(false);
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     firebaseUser: null,
     isAuthenticated: false,
     isLoading: true,
   })
+
+  // Registrar descarga/cierre de pestaña mientras haya una sesión de administrador/staff activa
+  useEffect(() => {
+    const isAdminOrStaff =
+      authState.isAuthenticated &&
+      (authState.user?.role === "admin" || authState.user?.role === "staff");
+
+    if (!isAdminOrStaff) return;
+
+    const handlePageUnload = () => {
+      try {
+        sessionStorage.setItem(ADMIN_TAB_LAST_UNLOAD_KEY, String(Date.now()));
+      } catch {
+        // Ignorar errores de almacenamiento al cerrar
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageUnload);
+    window.addEventListener("beforeunload", handlePageUnload);
+    return () => {
+      window.removeEventListener("pagehide", handlePageUnload);
+      window.removeEventListener("beforeunload", handlePageUnload);
+    };
+  }, [authState.isAuthenticated, authState.user?.role]);
 
   // Escuchar cambios en el estado de autenticación
   useEffect(() => {
@@ -101,18 +181,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const userRef = doc(db, "users", firebaseUser.uid);
           const userDoc = await getDoc(userRef);
 
-          if (userDoc.exists()) {
-            const userData = userDoc.data() as User;
-            const firestoreRole = (userData.role || "customer") as "customer" | "admin" | "staff";
-            const effectiveRole =
-              (roleFromClaim === "admin" || roleFromClaim === "staff")
-                ? (roleFromClaim as "admin" | "staff")
-                : firestoreRole;
-            
+          const existingData = userDoc.exists() ? (userDoc.data() as User) : null;
+          const firestoreRole = (existingData?.role || "customer") as "customer" | "admin" | "staff";
+          const effectiveRole =
+            (roleFromClaim === "admin" || roleFromClaim === "staff")
+              ? (roleFromClaim as "admin" | "staff")
+              : firestoreRole;
+
+          const isAdminOrStaff = effectiveRole === "admin" || effectiveRole === "staff";
+          const isInteractive = interactiveLoginRef.current;
+          interactiveLoginRef.current = false;
+
+          // Si el usuario tiene rol admin/staff pero cerró la pestaña/sistema sin cerrar sesión,
+          // cerrar sesión automáticamente y exigir credenciales al volver a ingresar.
+          if (isAdminOrStaff && !isInteractive && !hasValidAdminTabSession()) {
+            console.log("[AuthContext] Sesión de administrador expirada tras cerrar el sistema; cerrando sesión automáticamente.");
+            clearAdminTabSession();
+            await signOut(auth);
+            setAuthState({
+              user: null,
+              firebaseUser: null,
+              isAuthenticated: false,
+              isLoading: false,
+            });
+            return;
+          }
+
+          if (!isAdminOrStaff) {
+            clearAdminTabSession();
+          }
+
+          if (existingData) {
             // Preferir claim cuando existe admin/staff; si no, usar Firestore como fallback.
             setAuthState({
               user: {
-                ...userData,
+                ...existingData,
                 id: firebaseUser.uid,
                 role: effectiveRole,
               },
@@ -196,10 +299,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [initialized]);
 
   const login = async (email: string, password: string) => {
+    interactiveLoginRef.current = true
+    markAdminTabSessionActive()
     try {
+      await setPersistence(auth, browserLocalPersistence)
       await signInWithEmailAndPassword(auth, email, password)
       // El estado se actualizará automáticamente por onAuthStateChanged
     } catch (error: any) {
+      interactiveLoginRef.current = false
+      clearAdminTabSession()
       console.error("Error al iniciar sesión:", {
         code: error?.code,
         message: error?.message,
@@ -209,12 +317,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const loginWithGoogle = async () => {
+  const loginAdmin = async (email: string, password: string) => {
+    interactiveLoginRef.current = true
+    markAdminTabSessionActive()
     try {
+      // Usar persistencia de sesión (sessionStorage) para que al cerrar pestaña/navegador
+      // la sesión de administrador se cierre automáticamente sin quedar guardada en IndexedDB.
+      await setPersistence(auth, browserSessionPersistence)
+      await signInWithEmailAndPassword(auth, email, password)
+    } catch (error: any) {
+      interactiveLoginRef.current = false
+      clearAdminTabSession()
+      console.error("Error al iniciar sesión de administrador:", {
+        code: error?.code,
+        message: error?.message,
+        projectId: auth.app.options.projectId,
+      })
+      throw new Error(getErrorMessage(error.code))
+    }
+  }
+
+  const loginWithGoogle = async () => {
+    interactiveLoginRef.current = true
+    markAdminTabSessionActive()
+    try {
+      await setPersistence(auth, browserLocalPersistence)
       const provider = new GoogleAuthProvider()
       provider.setCustomParameters({ prompt: "select_account" })
       await signInWithPopup(auth, provider)
     } catch (error: any) {
+      interactiveLoginRef.current = false
+      clearAdminTabSession()
       console.error("Error al iniciar sesión con Google:", error)
       throw new Error(getErrorMessage(error.code))
     }
@@ -222,6 +355,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const register = async (userData: RegisterData) => {
     try {
+      await setPersistence(auth, browserLocalPersistence)
       // Crear usuario en Firebase Auth
       const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.password)
 
@@ -286,6 +420,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      interactiveLoginRef.current = false
+      clearAdminTabSession()
       await signOut(auth)
       // El estado se actualizará automáticamente por onAuthStateChanged
     } catch (error) {
@@ -320,6 +456,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         ...authState,
         login,
+        loginAdmin,
         register,
         loginWithGoogle,
         logout,

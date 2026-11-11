@@ -115,6 +115,42 @@ const config: Config = {
   				to: {
   					opacity: '0'
   				}
+  			},
+  			'dialog-overlay-in': {
+  				from: {
+  					opacity: '0'
+  				},
+  				to: {
+  					opacity: '1'
+  				}
+  			},
+  			'dialog-overlay-out': {
+  				from: {
+  					opacity: '1'
+  				},
+  				to: {
+  					opacity: '0'
+  				}
+  			},
+  			'dialog-in': {
+  				from: {
+  					opacity: '0',
+  					transform: 'translate(-50%, -50%) scale(0.96)'
+  				},
+  				to: {
+  					opacity: '1',
+  					transform: 'translate(-50%, -50%) scale(1)'
+  				}
+  			},
+  			'dialog-out': {
+  				from: {
+  					opacity: '1',
+  					transform: 'translate(-50%, -50%) scale(1)'
+  				},
+  				to: {
+  					opacity: '0',
+  					transform: 'translate(-50%, -50%) scale(0.96)'
+  				}
   			}
   		},
   		animation: {
@@ -123,7 +159,11 @@ const config: Config = {
   			'slide-in-from-right': 'slide-in-from-right 0.3s ease-in-out',
   			'slide-out-to-right': 'slide-out-to-right 0.3s ease-in-out',
   			'fade-in': 'fade-in 0.3s ease-in-out',
-  			'fade-out': 'fade-out 0.3s ease-in-out'
+  			'fade-out': 'fade-out 0.3s ease-in-out',
+  			'dialog-overlay-in': 'dialog-overlay-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+  			'dialog-overlay-out': 'dialog-overlay-out 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+  			'dialog-in': 'dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+  			'dialog-out': 'dialog-out 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards'
   		}
   	}
   },

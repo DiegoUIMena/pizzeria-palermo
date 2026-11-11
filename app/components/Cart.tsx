@@ -1,4 +1,4 @@
-﻿"use client"
+"use client"
 
 import { useState, useEffect, useCallback } from "react"
 import { createPortal } from "react-dom"
@@ -1453,7 +1453,7 @@ const Cart = ({ onClose }: CartProps) => {
   // Vista de confirmación tiene prioridad sobre otras vistas
   if (currentView === "confirmation") {
     return (
-      <div className="h-full flex flex-col bg-white overflow-y-auto">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white overflow-y-auto">
         <div className="flex-1 p-6 text-center">
           {/* Icono de confirmación grande y animado */}
           <div className="flex justify-center mb-6">
@@ -1522,8 +1522,35 @@ const Cart = ({ onClose }: CartProps) => {
   // Si no estamos en la vista de confirmación y el carrito está vacío
   if (items.length === 0) {
     return (
-      <div className="text-center p-4">
-        <p className="text-gray-500">Tu carrito está vacío</p>
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white">
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between flex-shrink-0">
+          <h2 className="text-xl font-bold text-gray-800">Tu Carrito</h2>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4">
+          <div className="w-20 h-20 bg-pink-50 rounded-full flex items-center justify-center shadow-inner">
+            <Image
+              src="/iconos/header/carro.svg"
+              alt="Carrito vacío"
+              width={46}
+              height={46}
+              className="opacity-40"
+            />
+          </div>
+          <div>
+            <p className="text-lg font-bold text-gray-800">Tu carrito está vacío</p>
+            <p className="text-sm text-gray-500 mt-1 max-w-xs">
+              Agrega tus pizzas y acompañamientos favoritos para comenzar tu pedido.
+            </p>
+          </div>
+          {onClose && (
+            <Button
+              onClick={onClose}
+              className="bg-pink-600 hover:bg-pink-700 text-white font-bold px-6 py-2 rounded-lg shadow-md transition-all active:scale-95"
+            >
+              Ver Menú
+            </Button>
+          )}
+        </div>
       </div>
     )
   }
@@ -1531,8 +1558,8 @@ const Cart = ({ onClose }: CartProps) => {
   // Vista de dirección
   if (currentView === "address") {
     return (
-      <div className="h-full flex flex-col bg-white">
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white">
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex items-center">
             <Button variant="ghost" size="icon" onClick={goBack} className="mr-2 hover:bg-gray-200">
               <ArrowLeft className="h-4 w-4" />
@@ -1702,8 +1729,8 @@ const Cart = ({ onClose }: CartProps) => {
   // Vista de registro de teléfono (para evitar problemas de Focus Trap de Radix UI en el modal)
   if (currentView === "phone-registration") {
     return (
-      <div className="h-full flex flex-col bg-white text-gray-900">
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white text-gray-900">
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex items-center">
             <Button variant="ghost" size="icon" onClick={() => setCurrentView("payment")} className="mr-2 hover:bg-gray-200 text-gray-700">
               <ArrowLeft className="h-4 w-4" />
@@ -1760,8 +1787,8 @@ const Cart = ({ onClose }: CartProps) => {
   // Vista de pago
   if (currentView === "payment") {
     return (
-      <div className="h-full flex flex-col bg-white">
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white">
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex items-center">
             <Button variant="ghost" size="icon" onClick={goBack} className="mr-2 hover:bg-gray-200">
               <ArrowLeft className="h-4 w-4" />
@@ -2098,8 +2125,8 @@ const Cart = ({ onClose }: CartProps) => {
 
   return (
     <>
-      <div className="h-full flex flex-col bg-white">
-        <div className="p-4 border-b border-gray-200 bg-gray-50">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white">
+        <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <h2 className="text-xl font-bold text-gray-800">Tu Carrito ({items.length})</h2>
         </div>
 
@@ -2152,8 +2179,9 @@ const Cart = ({ onClose }: CartProps) => {
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-2 sm:space-y-4">
-          {items.map((item) => {
+        <div className="flex-1 overflow-y-auto min-h-0 p-2 sm:p-4 space-y-3 sm:space-y-4">
+          <div className="space-y-2 sm:space-y-4">
+            {items.map((item) => {
             // Solo agrupar items que fueron creados desde botones de variantes (tienen propiedad 'variant')
             const isVariantItem = item.variant === "Tradicional" || item.variant === "Zero"
             const isLipton = item.name?.toLowerCase().includes("lipton") || false
@@ -2575,7 +2603,7 @@ const Cart = ({ onClose }: CartProps) => {
               </div>
             )
           })}
-        </div>
+          </div>
 
         {/* Secciones de Upselling */}
         {/* Funciones auxiliares para detectar categorías en el carrito */}
@@ -2881,8 +2909,9 @@ const Cart = ({ onClose }: CartProps) => {
             </div>
           )
         })()}
+        </div>
 
-        <div className="p-2 sm:p-4 border-t border-gray-200 space-y-2 sm:space-y-4 bg-gray-50">
+        <div className="p-2 sm:p-4 border-t border-gray-200 space-y-2 sm:space-y-4 bg-gray-50 flex-shrink-0">
           {/* Resumen de totales */}
           <div className="space-y-1 sm:space-y-2">
             <div className="flex justify-between text-xs sm:text-sm text-gray-700">

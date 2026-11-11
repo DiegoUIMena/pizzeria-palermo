@@ -1451,9 +1451,11 @@ export default function PresentialSalesPage() {
                         )}
                       </div>
                     </div>
-                    <CardContent className="p-3">
-                      <h3 className="font-bold text-white text-base mb-1">{pizza.nombre}</h3>
-                      <p className="text-xs text-gray-400 line-clamp-2">{pizza.descripcion || 'Sin descripción'}</p>
+                    <CardContent className="p-3.5">
+                      <h3 className="font-bold text-white text-base sm:text-lg mb-1">{pizza.nombre}</h3>
+                      <p className="text-sm sm:text-[15px] text-gray-200 leading-snug line-clamp-3 font-normal">
+                        {pizza.descripcion || 'Sin descripción'}
+                      </p>
                     </CardContent>
                   </Card>
                 )
@@ -2894,45 +2896,53 @@ export default function PresentialSalesPage() {
         open={!!selectedPizzaForConfig} 
         onOpenChange={(open) => !open && setSelectedPizzaForConfig(null)}
       >
-        <DialogContent className="bg-gray-950 border border-gray-800 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="text-lg font-bold">
-              Configurar Pizza {selectedPizzaForConfig?.nombre}
+        <DialogContent className="bg-gray-950 border border-gray-800 text-white max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="border-b border-gray-800 pb-3">
+            <DialogTitle className="text-lg sm:text-xl font-bold uppercase tracking-wide text-white">
+              CONFIGURAR PIZZA {selectedPizzaForConfig?.nombre?.toUpperCase()}
             </DialogTitle>
+            {selectedPizzaForConfig?.descripcion && (
+              <p className="text-sm sm:text-base text-gray-300 mt-1 leading-relaxed">
+                {selectedPizzaForConfig.descripcion}
+              </p>
+            )}
           </DialogHeader>
 
           {selectedPizzaForConfig && (
             <div className="space-y-5 py-2">
               
-              {/* Selector de Tamaño */}
+              {/* Selector de Tamaño Centrado y Espacioso */}
               <div className="space-y-2">
-                <label className="text-xs text-gray-400 font-semibold uppercase">Tamaño de la Pizza</label>
-                <div className="flex gap-2">
-                  {/* Solo mostrar tamaños válidos según stock/precios */}
-                  {selectedPizzaForConfig.disponibleMediana !== false && selectedPizzaForConfig.precioMediana > 0 && (
-                    <Button
-                      onClick={() => setPizzaConfig(prev => ({ ...prev, size: 'mediana' }))}
-                      className={`flex-1 capitalize ${
-                        pizzaConfig.size === 'mediana'
-                          ? 'bg-pink-600 text-white font-semibold'
-                          : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800'
-                      }`}
-                    >
-                      Mediana
-                    </Button>
-                  )}
-                  {selectedPizzaForConfig.disponibleFamiliar !== false && (
-                    <Button
-                      onClick={() => setPizzaConfig(prev => ({ ...prev, size: 'familiar' }))}
-                      className={`flex-1 capitalize ${
-                        pizzaConfig.size === 'familiar'
-                          ? 'bg-pink-600 text-white font-semibold'
-                          : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800'
-                      }`}
-                    >
-                      Familiar
-                    </Button>
-                  )}
+                <div className="flex justify-center items-center py-1">
+                  <div className="flex justify-center gap-4 sm:gap-6 w-full max-w-md">
+                    {/* Solo mostrar tamaños válidos según stock/precios */}
+                    {selectedPizzaForConfig.disponibleMediana !== false && selectedPizzaForConfig.precioMediana > 0 && (
+                      <Button
+                        type="button"
+                        onClick={() => setPizzaConfig(prev => ({ ...prev, size: 'mediana' }))}
+                        className={`flex-1 py-3 px-6 text-sm font-bold tracking-wider uppercase rounded-xl transition-all shadow-md ${
+                          pizzaConfig.size === 'mediana'
+                            ? 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-900/40 ring-2 ring-pink-500/50'
+                            : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800 hover:text-white'
+                        }`}
+                      >
+                        MEDIANA
+                      </Button>
+                    )}
+                    {selectedPizzaForConfig.disponibleFamiliar !== false && (
+                      <Button
+                        type="button"
+                        onClick={() => setPizzaConfig(prev => ({ ...prev, size: 'familiar' }))}
+                        className={`flex-1 py-3 px-6 text-sm font-bold tracking-wider uppercase rounded-xl transition-all shadow-md ${
+                          pizzaConfig.size === 'familiar'
+                            ? 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-900/40 ring-2 ring-pink-500/50'
+                            : 'bg-gray-900 text-gray-400 border border-gray-800 hover:bg-gray-800 hover:text-white'
+                        }`}
+                      >
+                        FAMILIAR
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2945,7 +2955,7 @@ export default function PresentialSalesPage() {
                     onChange={e => setPizzaConfig(prev => ({ ...prev, sinOregano: e.target.checked }))}
                     className="w-4 h-4 rounded bg-gray-950 border-gray-800 text-pink-600 focus:ring-0"
                   />
-                  <span>Sin Orégano</span>
+                  <span className="text-gray-300 font-medium">Sin Orégano</span>
                 </label>
                 <label className="flex items-center gap-2.5 cursor-pointer text-xs">
                   <input
@@ -2954,7 +2964,7 @@ export default function PresentialSalesPage() {
                     onChange={e => setPizzaConfig(prev => ({ ...prev, sinQueso: e.target.checked }))}
                     className="w-4 h-4 rounded bg-gray-950 border-gray-800 text-pink-600 focus:ring-0"
                   />
-                  <span>Sin Queso</span>
+                  <span className="text-gray-300 font-medium">Sin Queso</span>
                 </label>
                 <label className="flex items-center gap-2.5 cursor-pointer text-xs">
                   <input
@@ -2963,121 +2973,221 @@ export default function PresentialSalesPage() {
                     onChange={e => setPizzaConfig(prev => ({ ...prev, sinSalsaTomate: e.target.checked }))}
                     className="w-4 h-4 rounded bg-gray-950 border-gray-800 text-pink-600 focus:ring-0"
                   />
-                  <span>Sin Salsa Tomate</span>
+                  <span className="text-gray-300 font-medium">Sin Salsa Tomate</span>
                 </label>
               </div>
 
               {/* Ingredientes Adicionales Simples */}
-              <div className="space-y-2">
-                <label className="text-xs text-gray-400 font-semibold uppercase">
-                  Ingredientes Simples (+${getPreciosSegunTamano(pizzaConfig.size).simple})
-                </label>
-                <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-3 pt-1">
+                <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-gray-100 uppercase tracking-wider">
+                      Ingredientes Simples
+                    </h4>
+                    <span className="text-[11px] font-medium text-gray-400">
+                      (Básicos del menú)
+                    </span>
+                  </div>
+                  <span className="text-sm sm:text-base font-extrabold text-pink-400 bg-pink-950/60 border border-pink-800/70 px-3.5 py-1 rounded-full shadow-sm">
+                    +${getPreciosSegunTamano(pizzaConfig.size).simple.toLocaleString('es-CL')} c/u
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3">
                   {ingredientesSimples.map(ing => {
                     const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                     const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                     const isSelected = pizzaConfig.simpleIngredients.includes(ing.nombre)
+                    const iconUrl = getIngredientIconUrl(ing.nombre)
 
                     return (
-                      <Button
+                      <button
+                        type="button"
                         key={ing.id}
+                        disabled={isAgotado}
                         onClick={() => toggleIngredientConfig(ing.nombre, false)}
-                        variant="outline"
-                        className={`justify-between px-2 py-1.5 text-xs truncate border transition-all ${
-                          isSelected
-                            ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                            : isAgotado
-                            ? 'bg-gray-950/80 border-red-900/50 text-gray-400 hover:border-red-700'
-                            : 'bg-gray-900 border-gray-800 hover:bg-gray-800 text-gray-300'
+                        className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[116px] sm:h-[122px] ${
+                          isAgotado
+                            ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                            : isSelected
+                            ? '!bg-[#2b1424] !border-2 !border-pink-500 !ring-2 !ring-pink-500/50 !shadow-lg !shadow-pink-900/40 is-selected'
+                            : '!bg-[#1c202a] !border !border-[#2e3444] hover:!border-gray-400 hover:!bg-[#242936] hover:!shadow-md'
                         }`}
                       >
-                        <div className="flex items-center gap-1 min-w-0 truncate">
-                          <Check className={`w-3 h-3 shrink-0 ${isSelected ? 'opacity-100 text-pink-500' : 'opacity-0'}`} />
-                          <span className="truncate">{getIngredientDisplayName(ing, pizzaConfig.size)}</span>
-                        </div>
+                        {/* Indicador de Selección con Check */}
+                        {isSelected && (
+                          <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-pink-600 text-white flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+
+                        {/* Badge de Agotado */}
                         {isAgotado && (
-                          <span className="shrink-0 text-[8px] bg-red-950 text-red-400 border border-red-800 px-0.5 rounded ml-0.5">
+                          <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
                             Agotado
                           </span>
                         )}
-                      </Button>
+
+                        {/* Imagen del Ingrediente */}
+                        <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={ing.nombre}
+                              className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <Pizza className="w-12 h-12 text-gray-500 group-hover:text-pink-400 !transition-colors" />
+                          )}
+                        </div>
+
+                        {/* Nombre del Ingrediente */}
+                        <div className="w-full shrink-0 flex flex-col items-center px-1 pb-0.5 z-10">
+                          <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                            isSelected 
+                              ? '!text-pink-200' 
+                              : 'text-gray-200 group-hover:text-white'
+                          }`}>
+                            {ing.nombre.toUpperCase()}
+                          </span>
+                          {ing.esPrecioEspecial && (
+                            <span className="text-[10px] sm:text-[11px] text-pink-400 font-extrabold mt-0.5 leading-none">
+                              +${getIngredientPrice(ing, pizzaConfig.size, false).toLocaleString('es-CL')}
+                            </span>
+                          )}
+                        </div>
+                      </button>
                     )
                   })}
                 </div>
               </div>
 
               {/* Ingredientes Adicionales Premium */}
-              <div className="space-y-2">
-                <label className="text-xs text-gray-400 font-semibold uppercase">
-                  Ingredientes Premium (+${getPreciosSegunTamano(pizzaConfig.size).premium})
-                </label>
-                <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between border-b border-amber-900/40 pb-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-sm font-bold text-amber-300 uppercase tracking-wider">
+                      Ingredientes Premium
+                    </h4>
+                    <span className="text-[11px] font-medium text-amber-400/80">
+                      (Calidad gourmet)
+                    </span>
+                  </div>
+                  <span className="text-sm sm:text-base font-extrabold text-amber-300 bg-amber-950/60 border border-amber-700/70 px-3.5 py-1 rounded-full shadow-sm">
+                    +${getPreciosSegunTamano(pizzaConfig.size).premium.toLocaleString('es-CL')} c/u
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3">
                   {ingredientesPremium.map(ing => {
                     const stockInfo = ingredientsStockMap.get((ing.nombre || '').toLowerCase().trim())
                     const isAgotado = Boolean(stockInfo && !stockInfo.disponible)
                     const isSelected = pizzaConfig.premiumIngredients.includes(ing.nombre)
+                    const iconUrl = getIngredientIconUrl(ing.nombre)
 
                     return (
-                      <Button
+                      <button
+                        type="button"
                         key={ing.id}
+                        disabled={isAgotado}
                         onClick={() => toggleIngredientConfig(ing.nombre, true)}
-                        variant="outline"
-                        className={`justify-between px-2 py-1.5 text-xs truncate border transition-all ${
-                          isSelected
-                            ? 'bg-pink-900/30 border-pink-600 text-pink-400 font-semibold'
-                            : isAgotado
-                            ? 'bg-gray-950/80 border-red-900/50 text-gray-400 hover:border-red-700'
-                            : 'bg-gray-900 border-gray-800 hover:bg-gray-800 text-gray-300'
+                        className={`pos-ingredient-card group relative flex flex-col items-center justify-between p-1.5 pt-1.5 pb-1 rounded-2xl overflow-hidden !transition-all !duration-200 select-none text-center h-[116px] sm:h-[122px] ${
+                          isAgotado
+                            ? '!opacity-35 !grayscale !cursor-not-allowed !border !border-gray-800 !bg-[#151922]'
+                            : isSelected
+                            ? '!bg-[#2c2211] !border-2 !border-amber-400 !ring-2 !ring-amber-400/60 !shadow-lg !shadow-amber-950/50 is-selected'
+                            : '!bg-[#1c202a] !border !border-amber-600/50 hover:!border-amber-400 hover:!bg-[#26241c] hover:!shadow-md hover:!shadow-amber-950/30'
                         }`}
                       >
-                        <div className="flex items-center gap-1 min-w-0 truncate">
-                          <Check className={`w-3 h-3 shrink-0 ${isSelected ? 'opacity-100 text-pink-500' : 'opacity-0'}`} />
-                          <span className="truncate">{getIngredientDisplayName(ing, pizzaConfig.size, true)}</span>
-                        </div>
+                        {/* Indicador de Selección con Check Dorado */}
+                        {isSelected && (
+                          <div className="absolute top-1.5 right-1.5 z-10 w-4 h-4 rounded-full bg-amber-500 text-black flex items-center justify-center shadow-md animate-in zoom-in-75 !duration-150">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                          </div>
+                        )}
+
+                        {/* Badge de Agotado */}
                         {isAgotado && (
-                          <span className="shrink-0 text-[8px] bg-red-950 text-red-400 border border-red-800 px-0.5 rounded ml-0.5">
+                          <span className="absolute top-1.5 right-1.5 z-10 text-[8px] font-bold bg-red-950 text-red-400 border border-red-800/80 px-1 py-0.2 rounded shadow">
                             Agotado
                           </span>
                         )}
-                      </Button>
+
+                        {/* Imagen del Ingrediente */}
+                        <div className="w-full flex-1 min-h-0 flex items-center justify-center overflow-hidden px-0.5">
+                          {iconUrl ? (
+                            <img
+                              src={iconUrl}
+                              alt={ing.nombre}
+                              className="pos-ingredient-img w-full h-full object-contain filter drop-shadow-md"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <Pizza className="w-12 h-12 text-amber-500/70 group-hover:text-amber-400 !transition-colors" />
+                          )}
+                        </div>
+
+                        {/* Nombre del Ingrediente */}
+                        <div className="w-full shrink-0 flex flex-col items-center px-1 pb-0.5 z-10">
+                          <span className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider leading-tight line-clamp-1 truncate w-full text-center !transition-colors ${
+                            isSelected 
+                              ? '!text-amber-200 font-bold' 
+                              : 'text-amber-100/90 group-hover:text-amber-300'
+                          }`}>
+                            {ing.nombre.toUpperCase()}
+                          </span>
+                          {ing.esPrecioEspecial && (
+                            <span className="text-[10px] sm:text-[11px] text-amber-400 font-extrabold mt-0.5 leading-none">
+                              +${getIngredientPrice(ing, pizzaConfig.size, true).toLocaleString('es-CL')}
+                            </span>
+                          )}
+                        </div>
+                      </button>
                     )
                   })}
                 </div>
               </div>
 
               {/* Comentarios de la Pizza */}
-              <div className="space-y-1">
-                <label className="text-[10px] text-gray-500 uppercase">Instrucciones Especiales</label>
+              <div className="space-y-1.5 pt-1">
+                <label className="text-xs text-gray-400 font-semibold uppercase">Instrucciones Especiales</label>
                 <Input
                   placeholder="Ej: Hornear poco rato, champiñones solo a un lado..."
                   value={pizzaConfig.comments}
                   onChange={e => setPizzaConfig(prev => ({ ...prev, comments: e.target.value }))}
-                  className="bg-gray-900 border-gray-800 text-xs text-white"
+                  className="bg-gray-900 border-gray-800 text-xs sm:text-sm text-white"
                 />
               </div>
 
             </div>
           )}
 
-          <DialogFooter className="border-t border-gray-800 pt-4 flex items-center justify-between">
-            <div className="text-sm font-bold text-white">
-              Precio Unitario: ${ (
-                (((pizzaConfig.size === 'mediana' && selectedPizzaForConfig?.disponibleMediana !== false && selectedPizzaForConfig?.precioMediana > 0) ? selectedPizzaForConfig?.precioMediana : selectedPizzaForConfig?.precio) || getPreciosSegunTamano(pizzaConfig.size).baseMenu) +
-                (pizzaConfig.simpleIngredients.length * getPreciosSegunTamano(pizzaConfig.size).simple) +
-                (pizzaConfig.premiumIngredients.length * getPreciosSegunTamano(pizzaConfig.size).premium)
-              ).toLocaleString('es-CL') }
+          <DialogFooter className="border-t border-gray-800 pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-baseline gap-2">
+              <span className="text-base sm:text-lg font-bold text-gray-300">
+                Total Pizza:
+              </span>
+              <span className="text-2xl sm:text-3xl font-black tracking-tight text-pink-500 drop-shadow-md">
+                ${ (() => {
+                  const size = pizzaConfig.size
+                  const tieneMediana = selectedPizzaForConfig?.disponibleMediana !== false && (selectedPizzaForConfig?.precioMediana || 0) > 0
+                  let total = ((size === 'mediana' && tieneMediana) ? selectedPizzaForConfig?.precioMediana : selectedPizzaForConfig?.precio) || getPreciosSegunTamano(size).baseMenu
+                  pizzaConfig.simpleIngredients.forEach(i => { total += getIngredientPrice(i, size, false) })
+                  pizzaConfig.premiumIngredients.forEach(i => { total += getIngredientPrice(i, size, true) })
+                  return total.toLocaleString('es-CL')
+                })() }
+              </span>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2.5 w-full sm:w-auto">
               <Button 
                 onClick={() => setSelectedPizzaForConfig(null)}
                 variant="ghost" 
-                className="text-gray-400 hover:text-white text-xs h-9"
+                className="flex-1 sm:flex-none text-gray-400 hover:text-white text-xs sm:text-sm h-10 px-4"
               >
                 Cancelar
               </Button>
               <Button 
                 onClick={handleAddConfiguredPizza}
-                className="bg-pink-600 hover:bg-pink-700 text-white font-semibold text-xs h-9"
+                className="flex-1 sm:flex-none bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs sm:text-sm h-10 px-6 rounded-xl shadow-lg shadow-pink-900/30"
               >
                 Agregar al Pedido
               </Button>

@@ -204,7 +204,7 @@ export default function Header() {
                   </SheetTrigger>
                   <SheetContent
                     side="right"
-                    className="w-full sm:w-96 p-0"
+                    className="cart-sheet w-full sm:w-[480px] md:w-[520px] max-w-full p-0 flex flex-col h-full"
                     onInteractOutside={(event) => event.preventDefault()}
                   >
                     <Cart onClose={() => setIsCartOpen(false)} />

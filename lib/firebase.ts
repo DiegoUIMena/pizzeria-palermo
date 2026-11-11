@@ -6,7 +6,7 @@ import { getFunctions, connectFunctionsEmulator } from "firebase/functions"
 import { getAnalytics, isSupported } from "firebase/analytics";
 
 // [SECURITY] Credenciales desde variables de entorno
-const firebaseConfig = {
+export const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,

@@ -2,12 +2,20 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef, useMemo } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { MapPin, Edit, Download, Upload } from "lucide-react"
+import { MapPin, Edit, Download, Upload, Trash2 } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import DeliveryZoneMapAbsolute from "../../components/DeliveryZoneMapAbsolute"
 import { type DeliveryZone } from "../../../lib/delivery-zones"
 import { useDeliveryZones } from "../../../hooks/useDeliveryZones"
@@ -21,12 +29,54 @@ import {
 
 export default function ZonasDeliveryPage() {
   // Usar el hook personalizado para gestionar las zonas
-  const { zones, loading, error, saveZones } = useDeliveryZones()
+  const { zones, loading, error, saveZones, deleteZone } = useDeliveryZones()
   const [localZones, setLocalZones] = useState<DeliveryZone[]>([])
   const [isMapOpen, setIsMapOpen] = useState(false)
+  const [zonaAEliminar, setZonaAEliminar] = useState<DeliveryZone | null>(null)
+  const [isDeletingZone, setIsDeletingZone] = useState(false)
+  const [isSavingZones, setIsSavingZones] = useState(false)
   const [deliveryContacts, setDeliveryContacts] = useState<DeliveryDriverContact[]>([])
   const [loadingContacts, setLoadingContacts] = useState(true)
   const [savingContacts, setSavingContacts] = useState(false)
+  const initialContactsSnapshotRef = useRef<string>("")
+
+  // Detectar si hay cambios sin guardar en Contactos Repartidores
+  const hasUnsavedContactsChanges = useMemo(() => {
+    if (loadingContacts || !initialContactsSnapshotRef.current) return false
+    return JSON.stringify(deliveryContacts) !== initialContactsSnapshotRef.current
+  }, [deliveryContacts, loadingContacts])
+
+  // Advertencia al recargar o cerrar la pestaña con cambios sin guardar
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedContactsChanges) {
+        e.preventDefault()
+        e.returnValue = "Deberás presionar 'Guardar' para conservar los cambios realizados en Contactos Repartidores."
+        return e.returnValue
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
+  }, [hasUnsavedContactsChanges])
+
+  // Advertencia al intentar navegar a otra página dentro de la app con cambios sin guardar
+  useEffect(() => {
+    const handleAnchorClick = (e: MouseEvent) => {
+      if (!hasUnsavedContactsChanges) return
+      const target = (e.target as HTMLElement).closest("a")
+      if (target && target.href && !target.href.startsWith("javascript:")) {
+        const confirmLeave = window.confirm(
+          "Tienes cambios sin guardar en Contactos Repartidores.\n\nDeberás presionar 'Guardar' para conservar los cambios realizados.\n\n¿Deseas salir de todas formas sin guardar?"
+        )
+        if (!confirmLeave) {
+          e.preventDefault()
+          e.stopPropagation()
+        }
+      }
+    }
+    document.addEventListener("click", handleAnchorClick, true)
+    return () => document.removeEventListener("click", handleAnchorClick, true)
+  }, [hasUnsavedContactsChanges])
 
   // Actualizar las zonas locales cuando se cargan desde Firestore
   useEffect(() => {
@@ -60,6 +110,7 @@ export default function ZonasDeliveryPage() {
         if (!mounted) return
 
         setDeliveryContacts(config.contactos)
+        initialContactsSnapshotRef.current = JSON.stringify(config.contactos)
       } catch (error) {
         console.error("Error cargando contactos de delivery:", error)
         toast({
@@ -169,6 +220,7 @@ export default function ZonasDeliveryPage() {
     try {
       await saveDeliveryDriverConfig({ contactos: cleaned })
       setDeliveryContacts(cleaned)
+      initialContactsSnapshotRef.current = JSON.stringify(cleaned)
 
       toast({
         title: "Configuración guardada",
@@ -183,6 +235,37 @@ export default function ZonasDeliveryPage() {
       })
     } finally {
       setSavingContacts(false)
+    }
+  }
+
+  const handleConfirmDeleteZone = async () => {
+    if (!zonaAEliminar) return
+    setIsDeletingZone(true)
+    try {
+      const ok = await deleteZone(zonaAEliminar.id)
+      if (ok) {
+        setLocalZones((prev) => prev.filter((z) => z.id !== zonaAEliminar.id))
+        toast({
+          title: "Zona eliminada",
+          description: `La zona "${zonaAEliminar.nombre}" se ha eliminado correctamente.`,
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: "No se pudo eliminar la zona de la base de datos.",
+          variant: "destructive",
+        })
+      }
+    } catch (err) {
+      console.error("Error al eliminar zona:", err)
+      toast({
+        title: "Error inesperado",
+        description: "Ocurrió un error al intentar eliminar la zona.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeletingZone(false)
+      setZonaAEliminar(null)
     }
   }
 
@@ -308,6 +391,15 @@ export default function ZonasDeliveryPage() {
     }
   }
 
+  const handleGuardarCambios = async () => {
+    setIsSavingZones(true)
+    try {
+      await saveChangesToFirestoreDirecto(localZones)
+    } finally {
+      setIsSavingZones(false)
+    }
+  }
+
   const exportZones = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(localZones, null, 2))
     const downloadAnchorNode = document.createElement("a")
@@ -336,7 +428,7 @@ export default function ZonasDeliveryPage() {
           setLocalZones(importedZones)
           toast({
             title: "Zonas importadas",
-            description: `Se han importado ${importedZones.length} zonas. No olvides guardar los cambios.`,
+            description: `Se han importado ${importedZones.length} zonas. Haz clic en "Guardar cambios" para guardarlas en la base de datos.`,
             variant: "default",
           })
         } else {
@@ -376,31 +468,44 @@ export default function ZonasDeliveryPage() {
             <h1 className="text-3xl font-bold text-gray-800 dark:text-white">Zonas de Delivery</h1>
             <p className="text-gray-600 dark:text-gray-400 mt-1">Administra las zonas de entrega y tarifas para Los Andes</p>
           </div>
-          <div className="flex flex-wrap gap-2 w-full md:w-auto">
-            <Button onClick={() => setIsMapOpen(true)} className="flex-1 md:flex-initial bg-pink-600 hover:bg-pink-700 text-white">
-              <Edit className="w-4 h-4 mr-2" />
-              Editar Zonas en Mapa
-            </Button>
-            <Button 
-              onClick={() => window.location.href = '/admin/reset-zonas'} 
-              className="flex-1 md:flex-initial bg-red-600 hover:bg-red-700 text-white"
+          <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+            <Button
+              onClick={handleGuardarCambios}
+              disabled={isSavingZones || localZones.length === 0}
+              className="flex-1 md:flex-initial bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
             >
-              Eliminar Zonas
+              {isSavingZones ? "Guardando..." : "Guardar cambios"}
             </Button>
-            <Button variant="outline" onClick={exportZones} className="flex-1 md:flex-initial">
-              <Download className="w-4 h-4 mr-2" />
-              Exportar
+            <Button onClick={() => setIsMapOpen(true)} className="flex-1 md:flex-initial bg-pink-600 hover:bg-pink-700 text-white font-medium shadow-sm">
+              <Edit className="w-4 h-4 mr-2" />
+              Crear zona
             </Button>
-            <div className="relative flex-1 md:flex-initial">
-              <Button variant="outline" className="w-full">
-                <Upload className="w-4 h-4 mr-2" />
-                Importar
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={exportZones}
+              className="h-10 w-10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 shrink-0"
+              title="Exportar zonas de delivery (.json)"
+              aria-label="Exportar zonas de delivery"
+            >
+              <Download className="w-4 h-4" />
+            </Button>
+            <div className="relative shrink-0">
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-10 w-10 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                title="Importar zonas de delivery (.json)"
+                aria-label="Importar zonas de delivery"
+              >
+                <Upload className="w-4 h-4" />
               </Button>
               <input
                 type="file"
                 accept=".json"
                 onChange={importZones}
                 className="absolute inset-0 opacity-0 cursor-pointer"
+                title="Importar zonas de delivery (.json)"
               />
             </div>
           </div>
@@ -416,23 +521,38 @@ export default function ZonasDeliveryPage() {
                   Haz clic en el botón "Editar Zonas en Mapa" para crear nuevas zonas personalizadas.
                 </p>
               </div>
-              <Button onClick={() => setIsMapOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white">
+              <Button onClick={() => setIsMapOpen(true)} className="bg-pink-600 hover:bg-pink-700 text-white font-medium">
                 <Edit className="w-4 h-4 mr-2" />
-                Crear Zonas de Delivery
+                Crear zona
               </Button>
             </div>
           ) : (
             localZones.map((zone) => (
-              <Card key={zone.id} className="overflow-hidden bg-white dark:bg-gray-800 border dark:border-gray-700">
+              <Card key={zone.id} className="overflow-hidden bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm hover:shadow transition-shadow">
                 <div className="h-2" style={{ backgroundColor: zone.color }}></div>
                 <CardHeader className="pb-2">
-                  <div className="flex justify-between items-start">
-                    <CardTitle className="text-xl dark:text-white">{zone.nombre}</CardTitle>
-                    <Badge variant={zone.disponible ? "default" : "destructive"}>
-                      {zone.disponible ? "Disponible" : "No Disponible"}
-                    </Badge>
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="text-xl dark:text-white truncate">{zone.nombre}</CardTitle>
+                      <CardDescription className="dark:text-gray-400 mt-0.5 line-clamp-2">{zone.descripcion || "Sin descripción"}</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Badge variant={zone.disponible ? "default" : "destructive"}>
+                        {zone.disponible ? "Disponible" : "No Disponible"}
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setZonaAEliminar(zone)}
+                        className="h-8 w-8 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full transition-colors cursor-pointer"
+                        title={`Eliminar zona ${zone.nombre}`}
+                        aria-label={`Eliminar zona ${zone.nombre}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </div>
-                  <CardDescription className="dark:text-gray-400">{zone.descripcion || "Sin descripción"}</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
@@ -466,7 +586,12 @@ export default function ZonasDeliveryPage() {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
               <div>
                 <CardTitle className="dark:text-white flex items-center gap-2">
-                  <span>Repartidores y Teléfonos de Delivery</span>
+                  <span>Contactos Repartidores</span>
+                  {hasUnsavedContactsChanges && (
+                    <Badge variant="outline" className="text-amber-600 border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-[11px] font-medium">
+                      Cambios sin guardar
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription className="dark:text-gray-400 mt-1">
                   Configura los repartidores, sus iniciales identificatorias (código en mayúsculas) y teléfonos de WhatsApp. Puedes tener <strong>más de un repartidor activo simultáneamente</strong> para el turno.
@@ -547,12 +672,13 @@ export default function ZonasDeliveryPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40 p-2"
+                        size="icon"
+                        className="h-8 w-8 text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-full transition-colors cursor-pointer"
                         onClick={() => removeDeliveryContact(contact.id)}
                         title="Eliminar repartidor"
+                        aria-label="Eliminar repartidor"
                       >
-                        ✕
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
@@ -560,15 +686,15 @@ export default function ZonasDeliveryPage() {
 
                 <div className="flex flex-wrap gap-3 pt-3 border-t dark:border-gray-700">
                   <Button type="button" variant="outline" onClick={addDeliveryContact}>
-                    + Agregar Repartidor
+                    Agregar
                   </Button>
                   <Button
                     type="button"
-                    className="bg-pink-600 hover:bg-pink-700 text-white font-semibold"
+                    className="bg-pink-600 hover:bg-pink-700 text-white font-semibold shadow-sm"
                     onClick={saveDeliveryContacts}
                     disabled={savingContacts}
                   >
-                    {savingContacts ? "Guardando..." : "Guardar Repartidores"}
+                    {savingContacts ? "Guardando..." : "Guardar"}
                   </Button>
                 </div>
               </div>
@@ -582,6 +708,41 @@ export default function ZonasDeliveryPage() {
           onSaveZones={handleSaveZones} 
           initialZones={localZones}
         />
+
+        {/* Modal de Confirmación para Eliminar Zona */}
+        <Dialog open={!!zonaAEliminar} onOpenChange={(open) => { if (!open) setZonaAEliminar(null) }}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                <Trash2 className="w-5 h-5 shrink-0" />
+                <DialogTitle className="text-lg font-bold">¿Eliminar zona de delivery?</DialogTitle>
+              </div>
+              <DialogDescription className="sr-only">
+                Confirmar eliminación de zona de delivery
+              </DialogDescription>
+            </DialogHeader>
+
+            <DialogFooter className="gap-2 sm:gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setZonaAEliminar(null)}
+                disabled={isDeletingZone}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleConfirmDeleteZone}
+                disabled={isDeletingZone}
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold"
+              >
+                {isDeletingZone ? "Eliminando..." : "Sí, eliminar zona"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )

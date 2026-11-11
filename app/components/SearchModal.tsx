@@ -297,18 +297,13 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     <div className="fixed inset-0 z-50">
       {/* Overlay con blur */}
       <div
-        className="fixed inset-0 bg-black/80"
-        style={{
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)',
-          animation: 'fadeIn 0.2s ease-out',
-        }}
+        className="fixed inset-0 bg-black/75 backdrop-blur-sm animate-dialog-overlay-in"
         onClick={onClose}
       />
       
       {/* Modal Content */}
       <div
-        className="fixed bg-white rounded-lg shadow-xl"
+        className="fixed bg-white rounded-lg shadow-2xl animate-dialog-in"
         style={{
           left: '50%',
           top: '50%',
@@ -316,7 +311,6 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
           maxWidth: '56rem',
           width: '90%',
           maxHeight: '80vh',
-          animation: 'zoomFadeIn 0.2s ease-out',
           zIndex: 51,
           display: 'flex',
           flexDirection: 'column',

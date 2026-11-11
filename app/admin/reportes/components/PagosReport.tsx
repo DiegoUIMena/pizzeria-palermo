@@ -1,19 +1,17 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { Order } from "@/lib/orders"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { CreditCard, Banknote, Building, Receipt, RefreshCcw, Loader2, Globe, Store, Calendar, Printer, DollarSign, Truck, ClipboardList } from "lucide-react"
+import { CreditCard, Banknote, Building, Receipt, RefreshCcw, Loader2, Globe, Store, Calendar, Printer, DollarSign, Truck, ClipboardList, Eye, EyeOff, Check, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getFunctions, httpsCallable } from "firebase/functions"
 import { db } from "@/lib/firebase"
 import { toast } from "@/hooks/use-toast"
 import ComandaModal from "@/app/admin/components/ComandaModal"
-import DeliveryReportModal from "./DeliveryReportModal"
-import RepartidoresPlanillaModal from "./RepartidoresPlanillaModal"
 
 interface PagosReportProps {
   orders: Order[]
@@ -246,12 +244,35 @@ const getTodayDateStr = () => {
   return `${year}-${month}-${day}`;
 };
 
-// Validar si una orden es una venta real (excluye cancelados, rechazados y fallidos)
-const isValidSale = (order: ExtendedOrder): boolean => {
-  if (order.estado === "Cancelado" || order.estado === "Pago Rechazado") return false;
-  if (order.paymentStatus === "failed" || order.paymentStatus === "refunded" || order.paymentStatus === "cancelled") return false;
-  if (order.webpay?.status === "rejected") return false;
-  return true;
+// Validar si una orden está pagada efectivamente (excluye cancelados, rechazados, fallidos y pendientes)
+export const isOrderPaid = (order: ExtendedOrder): boolean => {
+  // 1. Excluir pedidos cancelados y pagos rechazados
+  if (order.estado === "Cancelado" || order.estado === "Pago Rechazado" || order.paymentStatus === "cancelled") {
+    return false;
+  }
+  // 2. Excluir fallidos y reembolsados
+  if (order.paymentStatus === "failed" || order.paymentStatus === "refunded" || order.webpay?.status === "rejected") {
+    return false;
+  }
+  // 3. Excluir pedidos pendientes de pago
+  if (order.paymentStatus === "pending" || order.estado === "Pago Pendiente" || order.metodoPago === "Por Pagar") {
+    return false;
+  }
+  // 4. Si el pago fue confirmado como paid
+  if (order.paymentStatus === "paid") {
+    return true;
+  }
+  // 5. Pedidos presenciales o en efectivo ya entregados
+  const cat = getMetodoCategoria(order.metodoPago);
+  if (cat === "efectivo" && order.estado === "Entregado") {
+    return true;
+  }
+  return false;
+};
+
+// Validar si una orden es una venta real para sumar en los reportes
+export const isValidSale = (order: ExtendedOrder): boolean => {
+  return isOrderPaid(order);
 };
 
 // Filtrar si una orden cae en el período indicado
@@ -330,8 +351,40 @@ export default function PagosReport({ orders }: PagosReportProps) {
   const [refunding, setRefunding] = useState<string | null>(null)
   const [comandaModalOpen, setComandaModalOpen] = useState(false)
   const [pedidoParaComanda, setPedidoParaComanda] = useState<ExtendedOrder | null>(null)
-  const [deliveryReportModalOpen, setDeliveryReportModalOpen] = useState(false)
-  const [repartidoresPlanillaModalOpen, setRepartidoresPlanillaModalOpen] = useState(false)
+  const [mostrarMontos, setMostrarMontos] = useState<boolean>(false)
+  const [openPeriodo, setOpenPeriodo] = useState<boolean>(false)
+  const [openMetodo, setOpenMetodo] = useState<boolean>(false)
+  const periodoRef = useRef<HTMLDivElement>(null)
+  const metodoRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (periodoRef.current && !periodoRef.current.contains(event.target as Node)) {
+        setOpenPeriodo(false)
+      }
+      if (metodoRef.current && !metodoRef.current.contains(event.target as Node)) {
+        setOpenMetodo(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [])
+
+  const periodoOptions = [
+    { value: "dia", label: "Día (Hoy)" },
+    { value: "fecha", label: "Día específico..." },
+    { value: "semana", label: "Semana (7 días)" },
+    { value: "mes", label: "Mes (Este mes)" },
+    { value: "ano", label: "Año (Este año)" },
+    { value: "todos", label: "Todos los períodos" },
+  ]
+
+  const metodoOptions = [
+    { value: "todos", label: "Todos los métodos" },
+    { value: "efectivo", label: "Efectivo" },
+    { value: "transferencia", label: "Transferencia" },
+    { value: "tarjeta", label: "Tarjeta" },
+  ]
 
   const handleAbrirComanda = (order: ExtendedOrder) => {
     setPedidoParaComanda(order)
@@ -527,12 +580,27 @@ export default function PagosReport({ orders }: PagosReportProps) {
 
   return (
     <div className="space-y-6">
-      {/* Encabezado contextual del período */}
+      {/* Encabezado contextual del período y control de privacidad */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b dark:border-gray-800 pb-3">
         <div>
-          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
-            Resumen de Ventas y Delivery
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
+              Resumen de Ventas
+            </h3>
+            <button
+              type="button"
+              onClick={() => setMostrarMontos(prev => !prev)}
+              className="text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 transition-colors cursor-pointer focus:outline-none p-1"
+              title={mostrarMontos ? "Ocultar montos" : "Mostrar montos"}
+              aria-label={mostrarMontos ? "Ocultar montos" : "Mostrar montos"}
+            >
+              {mostrarMontos ? (
+                <EyeOff className="w-5 h-5 text-pink-600 dark:text-pink-400" />
+              ) : (
+                <Eye className="w-5 h-5" />
+              )}
+            </button>
+          </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             Valores totales calculados a partir de ventas válidas según los filtros seleccionados
           </p>
@@ -548,8 +616,8 @@ export default function PagosReport({ orders }: PagosReportProps) {
         </div>
       </div>
 
-      {/* 5 Contenedores de Totales solicitados */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* Contenedores de Totales de Ventas */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* 1. Total Efectivo */}
         <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm hover:shadow transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
@@ -559,7 +627,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+            <div className={`text-2xl font-bold text-gray-900 dark:text-white transition-all duration-300 ${mostrarMontos ? "filter-none select-auto opacity-100" : "blur-md select-none opacity-40"}`}>
               ${metrics.totalEfectivo.toLocaleString('es-CL')}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -577,7 +645,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+            <div className={`text-2xl font-bold text-gray-900 dark:text-white transition-all duration-300 ${mostrarMontos ? "filter-none select-auto opacity-100" : "blur-md select-none opacity-40"}`}>
               ${metrics.totalTransferencia.toLocaleString('es-CL')}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -595,7 +663,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
+            <div className={`text-2xl font-bold text-gray-900 dark:text-white transition-all duration-300 ${mostrarMontos ? "filter-none select-auto opacity-100" : "blur-md select-none opacity-40"}`}>
               ${metrics.totalTarjetas.toLocaleString('es-CL')}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
@@ -613,7 +681,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+            <div className={`text-2xl font-bold text-indigo-600 dark:text-indigo-400 transition-all duration-300 ${mostrarMontos ? "filter-none select-auto opacity-100" : "blur-md select-none opacity-40"}`}>
               ${metrics.totalVentasNetas.toLocaleString('es-CL')}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center justify-between">
@@ -625,55 +693,6 @@ export default function PagosReport({ orders }: PagosReportProps) {
               ) : (
                 <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded">
                   Sin delivery
-                </span>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 5. Total Delivery (anteriormente Total Presencial) */}
-        <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm hover:shadow transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Delivery</CardTitle>
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setRepartidoresPlanillaModalOpen(true)}
-                title="Planilla de liquidación de repartidores"
-                className="h-8 w-8 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/60 p-0 rounded-lg transition-colors"
-              >
-                <ClipboardList className="h-4 w-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setDeliveryReportModalOpen(true)}
-                title="Imprimir planilla de delivery"
-                className="h-8 w-8 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-950/60 p-0 rounded-lg transition-colors"
-              >
-                <Printer className="h-4 w-4" />
-              </Button>
-              <div className="p-2 bg-amber-50 dark:bg-amber-950/40 rounded-lg">
-                <Truck className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white">
-              ${metrics.totalDelivery.toLocaleString('es-CL')}
-            </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center justify-between">
-              <span>{metrics.countDelivery} {metrics.countDelivery === 1 ? 'pedido' : 'pedidos'} con delivery</span>
-              {metodoFilter !== "todos" ? (
-                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded capitalize">
-                  {metodoFilter}
-                </span>
-              ) : (
-                <span className="text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded">
-                  Repartidores
                 </span>
               )}
             </div>
@@ -694,30 +713,86 @@ export default function PagosReport({ orders }: PagosReportProps) {
             </p>
           </div>
 
+          {/* Estilos dedicados con !important para forzar posición y animación fluida perfecta */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            @keyframes customSelectDropdownIn {
+              0% {
+                opacity: 0 !important;
+                transform: translateY(-8px) scale(0.97) !important;
+              }
+              100% {
+                opacity: 1 !important;
+                transform: translateY(0) scale(1) !important;
+              }
+            }
+            .custom-select-menu {
+              position: absolute !important;
+              top: calc(100% + 4px) !important;
+              left: 0 !important;
+              z-index: 99999 !important;
+              box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+              animation: customSelectDropdownIn 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+              transform-origin: top left !important;
+            }
+          `}} />
+
           <div className="flex flex-wrap items-center gap-3">
             {/* Filtro Período: día, día específico, semana, mes, año, todos */}
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Período:</span>
-                <Select value={periodoFilter} onValueChange={(val) => {
-                  setPeriodoFilter(val);
-                  if (val === "fecha" && !selectedDate) {
-                    setSelectedDate(getTodayDateStr());
-                  }
-                }}>
-                  <SelectTrigger className="w-[160px] bg-white dark:bg-gray-800 dark:border-gray-700 h-9 text-xs">
-                    <Calendar className="w-3.5 h-3.5 mr-1.5 text-gray-500" />
-                    <SelectValue placeholder="Período" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="dia">Día (Hoy)</SelectItem>
-                    <SelectItem value="fecha">Día específico...</SelectItem>
-                    <SelectItem value="semana">Semana (7 días)</SelectItem>
-                    <SelectItem value="mes">Mes (Este mes)</SelectItem>
-                    <SelectItem value="ano">Año (Este año)</SelectItem>
-                    <SelectItem value="todos">Todos los períodos</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div ref={periodoRef} className="relative inline-block text-left">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenPeriodo((prev) => !prev)
+                      setOpenMetodo(false)
+                    }}
+                    className="w-[160px] h-9 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md text-xs font-medium text-gray-800 dark:text-gray-200 flex items-center justify-between shadow-sm hover:border-pink-500 dark:hover:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500 transition-all cursor-pointer"
+                  >
+                    <span className="flex items-center truncate">
+                      <Calendar className="w-3.5 h-3.5 mr-1.5 text-gray-500 shrink-0" />
+                      <span className="truncate">
+                        {periodoOptions.find((o) => o.value === periodoFilter)?.label || "Período"}
+                      </span>
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform duration-200 ${
+                        openPeriodo ? "rotate-180 text-pink-600" : ""
+                      }`}
+                    />
+                  </button>
+
+                  {/* Menú Desplegable con posición absoluta relativa al botón y animación fluida */}
+                  {openPeriodo && (
+                    <div className="custom-select-menu w-[180px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md py-1 overflow-hidden">
+                      {periodoOptions.map((opt) => {
+                        const isSelected = periodoFilter === opt.value
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setPeriodoFilter(opt.value)
+                              if (opt.value === "fecha" && !selectedDate) {
+                                setSelectedDate(getTodayDateStr())
+                              }
+                              setOpenPeriodo(false)
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                              isSelected
+                                ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 font-semibold"
+                                : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/60"
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400 shrink-0 ml-2" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Selector de fecha del calendario si se elige "Día específico" */}
@@ -737,17 +812,52 @@ export default function PagosReport({ orders }: PagosReportProps) {
             {/* Filtro Método de Pago: efectivo, transferencia, tarjeta, todos */}
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Método:</span>
-              <Select value={metodoFilter} onValueChange={setMetodoFilter}>
-                <SelectTrigger className="w-[155px] bg-white dark:bg-gray-800 dark:border-gray-700 h-9 text-xs">
-                  <SelectValue placeholder="Método de pago" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos los métodos</SelectItem>
-                  <SelectItem value="efectivo">Efectivo</SelectItem>
-                  <SelectItem value="transferencia">Transferencia</SelectItem>
-                  <SelectItem value="tarjeta">Tarjeta</SelectItem>
-                </SelectContent>
-              </Select>
+              <div ref={metodoRef} className="relative inline-block text-left">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenMetodo((prev) => !prev)
+                    setOpenPeriodo(false)
+                  }}
+                  className="w-[155px] h-9 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-md text-xs font-medium text-gray-800 dark:text-gray-200 flex items-center justify-between shadow-sm hover:border-pink-500 dark:hover:border-pink-500 focus:outline-none focus:ring-2 focus:ring-pink-500 transition-all cursor-pointer"
+                >
+                  <span className="truncate">
+                    {metodoOptions.find((o) => o.value === metodoFilter)?.label || "Método"}
+                  </span>
+                  <ChevronDown
+                    className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform duration-200 ${
+                      openMetodo ? "rotate-180 text-pink-600" : ""
+                    }`}
+                  />
+                </button>
+
+                {/* Menú Desplegable con posición absoluta relativa al botón y animación fluida */}
+                {openMetodo && (
+                  <div className="custom-select-menu w-[165px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md py-1 overflow-hidden">
+                    {metodoOptions.map((opt) => {
+                      const isSelected = metodoFilter === opt.value
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setMetodoFilter(opt.value)
+                            setOpenMetodo(false)
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                            isSelected
+                              ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 font-semibold"
+                              : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700/60"
+                          }`}
+                        >
+                          <span>{opt.label}</span>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400 shrink-0 ml-2" />}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </CardHeader>
@@ -779,7 +889,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
                     const cat = getMetodoCategoria(order.metodoPago);
                     const presencial = isOrderPresencial(order);
                     const isOrderCancelled = order.estado === "Cancelado" || order.estado === "Pago Rechazado" || order.paymentStatus === "cancelled";
-                    const isPaid = !isOrderCancelled && (order.paymentStatus === "paid" || (cat === "efectivo" && order.estado === "Entregado"));
+                    const isPaid = isOrderPaid(order);
 
                     return (
                       <TableRow key={order.id} className="dark:border-gray-700">
@@ -877,7 +987,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
                         </TableCell>
 
                         {/* Total */}
-                        <TableCell className="font-semibold text-gray-900 dark:text-white">
+                        <TableCell className={`font-semibold text-gray-900 dark:text-white transition-all duration-300 ${mostrarMontos ? "filter-none select-auto opacity-100" : "blur-sm select-none opacity-40"}`}>
                           <div>${Number(order.total || 0).toLocaleString('es-CL')}</div>
                           {(() => {
                             const dFee = getOrderDeliveryFee(order);
@@ -947,25 +1057,6 @@ export default function PagosReport({ orders }: PagosReportProps) {
         open={comandaModalOpen}
         onOpenChange={setComandaModalOpen}
         pedido={pedidoParaComanda}
-      />
-
-      {/* Modal de Planilla/Reporte de Delivery para Impresión */}
-      <DeliveryReportModal
-        open={deliveryReportModalOpen}
-        onOpenChange={setDeliveryReportModalOpen}
-        orders={metrics.validOrdersInPeriod}
-        periodoLabel={getPeriodoLabel(periodoFilter, selectedDate)}
-        periodoFilter={periodoFilter}
-        selectedDate={selectedDate}
-        totalDelivery={metrics.totalDelivery}
-        countDelivery={metrics.countDelivery}
-      />
-
-      {/* Modal de Planilla y Liquidación de Repartidores */}
-      <RepartidoresPlanillaModal
-        open={repartidoresPlanillaModalOpen}
-        onOpenChange={setRepartidoresPlanillaModalOpen}
-        orders={orders as ExtendedOrder[]}
       />
     </div>
   )

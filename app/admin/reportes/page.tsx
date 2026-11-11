@@ -24,12 +24,14 @@ import {
   ChevronUp,
   Eye,
   EyeOff,
+  Truck,
 } from "lucide-react"
 import VentasChart from "./components/VentasChart"
 import ProductosChart from "./components/ProductosChart"
 import InventarioChart from "./components/InventarioChart"
 import ClientesChart from "./components/ClientesChart"
 import PagosReport from "./components/PagosReport"
+import DeliveryReportTab from "./components/DeliveryReportTab"
 import { useAdminReports } from '@/hooks/useAdminReports'
 import GeneralSalesReport from './components/GeneralSalesReport'
 
@@ -227,26 +229,30 @@ export default function AdminReportes() {
 
         {/* Tabs de Reportes */}
         <Tabs defaultValue="ventas" className="space-y-6" onValueChange={setReporteActivo}>
-          <TabsList className="no-print grid grid-cols-5 md:w-[860px] bg-gray-100 dark:bg-gray-800">
-            <TabsTrigger value="ventas" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+          <TabsList className="no-print grid grid-cols-3 sm:grid-cols-6 w-full max-w-5xl bg-gray-100 dark:bg-gray-800 h-auto p-1 gap-1">
+            <TabsTrigger value="ventas" className="flex items-center gap-2 py-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <CreditCard className="w-4 h-4" />
-              <span className="hidden sm:inline">Ventas</span>
+              <span>Ventas</span>
             </TabsTrigger>
-            <TabsTrigger value="reportes-comparativas" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+            <TabsTrigger value="reportes-comparativas" className="flex items-center gap-2 py-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <BarChart3 className="w-4 h-4" />
-              <span className="hidden sm:inline">Reportes y Comparativas</span>
+              <span className="truncate">Comparativas</span>
             </TabsTrigger>
-            <TabsTrigger value="productos" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+            <TabsTrigger value="productos" className="flex items-center gap-2 py-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <PieChart className="w-4 h-4" />
-              <span className="hidden sm:inline">Productos</span>
+              <span>Productos</span>
             </TabsTrigger>
-            <TabsTrigger value="inventario" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+            <TabsTrigger value="inventario" className="flex items-center gap-2 py-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <TrendingDown className="w-4 h-4" />
-              <span className="hidden sm:inline">Inventario</span>
+              <span>Inventario</span>
             </TabsTrigger>
-            <TabsTrigger value="clientes" className="flex items-center gap-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+            <TabsTrigger value="clientes" className="flex items-center gap-2 py-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
               <TrendingUp className="w-4 h-4" />
-              <span className="hidden sm:inline">Clientes</span>
+              <span>Clientes</span>
+            </TabsTrigger>
+            <TabsTrigger value="delivery" className="flex items-center gap-2 py-2 data-[state=active]:bg-white dark:data-[state=active]:bg-gray-700">
+              <Truck className="w-4 h-4" />
+              <span>Delivery</span>
             </TabsTrigger>
           </TabsList>
 
@@ -472,6 +478,11 @@ export default function AdminReportes() {
                 </div>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Reporte de Delivery */}
+          <TabsContent value="delivery" className="no-print">
+            <DeliveryReportTab orders={orders} />
           </TabsContent>
         </Tabs>
       </main>
