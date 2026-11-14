@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
-import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Bug, Moon, Sun, MessageCircle, Sliders, Sparkles, Mail, Store, ChevronDown, UserPlus } from "lucide-react"
+import { Home, ShoppingCart, Package, BarChart3, Settings, LogOut, User, MapPin, Moon, Sun, MessageCircle, Sliders, Sparkles, Mail, Store, ChevronDown, UserPlus } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useEffect, useState, useRef } from 'react'
 import { httpsCallable } from "firebase/functions"
@@ -352,15 +352,6 @@ export default function AdminHeader() {
                       <UserPlus className="w-4 h-4 text-pink-500 shrink-0" />
                       <span>Crear usuario</span>
                     </button>
-
-                    <Link
-                      href="/admin/debug-clientes"
-                      onClick={() => setOpenUserMenu(false)}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
-                    >
-                      <Bug className="w-4 h-4 text-gray-500 shrink-0" />
-                      <span>Debug Clientes</span>
-                    </Link>
                   </div>
 
                   <div className="border-t border-gray-100 dark:border-gray-800 pt-1">

@@ -34,6 +34,7 @@ import {
   getDriverSettlements,
   saveDriverSettlement,
   DriverSettlement,
+  DriverSettlementOrderItem,
 } from "@/lib/driver-settlements"
 import { ExtendedOrder, getOrderDeliveryFee, getSafeTime, getOrderDateRaw, isDeliveryOrder } from "./PagosReport"
 
@@ -61,6 +62,7 @@ export default function RepartidoresPlanillaModal({
 
   // Estados para modal de envío por Email
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false)
+  const [emailTargetSettlement, setEmailTargetSettlement] = useState<DriverSettlement | null>(null)
   const [emailDestino, setEmailDestino] = useState("")
   const [emailNotas, setEmailNotas] = useState("")
   const [sendingEmail, setSendingEmail] = useState(false)
@@ -236,14 +238,22 @@ export default function RepartidoresPlanillaModal({
   const paidOrderIds = useMemo(() => {
     const set = new Set<string>()
     driverSettlements.forEach((s) => {
-      s.pedidosIds?.forEach((id) => set.add(id))
+      s.pedidosIds?.forEach((id) => {
+        if (id) set.add(String(id))
+      })
     })
     return set
   }, [driverSettlements])
 
-  // Separar pedidos pendientes de pago vs pedidos ya pagados
+  const isOrderPaidInSettlements = (o: ExtendedOrder) => {
+    const docId = o.documentId ? String(o.documentId) : ""
+    const ordId = o.id ? String(o.id) : ""
+    return (docId && paidOrderIds.has(docId)) || (ordId && paidOrderIds.has(ordId))
+  }
+
+  // Pedidos pendientes de liquidar (acumulados desde la última liquidación, sin importar el día)
   const pendingOrders = useMemo(() => {
-    return driverOrders.filter((o) => !paidOrderIds.has(o.documentId || o.id || ""))
+    return driverOrders.filter((o) => !isOrderPaidInSettlements(o))
   }, [driverOrders, paidOrderIds])
 
   const totalPendiente = useMemo(() => {
@@ -255,11 +265,104 @@ export default function RepartidoresPlanillaModal({
   }, [driverOrders])
 
   const totalYaPagado = useMemo(() => {
-    return totalHistorico - totalPendiente
-  }, [totalHistorico, totalPendiente])
+    return driverSettlements.reduce((acc, s) => acc + (Number(s.totalPagado) || 0), 0)
+  }, [driverSettlements])
+
+  // Formatear rango de fechas ("Del DD/MM/YYYY al DD/MM/YYYY") a partir de una lista de pedidos
+  const computePeriodFromOrders = (ordersList: ExtendedOrder[], fallbackDate?: Date) => {
+    const validTimes = ordersList
+      .map((o) => getSafeTime(getOrderDateRaw(o)))
+      .filter((t) => t > 0)
+      .sort((a, b) => a - b)
+
+    const fallbackMs = (fallbackDate || new Date()).getTime()
+    const startMs = validTimes.length > 0 ? validTimes[0] : fallbackMs
+    const endMs = validTimes.length > 0 ? validTimes[validTimes.length - 1] : fallbackMs
+
+    const fmtDate = (ms: number) =>
+      new Date(ms).toLocaleDateString("es-CL", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+
+    const inicioStr = fmtDate(startMs)
+    const finStr = fmtDate(endMs)
+
+    return {
+      fechaInicio: new Date(startMs).toISOString(),
+      fechaFin: new Date(endMs).toISOString(),
+      periodoTexto: `Del ${inicioStr} al ${finStr}`,
+    }
+  }
+
+  // Rango de fechas del período actualmente pendiente por liquidar
+  const currentPendingPeriodTexto = useMemo(() => {
+    if (pendingOrders.length === 0) return null
+    return computePeriodFromOrders(pendingOrders).periodoTexto
+  }, [pendingOrders])
+
+  // Obtener etiqueta del período ("Del DD/MM/YYYY al DD/MM/YYYY") para cualquier liquidación registrada
+  const getSettlementPeriodLabel = (s: DriverSettlement): string => {
+    if (s.periodoTexto) return s.periodoTexto
+    const idSet = new Set((s.pedidosIds || []).map(String))
+    const matched = driverOrders.filter(
+      (o) => (o.documentId && idSet.has(String(o.documentId))) || (o.id && idSet.has(String(o.id)))
+    )
+    if (matched.length > 0) {
+      return computePeriodFromOrders(matched).periodoTexto
+    }
+    if (s.fechaInicio && s.fechaFin) {
+      const d1 = new Date(s.fechaInicio).toLocaleDateString("es-CL", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+      const d2 = new Date(s.fechaFin).toLocaleDateString("es-CL", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+      return `Del ${d1} al ${d2}`
+    }
+    return s.fechaPagoTexto || s.fechaPago
+  }
+
+  // Reconstruir los ítems detallados de una liquidación pasada para poder imprimirla en cualquier momento
+  const getSettlementDetailedItems = (s: DriverSettlement): DriverSettlementOrderItem[] => {
+    if (Array.isArray(s.pedidosDetalle) && s.pedidosDetalle.length > 0) {
+      return s.pedidosDetalle
+    }
+    const idSet = new Set((s.pedidosIds || []).map(String))
+    const matched = driverOrders.filter(
+      (o) => (o.documentId && idSet.has(String(o.documentId))) || (o.id && idSet.has(String(o.id)))
+    )
+    return matched.map((pedido) => {
+      const fee = getOrderDeliveryFee(pedido)
+      const fechaRaw = getOrderDateRaw(pedido)
+      const fechaStr = fechaRaw
+        ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
+            dateStyle: "short",
+            timeStyle: "short",
+          })
+        : "Sin fecha"
+      const dir = pedido.direccion
+        ? `${pedido.direccion.calle || ""} ${pedido.direccion.numero || ""}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ""}`.trim()
+        : "Sin dirección"
+      return {
+        id: String(pedido.documentId || pedido.id || ""),
+        orderNumber: pedido.orderNumber || pedido.id,
+        fechaHora: fechaStr,
+        cliente: pedido.cliente?.nombre || "Cliente",
+        direccion: dir,
+        estado: "PAGADO",
+        montoDelivery: fee,
+      }
+    })
+  }
 
   // Estado si la planilla actual no tiene nada pendiente (está pagada totalmente)
-  const estaTotalmentePagado = pendingOrders.length === 0 && driverOrders.length > 0
+  const estaTotalmentePagado = pendingOrders.length === 0 && (driverOrders.length > 0 || driverSettlements.length > 0)
 
   // Eliminar repartidor de la planilla (registra en el historial de eliminación en orden cronológico)
   const handleEliminarDePlanilla = (iniciales: string) => {
@@ -308,7 +411,7 @@ export default function RepartidoresPlanillaModal({
     })
   }
 
-  // Registrar pago total de los repartos acumulados hasta la fecha consultada
+  // Registrar pago total de los repartos no liquidados acumulados hasta el momento
   const handlePagarTotal = async () => {
     if (!currentDriver || pendingOrders.length === 0) return
 
@@ -320,6 +423,40 @@ export default function RepartidoresPlanillaModal({
         timeStyle: "short",
       })
 
+      const { fechaInicio, fechaFin, periodoTexto } = computePeriodFromOrders(pendingOrders, ahora)
+
+      const pedidosDetalle: DriverSettlementOrderItem[] = pendingOrders.map((pedido) => {
+        const fee = getOrderDeliveryFee(pedido)
+        const fechaRaw = getOrderDateRaw(pedido)
+        const fechaStr = fechaRaw
+          ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
+              dateStyle: "short",
+              timeStyle: "short",
+            })
+          : "Sin fecha"
+        const dir = pedido.direccion
+          ? `${pedido.direccion.calle || ""} ${pedido.direccion.numero || ""}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ""}`.trim()
+          : "Sin dirección"
+        return {
+          id: String(pedido.documentId || pedido.id || ""),
+          orderNumber: pedido.orderNumber || pedido.id,
+          fechaHora: fechaStr,
+          cliente: pedido.cliente?.nombre || "Cliente",
+          direccion: dir,
+          estado: "PAGADO",
+          montoDelivery: fee,
+        }
+      })
+
+      // Incluir tanto documentId como id para garantizar coincidencia exacta al filtrar pendientes
+      const idsToMarkPaid = Array.from(
+        new Set(
+          pendingOrders.flatMap((o) =>
+            [o.documentId, o.id].filter((v): v is string => Boolean(v)).map(String)
+          )
+        )
+      )
+
       const newSettlement: DriverSettlement = {
         id: `liq_${currentDriver.iniciales}_${Date.now()}`,
         repartidorIniciales: currentDriver.iniciales,
@@ -327,8 +464,12 @@ export default function RepartidoresPlanillaModal({
         repartidorNombre: currentDriver.nombre,
         fechaPago: ahora.toISOString(),
         fechaPagoTexto,
+        fechaInicio,
+        fechaFin,
+        periodoTexto,
         totalPagado: totalPendiente,
-        pedidosIds: pendingOrders.map((o) => o.documentId || o.id),
+        pedidosIds: idsToMarkPaid,
+        pedidosDetalle,
         pedidosCount: pendingOrders.length,
         createdAt: ahora.toISOString(),
       }
@@ -338,8 +479,8 @@ export default function RepartidoresPlanillaModal({
       if (ok) {
         setSettlements((prev) => [newSettlement, ...prev])
         toast({
-          title: "¡Repartos Pagados Exitosamente!",
-          description: `Se liquidaron ${pendingOrders.length} repartos de ${currentDriver.nombre} por un total de ${formatCurrency(totalPendiente)}. Puedes imprimir o enviar la planilla por email.`,
+          title: "¡Período Liquidado Exitosamente!",
+          description: `Se registró el pago (${periodoTexto}) de ${pendingOrders.length} repartos de ${currentDriver.nombre} por ${formatCurrency(totalPendiente)}. El contador "Por Pagar" volvió a $0.`,
         })
       } else {
         throw new Error("No se pudo guardar la liquidación")
@@ -356,9 +497,54 @@ export default function RepartidoresPlanillaModal({
     }
   }
 
-  // Imprimir planilla completa con pictograma de impresora
-  const handleImprimirPlanilla = () => {
-    if (!currentDriver || driverOrders.length === 0) return
+  // Imprimir planilla detallada del período en liquidación (o de un período específico ya liquidado)
+  const handleImprimirPlanilla = (targetSettlement?: DriverSettlement) => {
+    if (!currentDriver) return
+
+    // Si no se especificó una liquidación puntual y no hay pendientes, imprimir la última liquidación pagada
+    const settlementToPrint =
+      targetSettlement || (pendingOrders.length === 0 && driverSettlements.length > 0 ? driverSettlements[0] : undefined)
+
+    const itemsToPrint: DriverSettlementOrderItem[] = settlementToPrint
+      ? getSettlementDetailedItems(settlementToPrint)
+      : pendingOrders.map((pedido) => {
+          const fee = getOrderDeliveryFee(pedido)
+          const fechaRaw = getOrderDateRaw(pedido)
+          const fechaStr = fechaRaw
+            ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
+                dateStyle: "short",
+                timeStyle: "short",
+              })
+            : "Sin fecha"
+          const dir = pedido.direccion
+            ? `${pedido.direccion.calle || ""} ${pedido.direccion.numero || ""}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ""}`.trim()
+            : "Sin dirección"
+          return {
+            id: String(pedido.documentId || pedido.id || ""),
+            orderNumber: pedido.orderNumber || pedido.id,
+            fechaHora: fechaStr,
+            cliente: pedido.cliente?.nombre || "Cliente",
+            direccion: dir,
+            estado: pedido.estado || "Pendiente",
+            montoDelivery: fee,
+          }
+        })
+
+    if (itemsToPrint.length === 0 && !settlementToPrint) return
+
+    const periodoImpresion = settlementToPrint
+      ? getSettlementPeriodLabel(settlementToPrint)
+      : currentPendingPeriodTexto || "Período actual"
+
+    const montoTotalImpresion = settlementToPrint
+      ? settlementToPrint.totalPagado
+      : totalPendiente
+
+    const cantidadRepartosImpresion = settlementToPrint
+      ? settlementToPrint.pedidosCount || itemsToPrint.length
+      : pendingOrders.length
+
+    const esPeriodoPagado = Boolean(settlementToPrint)
 
     const printWindow = window.open("", "_blank", "width=850,height=900")
     if (!printWindow) {
@@ -375,41 +561,27 @@ export default function RepartidoresPlanillaModal({
       timeStyle: "short",
     })
 
-    const filas = driverOrders
-      .map((pedido) => {
-        const fee = getOrderDeliveryFee(pedido)
-        const isPaid = paidOrderIds.has(pedido.documentId || pedido.id || "")
-        const fechaRaw = getOrderDateRaw(pedido)
-        const fechaStr = fechaRaw
-          ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
-              dateStyle: "short",
-              timeStyle: "short",
-            })
-          : "Sin fecha"
-        const cliente = pedido.cliente?.nombre || "Cliente"
-        const dir = pedido.direccion
-          ? `${pedido.direccion.calle || ""} ${pedido.direccion.numero || ""}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ""}`.trim()
-          : "Sin dirección"
-
+    const filas = itemsToPrint
+      .map((item) => {
         return `
           <tr>
-            <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-weight: bold; font-size: 11px;">#${pedido.orderNumber || pedido.id}</td>
-            <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; font-size: 11px; color: #4b5563;">${fechaStr}</td>
+            <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; font-family: monospace; font-weight: bold; font-size: 11px;">#${item.orderNumber || item.id}</td>
+            <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; white-space: nowrap; font-size: 11px; color: #4b5563;">${item.fechaHora}</td>
             <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; font-size: 11px;">
-              <strong style="color: #111827;">${cliente}</strong><br>
-              <span style="color: #6b7280; font-size: 10px;">${dir}</span>
+              <strong style="color: #111827;">${item.cliente}</strong><br>
+              <span style="color: #6b7280; font-size: 10px;">${item.direccion}</span>
             </td>
             <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; text-align: center;">
               <span style="display: inline-block; padding: 2px 6px; font-size: 9px; font-weight: bold; border-radius: 4px; ${
-                isPaid
+                esPeriodoPagado
                   ? "background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;"
                   : "background: #fffbeb; color: #92400e; border: 1px solid #fde68a;"
               }">
-                ${isPaid ? "PAGADO" : pedido.estado}
+                ${esPeriodoPagado ? "LIQUIDADO" : item.estado || "POR LIQUIDAR"}
               </span>
             </td>
             <td style="padding: 7px 8px; border-bottom: 1px solid #e5e7eb; text-align: right; font-weight: bold; font-size: 11px; color: #111827;">
-              ${formatCurrency(fee)}
+              ${formatCurrency(item.montoDelivery)}
             </td>
           </tr>
         `
@@ -558,13 +730,13 @@ export default function RepartidoresPlanillaModal({
             <span class="driver-badge">${currentDriver.iniciales}</span>
             <strong style="font-size: 14px; color: #111827;">${currentDriver.nombre}</strong>
             <div style="font-size: 11px; color: #6b7280; margin-top: 3px;">
-              Repartos acumulados: <strong>${driverOrders.length}</strong> &bull; Repartos pagados: <strong>${paidOrderIds.size}</strong>
+              Período: <strong>${periodoImpresion}</strong> &bull; Repartos del período: <strong>${cantidadRepartosImpresion}</strong>
             </div>
           </div>
           <div style="text-align: right;">
-            <div style="font-size: 10px; text-transform: uppercase; font-weight: bold; color: #6b7280;">Estado Actual</div>
-            <div style="font-size: 13px; font-weight: 800; color: ${pendingOrders.length === 0 ? "#059669" : "#d97706"};">
-              ${pendingOrders.length === 0 ? "✓ REPARTOS PAGADOS" : "EN LIQUIDACIÓN"}
+            <div style="font-size: 10px; text-transform: uppercase; font-weight: bold; color: #6b7280;">Estado del Período</div>
+            <div style="font-size: 13px; font-weight: 800; color: ${esPeriodoPagado ? "#059669" : "#d97706"};">
+              ${esPeriodoPagado ? "✓ PERÍODO LIQUIDADO" : "POR LIQUIDAR"}
             </div>
           </div>
         </div>
@@ -586,20 +758,16 @@ export default function RepartidoresPlanillaModal({
 
         <div class="totals-section">
           <div class="total-row">
-            <span>Total Repartos:</span>
-            <strong>${driverOrders.length}</strong>
+            <span>Período:</span>
+            <strong>${periodoImpresion}</strong>
           </div>
           <div class="total-row">
-            <span>Monto ya Liquidado:</span>
-            <strong>${formatCurrency(totalYaPagado)}</strong>
-          </div>
-          <div class="total-row">
-            <span>Monto Pendiente:</span>
-            <strong style="color: #db2777;">${formatCurrency(totalPendiente)}</strong>
+            <span>Repartos del Período:</span>
+            <strong>${cantidadRepartosImpresion}</strong>
           </div>
           <div class="total-row total-final">
             <span>TOTAL LIQUIDACIÓN:</span>
-            <span>${formatCurrency(totalHistorico)}</span>
+            <span>${formatCurrency(montoTotalImpresion)}</span>
           </div>
         </div>
 
@@ -653,7 +821,7 @@ export default function RepartidoresPlanillaModal({
       return
     }
 
-    if (!currentDriver || driverOrders.length === 0) return
+    if (!currentDriver || (pendingOrders.length === 0 && driverSettlements.length === 0)) return
 
     setSendingEmail(true)
     try {
@@ -662,27 +830,52 @@ export default function RepartidoresPlanillaModal({
         timeStyle: "short",
       })
 
-      const pedidosPayload = driverOrders.map((pedido) => {
-        const fee = getOrderDeliveryFee(pedido)
-        const fechaRaw = getOrderDateRaw(pedido)
-        const fechaStr = fechaRaw
-          ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
-              dateStyle: "short",
-              timeStyle: "short",
-            })
-          : "Sin fecha"
-        const dir = pedido.direccion
-          ? `${pedido.direccion.calle || ""} ${pedido.direccion.numero || ""}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ""}`.trim()
-          : "Sin dirección"
+      const activeSettlementForEmail =
+        emailTargetSettlement || (pendingOrders.length === 0 ? driverSettlements[0] : undefined)
 
-        return {
-          numeroPedido: pedido.orderNumber || pedido.id,
-          fechaHora: fechaStr,
-          cliente: pedido.cliente?.nombre || "Cliente",
-          direccion: dir,
-          montoDelivery: fee,
-        }
-      })
+      const itemsForEmail = activeSettlementForEmail
+        ? getSettlementDetailedItems(activeSettlementForEmail)
+        : pendingOrders.map((pedido) => {
+            const fee = getOrderDeliveryFee(pedido)
+            const fechaRaw = getOrderDateRaw(pedido)
+            const fechaStr = fechaRaw
+              ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                })
+              : "Sin fecha"
+            const dir = pedido.direccion
+              ? `${pedido.direccion.calle || ""} ${pedido.direccion.numero || ""}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ""}`.trim()
+              : "Sin dirección"
+            return {
+              id: String(pedido.documentId || pedido.id || ""),
+              orderNumber: pedido.orderNumber || pedido.id,
+              fechaHora: fechaStr,
+              cliente: pedido.cliente?.nombre || "Cliente",
+              direccion: dir,
+              montoDelivery: fee,
+            }
+          })
+
+      const pedidosPayload = itemsForEmail.map((item) => ({
+        numeroPedido: item.orderNumber || item.id,
+        fechaHora: item.fechaHora,
+        cliente: item.cliente,
+        direccion: item.direccion,
+        montoDelivery: item.montoDelivery,
+      }))
+
+      const totalPedidosEmail = activeSettlementForEmail
+        ? activeSettlementForEmail.pedidosCount || itemsForEmail.length
+        : pendingOrders.length
+
+      const totalMontoEmail = activeSettlementForEmail
+        ? activeSettlementForEmail.totalPagado
+        : totalPendiente
+
+      const periodoEmail = activeSettlementForEmail
+        ? getSettlementPeriodLabel(activeSettlementForEmail)
+        : currentPendingPeriodTexto || "Período actual"
 
       const sendFn = httpsCallable(functions, "enviarLiquidacionRepartidorEmail")
       const res = await sendFn({
@@ -691,10 +884,11 @@ export default function RepartidoresPlanillaModal({
           repartidorNombre: currentDriver.nombre,
           repartidorIniciales: currentDriver.iniciales,
           fechaEmision,
-          estadoLiquidacion:
-            pendingOrders.length === 0 ? "Repartos Pagados / Liquidados" : "En Liquidación",
-          totalPedidos: driverOrders.length,
-          totalMonto: totalHistorico,
+          estadoLiquidacion: activeSettlementForEmail
+            ? `Período Liquidado (${periodoEmail})`
+            : `En Liquidación (${periodoEmail})`,
+          totalPedidos: totalPedidosEmail,
+          totalMonto: totalMontoEmail,
           pedidos: pedidosPayload,
           notas: emailNotas.trim(),
         },
@@ -704,9 +898,10 @@ export default function RepartidoresPlanillaModal({
       if (data?.success) {
         toast({
           title: "¡Planilla enviada con éxito!",
-          description: `Se envió la planilla de liquidación de ${currentDriver.nombre} a ${emailDestino.trim()}.`,
+          description: `Se envió la planilla de liquidación (${periodoEmail}) de ${currentDriver.nombre} a ${emailDestino.trim()}.`,
         })
         setIsEmailModalOpen(false)
+        setEmailTargetSettlement(null)
         setEmailNotas("")
       } else {
         throw new Error("No se pudo completar el envío del correo")
@@ -847,8 +1042,11 @@ export default function RepartidoresPlanillaModal({
                           </h3>
                         </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400">
-                          {driverOrders.length}{" "}
-                          {driverOrders.length === 1 ? "reparto registrado" : "repartos registrados"} en total
+                          {pendingOrders.length}{" "}
+                          {pendingOrders.length === 1
+                            ? "reparto pendiente de liquidar"
+                            : "repartos pendientes de liquidar"}{" "}
+                          &bull; {driverOrders.length} en historial
                         </p>
                       </div>
                     </div>
@@ -857,10 +1055,10 @@ export default function RepartidoresPlanillaModal({
                     <div className="flex items-center gap-4 text-right">
                       <div>
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">
-                          Total Histórico
+                          Ya Liquidado
                         </div>
-                        <div className="text-sm font-bold text-gray-800 dark:text-gray-200">
-                          {formatCurrency(totalHistorico)}
+                        <div className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
+                          {formatCurrency(totalYaPagado)}
                         </div>
                       </div>
                       <div className="border-l border-gray-200 dark:border-gray-700 pl-4">
@@ -874,9 +1072,9 @@ export default function RepartidoresPlanillaModal({
                     </div>
                   </div>
 
-                  {/* Planilla de Repartos (con marca de agua "REPARTOS PAGADOS" cuando corresponde) */}
+                  {/* Planilla de Repartos (con marca de agua "REPARTOS PAGADOS" cuando no hay deuda pendiente) */}
                   <div className="relative border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-xs flex-1 flex flex-col overflow-hidden">
-                    {/* MARCA DE AGUA: Aparece desenfocada en el fondo cuando la planilla está pagada */}
+                    {/* MARCA DE AGUA: Aparece desenfocada en el fondo cuando el contador Por Pagar está en 0 */}
                     {(estaTotalmentePagado || savingPayment) && (
                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0 overflow-hidden">
                         <div
@@ -894,23 +1092,37 @@ export default function RepartidoresPlanillaModal({
                     <div className="p-4 flex-1 overflow-x-auto relative z-10">
                       <div className="min-w-[620px]">
                         {/* Título de la Planilla */}
-                        <div className="border-b border-gray-200 dark:border-gray-700 pb-2 mb-3 flex items-center justify-between">
-                          <div className="text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">
-                            Detalle de Repartos Acumulados
+                        <div className="border-b border-gray-200 dark:border-gray-700 pb-2 mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">
+                              Detalle de Repartos No Liquidados
+                            </div>
+                            {currentPendingPeriodTexto && (
+                              <div className="text-[11px] text-pink-600 dark:text-pink-400 font-semibold mt-0.5">
+                                Período acumulado: {currentPendingPeriodTexto}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                          <div className="text-[11px] text-gray-500 dark:text-gray-400 font-medium">
                             {pendingOrders.length}{" "}
-                            {pendingOrders.length === 1 ? "pedido pendiente" : "pedidos pendientes"}
+                            {pendingOrders.length === 1 ? "pedido por liquidar" : "pedidos por liquidar"}
                           </div>
                         </div>
 
-                        {driverOrders.length === 0 ? (
-                          <div className="py-12 text-center text-gray-400 text-sm">
-                            Este repartidor aún no tiene pedidos de delivery asignados.
+                        {pendingOrders.length === 0 ? (
+                          <div className="py-10 text-center text-gray-500 dark:text-gray-400 text-xs space-y-1">
+                            <p className="font-semibold text-sm text-gray-700 dark:text-gray-200">
+                              {driverSettlements.length > 0
+                                ? "No hay repartos pendientes por liquidar (Contador Por Pagar en $0)."
+                                : "Este repartidor aún no tiene pedidos de delivery pendientes de liquidar."}
+                            </p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500">
+                              Todos los nuevos repartos que entregue este repartidor se irán sumando aquí automáticamente hasta que decidas liquidarlos.
+                            </p>
                           </div>
                         ) : (
                           <>
-                            {/* TABLA DE PEDIDOS */}
+                            {/* TABLA DE PEDIDOS NO LIQUIDADOS */}
                             <table className="w-full text-xs">
                               <thead>
                                 <tr className="border-b border-gray-200 dark:border-gray-700 text-left text-gray-500 dark:text-gray-400 font-semibold">
@@ -922,9 +1134,8 @@ export default function RepartidoresPlanillaModal({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                                {driverOrders.map((pedido) => {
+                                {pendingOrders.map((pedido) => {
                                   const fee = getOrderDeliveryFee(pedido)
-                                  const isPaid = paidOrderIds.has(pedido.documentId || pedido.id || "")
                                   const fechaRaw = getOrderDateRaw(pedido)
                                   const fechaStr = fechaRaw
                                     ? new Date(getSafeTime(fechaRaw)).toLocaleString("es-CL", {
@@ -940,9 +1151,7 @@ export default function RepartidoresPlanillaModal({
                                   return (
                                     <tr
                                       key={pedido.documentId || pedido.id}
-                                      className={`hover:bg-gray-50/80 dark:hover:bg-gray-800/40 transition-colors ${
-                                        isPaid ? "opacity-75 bg-gray-50/40 dark:bg-gray-900/40" : ""
-                                      }`}
+                                      className="hover:bg-gray-50/80 dark:hover:bg-gray-800/40 transition-colors"
                                     >
                                       <td className="py-2.5 px-2 font-bold font-mono text-gray-900 dark:text-white">
                                         #{pedido.orderNumber || pedido.id}
@@ -959,14 +1168,8 @@ export default function RepartidoresPlanillaModal({
                                         </div>
                                       </td>
                                       <td className="py-2.5 px-2">
-                                        <span
-                                          className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                                            isPaid
-                                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700"
-                                              : "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700"
-                                          }`}
-                                        >
-                                          {isPaid ? "Liquidado" : pedido.estado}
+                                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                                          {pedido.estado}
                                         </span>
                                       </td>
                                       <td className="py-2.5 px-2 text-right font-extrabold text-gray-900 dark:text-white">
@@ -977,45 +1180,80 @@ export default function RepartidoresPlanillaModal({
                                 })}
                               </tbody>
                             </table>
+                          </>
+                        )}
 
-                            {/* Sumatoria Total de Deliverys */}
-                            <div className="mt-4 pt-3 border-t-2 border-gray-300 dark:border-gray-700 flex justify-between items-center px-2">
-                              <span className="text-xs uppercase tracking-wider font-extrabold text-gray-700 dark:text-gray-300">
-                                Sumatoria Total de Deliverys:
-                              </span>
-                              <span className="text-lg font-black text-gray-900 dark:text-white font-mono">
-                                {formatCurrency(totalHistorico)}
-                              </span>
+                        {/* Sumatoria Total de Deliverys No Liquidados */}
+                        <div className="mt-4 pt-3 border-t-2 border-gray-300 dark:border-gray-700 flex justify-between items-center px-2">
+                          <span className="text-xs uppercase tracking-wider font-extrabold text-gray-700 dark:text-gray-300">
+                            Sumatoria de Repartos No Liquidados (Por Pagar):
+                          </span>
+                          <span className="text-lg font-black text-pink-600 dark:text-pink-400 font-mono">
+                            {formatCurrency(totalPendiente)}
+                          </span>
+                        </div>
+
+                        {/* LÍNEA DIVISORIA FINAL Y REGISTRO DE PERÍODOS LIQUIDADOS */}
+                        {driverSettlements.length > 0 && (
+                          <div className="mt-6 space-y-3">
+                            <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                              Registro de Períodos y Liquidaciones Pagadas:
                             </div>
-
-                            {/* LÍNEA DIVISORIA FINAL DE CIERRE DE PAGO */}
-                            {driverSettlements.length > 0 && (
-                              <div className="mt-6 space-y-3">
-                                <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                                  Registro de Períodos y Liquidaciones Pagadas:
-                                </div>
-                                {driverSettlements.map((s, idx) => (
-                                  <div
-                                    key={s.id || idx}
-                                    className="border-t-2 border-dashed border-emerald-500/80 pt-3 pb-2 px-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-xs text-emerald-900 dark:text-emerald-200"
-                                  >
-                                    <div className="flex items-center gap-2">
+                            {driverSettlements.map((s, idx) => {
+                              const periodoCancelado = getSettlementPeriodLabel(s)
+                              return (
+                                <div
+                                  key={s.id || idx}
+                                  className="border-t-2 border-dashed border-emerald-500/80 pt-3 pb-2.5 px-3 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-900 dark:text-emerald-200"
+                                >
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="flex flex-wrap items-center gap-2">
                                       <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                       <span className="font-extrabold">
-                                        Período Pagado: {s.fechaPagoTexto || s.fechaPago}
+                                        Período Cancelado: {periodoCancelado}
                                       </span>
-                                      <span className="text-[11px] opacity-80">
+                                      <span className="text-[11px] opacity-85 font-semibold">
                                         ({s.pedidosCount} {s.pedidosCount === 1 ? "reparto" : "repartos"})
                                       </span>
                                     </div>
-                                    <div className="font-black text-sm text-emerald-700 dark:text-emerald-300">
-                                      Total Liquidado: {formatCurrency(s.totalPagado)}
+                                    <div className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 pl-6">
+                                      Fecha de pago: {s.fechaPagoTexto || s.fechaPago}
                                     </div>
                                   </div>
-                                ))}
-                              </div>
-                            )}
-                          </>
+                                  <div className="flex items-center justify-between sm:justify-end gap-1.5">
+                                    <div className="font-black text-sm text-emerald-700 dark:text-emerald-300 mr-1.5">
+                                      Total Liquidado: {formatCurrency(s.totalPagado)}
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => handleImprimirPlanilla(s)}
+                                      className="w-7 h-7 p-0 border-emerald-400 dark:border-emerald-700 bg-white/90 dark:bg-gray-900/80 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 flex items-center justify-center rounded-lg cursor-pointer shrink-0"
+                                      title="Imprimir detalle de este período liquidado"
+                                      aria-label="Imprimir detalle de este período liquidado"
+                                    >
+                                      <Printer className="w-3.5 h-3.5" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="icon"
+                                      onClick={() => {
+                                        setEmailTargetSettlement(s)
+                                        setIsEmailModalOpen(true)
+                                      }}
+                                      className="w-7 h-7 p-0 border-emerald-400 dark:border-emerald-700 bg-white/90 dark:bg-gray-900/80 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 flex items-center justify-center rounded-lg cursor-pointer shrink-0"
+                                      title="Enviar detalle de este período liquidado por email"
+                                      aria-label="Enviar detalle de este período liquidado por email"
+                                    >
+                                      <Mail className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1034,7 +1272,7 @@ export default function RepartidoresPlanillaModal({
                         ) : (
                           <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1.5">
                             <CheckCircle2 className="w-4 h-4" />
-                            Todos los repartos acumulados hasta la fecha están pagados.
+                            Por Pagar: $0 — Todos los repartos acumulados hasta el momento están liquidados.
                           </span>
                         )}
                       </div>
@@ -1045,10 +1283,14 @@ export default function RepartidoresPlanillaModal({
                           type="button"
                           variant="outline"
                           size="icon"
-                          disabled={driverOrders.length === 0}
-                          onClick={handleImprimirPlanilla}
+                          disabled={pendingOrders.length === 0 && driverSettlements.length === 0}
+                          onClick={() => handleImprimirPlanilla()}
                           className="w-9 h-9 rounded-xl border-gray-300 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200 flex items-center justify-center shadow-xs cursor-pointer shrink-0"
-                          title="Imprimir planilla"
+                          title={
+                            pendingOrders.length > 0
+                              ? "Imprimir período pendiente a liquidar"
+                              : "Imprimir último período liquidado"
+                          }
                           aria-label="Imprimir planilla"
                         >
                           <Printer className="w-4 h-4 text-gray-700 dark:text-gray-300" />
@@ -1059,10 +1301,17 @@ export default function RepartidoresPlanillaModal({
                           type="button"
                           variant="outline"
                           size="icon"
-                          disabled={driverOrders.length === 0}
-                          onClick={() => setIsEmailModalOpen(true)}
+                          disabled={pendingOrders.length === 0 && driverSettlements.length === 0}
+                          onClick={() => {
+                            setEmailTargetSettlement(null)
+                            setIsEmailModalOpen(true)
+                          }}
                           className="w-9 h-9 rounded-xl border-pink-300 dark:border-pink-800/80 hover:bg-pink-50 dark:hover:bg-pink-950/40 text-pink-600 dark:text-pink-400 flex items-center justify-center shadow-xs cursor-pointer shrink-0"
-                          title="Enviar planilla por email"
+                          title={
+                            pendingOrders.length > 0
+                              ? "Enviar período pendiente por email"
+                              : "Enviar último período liquidado por email"
+                          }
                           aria-label="Enviar planilla por email"
                         >
                           <Mail className="w-4 h-4 text-pink-600 dark:text-pink-400" />
@@ -1128,7 +1377,11 @@ export default function RepartidoresPlanillaModal({
                       {currentDriver.nombre}
                     </div>
                     <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                      {driverOrders.length} {driverOrders.length === 1 ? "reparto" : "repartos"}
+                      {emailTargetSettlement
+                        ? `${emailTargetSettlement.pedidosCount} repartos (${getSettlementPeriodLabel(emailTargetSettlement)})`
+                        : pendingOrders.length > 0
+                        ? `${pendingOrders.length} ${pendingOrders.length === 1 ? "reparto por liquidar" : "repartos por liquidar"} (${currentPendingPeriodTexto || "Período actual"})`
+                        : `${driverSettlements[0]?.pedidosCount || 0} repartos (${driverSettlements[0] ? getSettlementPeriodLabel(driverSettlements[0]) : "Último período liquidado"})`}
                     </div>
                   </div>
                 </div>
@@ -1137,7 +1390,13 @@ export default function RepartidoresPlanillaModal({
                     Total Planilla
                   </div>
                   <div className="text-pink-700 dark:text-pink-300 font-extrabold text-sm">
-                    {formatCurrency(totalHistorico)}
+                    {formatCurrency(
+                      emailTargetSettlement
+                        ? emailTargetSettlement.totalPagado
+                        : pendingOrders.length > 0
+                        ? totalPendiente
+                        : driverSettlements[0]?.totalPagado || 0
+                    )}
                   </div>
                 </div>
               </div>

@@ -12,7 +12,6 @@ import {
   signInWithPopup,
   setPersistence,
   browserLocalPersistence,
-  browserSessionPersistence,
 } from "firebase/auth"
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore"
 import { auth, db } from "@/lib/firebase"
@@ -75,6 +74,18 @@ const AuthContext = createContext<AuthContextType | null>(null)
 
 const ADMIN_TAB_SESSION_KEY = "palermo_admin_tab_session_active"
 const ADMIN_TAB_LAST_UNLOAD_KEY = "palermo_admin_tab_last_unload"
+const ADMIN_ACTIVE_TABS_KEY = "palermo_admin_active_tabs"
+const ADMIN_PING_STORAGE_KEY = "palermo_admin_session_ping"
+const ADMIN_PONG_STORAGE_KEY = "palermo_admin_session_pong"
+const ADMIN_CHANNEL_NAME = "palermo_admin_session_channel"
+const ADMIN_TAB_HEARTBEAT_MS = 3000
+const ADMIN_TAB_FRESH_MS = 12000
+const ADMIN_TAB_STALE_MS = 60000
+
+const CURRENT_TAB_ID =
+  typeof window !== "undefined"
+    ? `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+    : "server"
 
 function getNavigationType(): string | null {
   if (typeof window === "undefined" || typeof performance === "undefined") return null
@@ -82,27 +93,85 @@ function getNavigationType(): string | null {
   return entries && entries.length > 0 ? entries[0].type : null
 }
 
+function readActiveAdminTabs(): Record<string, number> {
+  if (typeof window === "undefined") return {}
+  try {
+    const raw = localStorage.getItem(ADMIN_ACTIVE_TABS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === "object" ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeActiveAdminTabs(tabs: Record<string, number>): void {
+  if (typeof window === "undefined") return
+  try {
+    localStorage.setItem(ADMIN_ACTIVE_TABS_KEY, JSON.stringify(tabs))
+  } catch {
+    // Ignorar errores de almacenamiento
+  }
+}
+
+function registerCurrentAdminTabHeartbeat(): void {
+  if (typeof window === "undefined") return
+  try {
+    const now = Date.now()
+    const tabs = readActiveAdminTabs()
+    const nextTabs: Record<string, number> = {}
+    for (const [id, ts] of Object.entries(tabs)) {
+      if (typeof ts === "number" && now - ts < ADMIN_TAB_STALE_MS) {
+        nextTabs[id] = ts
+      }
+    }
+    nextTabs[CURRENT_TAB_ID] = now
+    writeActiveAdminTabs(nextTabs)
+  } catch {
+    // Ignorar errores de almacenamiento
+  }
+}
+
+function unregisterCurrentAdminTab(): void {
+  if (typeof window === "undefined") return
+  try {
+    const tabs = readActiveAdminTabs()
+    if (CURRENT_TAB_ID in tabs) {
+      delete tabs[CURRENT_TAB_ID]
+      writeActiveAdminTabs(tabs)
+    }
+  } catch {
+    // Ignorar errores de almacenamiento
+  }
+}
+
 function markAdminTabSessionActive(): void {
   if (typeof window === "undefined") return
   try {
     sessionStorage.setItem(ADMIN_TAB_SESSION_KEY, "1")
     sessionStorage.removeItem(ADMIN_TAB_LAST_UNLOAD_KEY)
+    registerCurrentAdminTabHeartbeat()
   } catch {
     // Ignorar errores de almacenamiento
   }
 }
 
-function clearAdminTabSession(): void {
+function clearAdminTabSession(clearAllTabs = false): void {
   if (typeof window === "undefined") return
   try {
     sessionStorage.removeItem(ADMIN_TAB_SESSION_KEY)
     sessionStorage.removeItem(ADMIN_TAB_LAST_UNLOAD_KEY)
+    if (clearAllTabs) {
+      localStorage.removeItem(ADMIN_ACTIVE_TABS_KEY)
+    } else {
+      unregisterCurrentAdminTab()
+    }
   } catch {
     // Ignorar errores de almacenamiento
   }
 }
 
-function hasValidAdminTabSession(): boolean {
+function hasValidCurrentTabSession(): boolean {
   if (typeof window === "undefined") return true
   try {
     const isActive = sessionStorage.getItem(ADMIN_TAB_SESSION_KEY) === "1"
@@ -111,8 +180,9 @@ function hasValidAdminTabSession(): boolean {
     const lastUnload = sessionStorage.getItem(ADMIN_TAB_LAST_UNLOAD_KEY)
     if (lastUnload) {
       const navType = getNavigationType()
-      if (navType !== "reload") {
-        // La pestaña fue cerrada/restaurada o navegada externamente, no recargada con F5
+      const elapsed = Date.now() - Number(lastUnload)
+      if (navType !== "reload" && (!Number.isFinite(elapsed) || elapsed > 1500)) {
+        // La pestaña fue cerrada y restaurada más tarde, no recargada con F5
         return false
       }
       sessionStorage.removeItem(ADMIN_TAB_LAST_UNLOAD_KEY)
@@ -122,6 +192,112 @@ function hasValidAdminTabSession(): boolean {
   } catch {
     return false
   }
+}
+
+function hasOtherActiveAdminTabInStorage(): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    const now = Date.now()
+    const tabs = readActiveAdminTabs()
+    return Object.entries(tabs).some(
+      ([id, ts]) => id !== CURRENT_TAB_ID && typeof ts === "number" && now - ts < ADMIN_TAB_FRESH_MS
+    )
+  } catch {
+    return false
+  }
+}
+
+function pingOtherOpenAdminTabs(timeoutMs = 180): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false)
+
+  return new Promise((resolve) => {
+    let settled = false
+    let channel: BroadcastChannel | null = null
+
+    const finish = (result: boolean) => {
+      if (settled) return
+      settled = true
+      window.removeEventListener("storage", onStorage)
+      if (channel) {
+        try {
+          channel.close()
+        } catch {
+          // Ignorar
+        }
+      }
+      resolve(result)
+    }
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === ADMIN_PONG_STORAGE_KEY && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue)
+          if (data?.responderId && data.responderId !== CURRENT_TAB_ID) {
+            finish(true)
+          }
+        } catch {
+          // Ignorar
+        }
+      } else if (e.key === ADMIN_ACTIVE_TABS_KEY && hasOtherActiveAdminTabInStorage()) {
+        finish(true)
+      }
+    }
+
+    window.addEventListener("storage", onStorage)
+
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        channel = new BroadcastChannel(ADMIN_CHANNEL_NAME)
+        channel.onmessage = (event) => {
+          const data = event?.data
+          if (data?.type === "ADMIN_SESSION_PONG" && data.responderId !== CURRENT_TAB_ID) {
+            finish(true)
+          }
+        }
+        channel.postMessage({ type: "ADMIN_SESSION_PING", senderId: CURRENT_TAB_ID })
+      }
+    } catch {
+      // Ignorar si BroadcastChannel no está disponible
+    }
+
+    try {
+      localStorage.setItem(
+        ADMIN_PING_STORAGE_KEY,
+        JSON.stringify({ senderId: CURRENT_TAB_ID, ts: Date.now() })
+      )
+    } catch {
+      // Ignorar
+    }
+
+    setTimeout(() => {
+      finish(hasOtherActiveAdminTabInStorage())
+    }, timeoutMs)
+  })
+}
+
+async function hasOrCanInheritAdminSession(): Promise<boolean> {
+  if (typeof window === "undefined") return true
+
+  // 1. Si esta misma pestaña ya tenía la sesión activa (ej. recarga F5 o navegación interna)
+  if (hasValidCurrentTabSession()) {
+    markAdminTabSessionActive()
+    return true
+  }
+
+  // 2. Si existe otra pestaña activa registrada recientemente en el mismo navegador
+  if (hasOtherActiveAdminTabInStorage()) {
+    markAdminTabSessionActive()
+    return true
+  }
+
+  // 3. Consultar en tiempo real a otras pestañas abiertas (incluso si estaban en segundo plano)
+  const peerAlive = await pingOtherOpenAdminTabs()
+  if (peerAlive) {
+    markAdminTabSessionActive()
+    return true
+  }
+
+  return false
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -134,7 +310,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: true,
   })
 
-  // Registrar descarga/cierre de pestaña mientras haya una sesión de administrador/staff activa
+  // Mantener sincronización multi-pestaña y registrar cierre de pestaña para sesiones admin/staff
   useEffect(() => {
     const isAdminOrStaff =
       authState.isAuthenticated &&
@@ -142,19 +318,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (!isAdminOrStaff) return;
 
+    markAdminTabSessionActive();
+
+    const heartbeatInterval = setInterval(() => {
+      registerCurrentAdminTabHeartbeat();
+    }, ADMIN_TAB_HEARTBEAT_MS);
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === "visible") {
+        registerCurrentAdminTabHeartbeat();
+      }
+    };
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== "undefined") {
+        channel = new BroadcastChannel(ADMIN_CHANNEL_NAME);
+        channel.onmessage = (event) => {
+          const data = event?.data;
+          if (data?.type === "ADMIN_SESSION_PING" && data.senderId !== CURRENT_TAB_ID) {
+            registerCurrentAdminTabHeartbeat();
+            channel?.postMessage({
+              type: "ADMIN_SESSION_PONG",
+              responderId: CURRENT_TAB_ID,
+              ts: Date.now(),
+            });
+          }
+        };
+      }
+    } catch {
+      // Ignorar si BroadcastChannel falla
+    }
+
+    const handleStoragePing = (e: StorageEvent) => {
+      if (e.key === ADMIN_PING_STORAGE_KEY && e.newValue) {
+        try {
+          const data = JSON.parse(e.newValue);
+          if (data?.senderId && data.senderId !== CURRENT_TAB_ID) {
+            registerCurrentAdminTabHeartbeat();
+            localStorage.setItem(
+              ADMIN_PONG_STORAGE_KEY,
+              JSON.stringify({ responderId: CURRENT_TAB_ID, ts: Date.now() })
+            );
+          }
+        } catch {
+          // Ignorar
+        }
+      }
+    };
+
     const handlePageUnload = () => {
       try {
         sessionStorage.setItem(ADMIN_TAB_LAST_UNLOAD_KEY, String(Date.now()));
+        unregisterCurrentAdminTab();
       } catch {
         // Ignorar errores de almacenamiento al cerrar
       }
     };
 
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+    window.addEventListener("storage", handleStoragePing);
     window.addEventListener("pagehide", handlePageUnload);
     window.addEventListener("beforeunload", handlePageUnload);
+
     return () => {
+      clearInterval(heartbeatInterval);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      window.removeEventListener("storage", handleStoragePing);
       window.removeEventListener("pagehide", handlePageUnload);
       window.removeEventListener("beforeunload", handlePageUnload);
+      if (channel) {
+        try {
+          channel.close();
+        } catch {
+          // Ignorar
+        }
+      }
     };
   }, [authState.isAuthenticated, authState.user?.role]);
 
@@ -192,23 +433,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const isInteractive = interactiveLoginRef.current;
           interactiveLoginRef.current = false;
 
-          // Si el usuario tiene rol admin/staff pero cerró la pestaña/sistema sin cerrar sesión,
-          // cerrar sesión automáticamente y exigir credenciales al volver a ingresar.
-          if (isAdminOrStaff && !isInteractive && !hasValidAdminTabSession()) {
-            console.log("[AuthContext] Sesión de administrador expirada tras cerrar el sistema; cerrando sesión automáticamente.");
-            clearAdminTabSession();
-            await signOut(auth);
-            setAuthState({
-              user: null,
-              firebaseUser: null,
-              isAuthenticated: false,
-              isLoading: false,
-            });
-            return;
-          }
-
-          if (!isAdminOrStaff) {
-            clearAdminTabSession();
+          // Si el usuario tiene rol admin/staff, verificar si la sesión sigue abierta en esta u otra pestaña.
+          // Si todas las pestañas del sistema se cerraron sin cerrar sesión, cerrar sesión automáticamente.
+          if (isAdminOrStaff) {
+            if (isInteractive) {
+              markAdminTabSessionActive();
+            } else {
+              const sessionAlive = await hasOrCanInheritAdminSession();
+              if (!sessionAlive) {
+                console.log("[AuthContext] Sesión de administrador expirada tras cerrar todas las pestañas; cerrando sesión automáticamente.");
+                clearAdminTabSession(true);
+                await signOut(auth);
+                setAuthState({
+                  user: null,
+                  firebaseUser: null,
+                  isAuthenticated: false,
+                  isLoading: false,
+                });
+                return;
+              }
+            }
+          } else {
+            clearAdminTabSession(false);
           }
 
           if (existingData) {
@@ -286,6 +532,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
         }
       } else {
+        clearAdminTabSession(false);
         setAuthState({
           user: null,
           firebaseUser: null,
@@ -321,13 +568,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     interactiveLoginRef.current = true
     markAdminTabSessionActive()
     try {
-      // Usar persistencia de sesión (sessionStorage) para que al cerrar pestaña/navegador
-      // la sesión de administrador se cierre automáticamente sin quedar guardada en IndexedDB.
-      await setPersistence(auth, browserSessionPersistence)
+      // Usar browserLocalPersistence para compartir la sesión entre pestañas abiertas del mismo navegador,
+      // delegando el control de cierre total de pestañas al registro multi-pestaña de AuthContext.
+      await setPersistence(auth, browserLocalPersistence)
       await signInWithEmailAndPassword(auth, email, password)
     } catch (error: any) {
       interactiveLoginRef.current = false
-      clearAdminTabSession()
+      clearAdminTabSession(false)
       console.error("Error al iniciar sesión de administrador:", {
         code: error?.code,
         message: error?.message,
@@ -421,7 +668,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       interactiveLoginRef.current = false
-      clearAdminTabSession()
+      clearAdminTabSession(true)
       await signOut(auth)
       // El estado se actualizará automáticamente por onAuthStateChanged
     } catch (error) {

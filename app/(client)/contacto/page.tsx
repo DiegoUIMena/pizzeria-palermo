@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/app/context/AuthContext"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,18 +8,20 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { toast } from "@/hooks/use-toast"
 import { httpsCallable } from "firebase/functions"
 import { functions } from "@/lib/firebase"
 import Link from "next/link"
-import { Mail, CheckCircle2 } from "lucide-react"
+import { Mail, CheckCircle2, ChevronDown, Check } from "lucide-react"
+
+const TIPOS_MENSAJE = [
+  { value: "Consulta", label: "Consulta" },
+  { value: "Solicitud", label: "Solicitud" },
+  { value: "Reclamo", label: "Reclamo" },
+  { value: "Sugerencia", label: "Sugerencia" },
+  { value: "Felicitaciones", label: "Felicitaciones" },
+  { value: "Otro", label: "Otro" },
+]
 
 export default function ContactPage() {
   const { user } = useAuth()
@@ -34,6 +36,8 @@ export default function ContactPage() {
   const [correo, setCorreo] = useState("")
   const [telefono, setTelefono] = useState("")
   const [tipo, setTipo] = useState<string>("")
+  const [openTipoMenu, setOpenTipoMenu] = useState<boolean>(false)
+  const tipoDropdownRef = useRef<HTMLDivElement>(null)
   const [asunto, setAsunto] = useState("")
   const [mensaje, setMensaje] = useState("")
   const [aceptaPolitica, setAceptaPolitica] = useState(false)
@@ -44,6 +48,26 @@ export default function ContactPage() {
   // Capturar tiempo de carga en el cliente
   useEffect(() => {
     setCargadoEn(Date.now())
+  }, [])
+
+  // Cerrar desplegable al hacer clic fuera o presionar Escape
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (tipoDropdownRef.current && !tipoDropdownRef.current.contains(event.target as Node)) {
+        setOpenTipoMenu(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenTipoMenu(false)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
   }, [])
 
   // Autocompletar datos si el usuario está autenticado
@@ -291,19 +315,92 @@ export default function ContactPage() {
                   <Label htmlFor="tipo" className="text-sm font-semibold text-gray-900 dark:text-white">
                     Tipo de mensaje <span className="text-pink-600">*</span>
                   </Label>
-                  <Select value={tipo} onValueChange={setTipo} required>
-                    <SelectTrigger className="border-gray-300 dark:border-gray-700 rounded-xl focus:ring-pink-500">
-                      <SelectValue placeholder="Seleccione una opción" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Consulta">Consulta</SelectItem>
-                      <SelectItem value="Solicitud">Solicitud</SelectItem>
-                      <SelectItem value="Reclamo">Reclamo</SelectItem>
-                      <SelectItem value="Sugerencia">Sugerencia</SelectItem>
-                      <SelectItem value="Felicitaciones">Felicitaciones</SelectItem>
-                      <SelectItem value="Otro">Otro</SelectItem>
-                    </SelectContent>
-                  </Select>
+
+                  <style dangerouslySetInnerHTML={{ __html: `
+                    @keyframes customSelectDropdownIn {
+                      0% {
+                        opacity: 0 !important;
+                        transform: translateY(-8px) scale(0.97) !important;
+                      }
+                      100% {
+                        opacity: 1 !important;
+                        transform: translateY(0) scale(1) !important;
+                      }
+                    }
+                    .contact-select-menu {
+                      position: absolute !important;
+                      top: calc(100% + 6px) !important;
+                      left: 0 !important;
+                      right: 0 !important;
+                      z-index: 99999 !important;
+                      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+                      animation: customSelectDropdownIn 180ms cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+                      transform-origin: top center !important;
+                    }
+                  `}} />
+
+                  <div ref={tipoDropdownRef} className="relative w-full">
+                    <button
+                      id="tipo"
+                      type="button"
+                      onClick={() => setOpenTipoMenu((prev) => !prev)}
+                      aria-haspopup="listbox"
+                      aria-expanded={openTipoMenu}
+                      className={`w-full h-10 px-3 py-2 bg-white dark:bg-gray-900 border rounded-xl text-sm flex items-center justify-between transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-pink-500 ${
+                        openTipoMenu
+                          ? "border-pink-500 dark:border-pink-500 ring-2 ring-pink-500/20"
+                          : "border-gray-300 dark:border-gray-700 hover:border-pink-500 dark:hover:border-pink-500"
+                      }`}
+                    >
+                      <span
+                        className={`truncate ${
+                          tipo
+                            ? "text-gray-900 dark:text-gray-100 font-medium"
+                            : "text-gray-500 dark:text-gray-400"
+                        }`}
+                      >
+                        {TIPOS_MENSAJE.find((t) => t.value === tipo)?.label || "Seleccione una opción"}
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 text-gray-400 shrink-0 transition-transform duration-200 ${
+                          openTipoMenu ? "rotate-180 text-pink-600 dark:text-pink-400" : ""
+                        }`}
+                      />
+                    </button>
+
+                    {openTipoMenu && (
+                      <div
+                        role="listbox"
+                        className="contact-select-menu bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl py-1.5 overflow-hidden"
+                      >
+                        {TIPOS_MENSAJE.map((opt) => {
+                          const isSelected = tipo === opt.value
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              role="option"
+                              aria-selected={isSelected}
+                              onClick={() => {
+                                setTipo(opt.value)
+                                setOpenTipoMenu(false)
+                              }}
+                              className={`w-full text-left px-3.5 py-2.5 text-sm flex items-center justify-between transition-colors cursor-pointer ${
+                                isSelected
+                                  ? "bg-pink-50 dark:bg-pink-950/40 text-pink-600 dark:text-pink-400 font-semibold"
+                                  : "text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700/60"
+                              }`}
+                            >
+                              <span>{opt.label}</span>
+                              {isSelected && (
+                                <Check className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0 ml-2" />
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

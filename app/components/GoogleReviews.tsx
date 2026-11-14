@@ -257,13 +257,13 @@ export default function GoogleReviews() {
             </p>
 
             {/* VISTA DESKTOP: Carrusel de 4 páginas (2 tarjetas a la vez) con una sola tira continua y gap-4 idéntico entre todas las tarjetas */}
-            <div className="hidden lg:block w-full overflow-hidden relative lg:-mx-8 lg:px-8 lg:py-10 -mx-4 px-4 py-4">
+            <div className="hidden lg:block w-full max-w-[580px] mx-auto lg:mx-0 overflow-hidden relative lg:-mx-4 lg:px-4 lg:py-8 -mx-4 px-4 py-4">
               <div 
                 className="flex reviews-slider-desktop w-full gap-4"
                 style={{ transform: `translateX(calc(-${currentPage * 100}% - ${currentPage * 16}px))` }}
               >
                 {reviews.map((review) => (
-                  <div key={review.id} className="w-[calc((100%-16px)/2)] flex-shrink-0 lg:pb-8 lg:pt-4 pb-4 pt-2">
+                  <div key={review.id} className="w-[calc((100%-16px)/2)] flex-shrink-0 lg:pb-6 lg:pt-3 pb-4 pt-2 flex justify-center">
                     <ReviewCard review={review} />
                   </div>
                 ))}
@@ -282,7 +282,7 @@ export default function GoogleReviews() {
                 style={{ transform: `translateX(-${currentPage * 100}%)` }}
               >
                 {reviews.map((review) => (
-                  <div key={review.id} className="w-full flex-shrink-0 px-2 pb-4 pt-2">
+                  <div key={review.id} className="w-full flex-shrink-0 px-3 pb-4 pt-2 flex justify-center">
                     <ReviewCard review={review} isMobile={true} />
                   </div>
                 ))}
@@ -290,7 +290,7 @@ export default function GoogleReviews() {
             </div>
 
             {/* Controles de Navegación del Carrusel (Sólo Dots) para Desktop y Móvil */}
-            <div className="flex items-center justify-center mt-6 py-2">
+            <div className="flex items-center justify-center w-full lg:max-w-[580px] mt-4 py-2">
               {/* Dots Indicadores de Posición */}
               <div className="flex gap-1.5 items-center justify-center">
                 {isDesktop ? (
@@ -354,10 +354,10 @@ export default function GoogleReviews() {
               href="https://short.do/-vfk8Z"
               target="_blank"
               rel="noopener noreferrer"
-              className="relative w-full max-w-xs group z-20"
+              className="relative inline-flex w-fit max-w-full group z-20"
             >
               <button 
-                className="w-full flex items-center justify-between bg-[#e21b70] hover:bg-[#c2145d] text-white py-3.5 px-6 rounded-full font-black text-[11px] md:text-[12px] uppercase tracking-wider transition-all duration-300 shadow-[0_4px_15px_rgba(226,27,112,0.3)] hover:shadow-[0_8px_25px_rgba(226,27,112,0.4)] hover:scale-[1.03] active:scale-[0.98] outline-none"
+                className="w-fit max-w-full flex items-center justify-center gap-2.5 bg-[#e21b70] hover:bg-[#c2145d] text-white py-3.5 px-5 sm:px-7 rounded-full font-black text-[11px] md:text-[12px] uppercase tracking-wider transition-all duration-300 shadow-[0_4px_15px_rgba(226,27,112,0.3)] hover:shadow-[0_8px_25px_rgba(226,27,112,0.4)] hover:scale-[1.03] active:scale-[0.98] outline-none"
               >
                 {/* Logo Google en círculo blanco a la izquierda */}
                 <div className="w-7 h-7 bg-white rounded-full flex items-center justify-center flex-shrink-0 shadow-sm transition-transform duration-300 group-hover:rotate-12">
@@ -370,7 +370,7 @@ export default function GoogleReviews() {
                 </div>
                 
                 {/* Texto del Botón */}
-                <span className="flex-1 text-center font-bold px-2 whitespace-nowrap">
+                <span className="text-center font-bold px-1 whitespace-nowrap">
                   DEJAR UNA OPINIÓN EN GOOGLE MAPS
                 </span>
 
@@ -421,10 +421,10 @@ interface ReviewCardProps {
 function ReviewCard({ review, isMobile = false }: ReviewCardProps) {
   return (
     <div 
-      className={`bg-white border border-gray-100 rounded-2xl p-6 flex flex-col justify-between min-h-[285px] h-full transition-all duration-300 ${
+      className={`bg-white border border-gray-100 rounded-2xl p-5 flex flex-col justify-between min-h-[265px] h-full transition-all duration-300 ${
         isMobile 
-          ? 'max-w-md mx-auto w-full shadow-[0_4px_20px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_25px_rgba(0,0,0,0.10)]' 
-          : 'w-full shadow-[0_8px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_15px_35px_rgba(0,0,0,0.12)] border-gray-100/90 transform hover:-translate-y-1.5'
+          ? 'max-w-[310px] sm:max-w-[330px] mx-auto w-full shadow-[0_4px_20px_rgba(0,0,0,0.06)] hover:shadow-[0_8px_25px_rgba(0,0,0,0.10)]' 
+          : 'max-w-[275px] w-full shadow-[0_8px_30px_rgba(0,0,0,0.06)] hover:shadow-[0_15px_35px_rgba(0,0,0,0.12)] border-gray-100/90 transform hover:-translate-y-1.5'
       }`}
     >
       <div>

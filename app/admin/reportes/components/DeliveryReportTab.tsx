@@ -37,7 +37,7 @@ interface DeliveryReportTabProps {
   orders: any[]
 }
 
-type PeriodoFilter = "hoy" | "semana" | "mes" | "personalizado"
+type PeriodoFilter = "hoy" | "semana" | "mes" | "anio" | "personalizado"
 
 // Funciones auxiliares ultra-seguras para extraer strings de pedidos de Firestore
 // previniendo cualquier error de renderizado de objetos como React Children
@@ -200,6 +200,9 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
     } else if (periodoFilter === "mes") {
       start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0)
       end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+    } else if (periodoFilter === "anio") {
+      start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0)
+      end = new Date(now.getFullYear(), 11, 31, 23, 59, 59, 999)
     } else if (periodoFilter === "personalizado" && selectedDate) {
       const [year, month, day] = selectedDate.split("-").map(Number)
       if (year && month && day) {
@@ -219,8 +222,10 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
       return t >= startTime && t <= endTime
     })
 
-    // Solo ventas válidas (no canceladas / no pendientes no pagadas)
-    const validInPeriod = inPeriod.filter(isValidSale)
+    // Todos los pedidos registrados en el sistema (excluyendo solo cancelados o pagos rechazados)
+    const validInPeriod = inPeriod.filter(
+      (o) => o.estado !== "Cancelado" && o.estado !== "Pago Rechazado"
+    )
 
     // Filtrar solo pedidos de delivery
     const deliveryList = validInPeriod.filter((o) => isDeliveryOrder(o) || getOrderDeliveryFee(o) > 0)
@@ -270,6 +275,7 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
     if (periodoFilter === "hoy") return "Hoy"
     if (periodoFilter === "semana") return "Esta Semana"
     if (periodoFilter === "mes") return "Este Mes"
+    if (periodoFilter === "anio") return "Este Año"
     return selectedDate || "Personalizado"
   }, [periodoFilter, selectedDate])
 
@@ -321,6 +327,19 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
               }`}
             >
               Este Mes
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={periodoFilter === "anio" ? "default" : "outline"}
+              onClick={() => setPeriodoFilter("anio")}
+              className={`text-xs h-8 ${
+                periodoFilter === "anio"
+                  ? "bg-amber-600 hover:bg-amber-700 text-white"
+                  : "text-gray-700 dark:text-gray-300"
+              }`}
+            >
+              Este Año
             </Button>
 
             {/* Selector de Fecha Específica */}
@@ -428,7 +447,7 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
                 Venta Total en Delivery
               </CardTitle>
               <CardDescription className="text-xs text-gray-500">
-                Productos + Delivery
+                Total de deliverys registrados ({periodoLabel})
               </CardDescription>
             </div>
             <div className="p-2 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg">
@@ -437,10 +456,11 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900 dark:text-white">
-              ${metrics.totalVentasDelivery.toLocaleString("es-CL")}
+              ${metrics.totalDelivery.toLocaleString("es-CL")}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-              Ingresos generados por pedidos entregados
+              {metrics.countDelivery}{" "}
+              {metrics.countDelivery === 1 ? "delivery realizado" : "deliverys realizados"} (todos los repartidores, liquidados y pendientes)
             </p>
           </CardContent>
         </Card>
@@ -611,11 +631,11 @@ export default function DeliveryReportTab({ orders }: DeliveryReportTabProps) {
         countDelivery={metrics.countDelivery}
       />
 
-      {/* Modal de Liquidación y Desglose por Repartidor */}
+      {/* Modal de Liquidación y Desglose por Repartidor (recibe todos los pedidos para acumular repartos no liquidados sin depender del día filtrado) */}
       <RepartidoresPlanillaModal
         open={repartidoresPlanillaModalOpen}
         onOpenChange={setRepartidoresPlanillaModalOpen}
-        orders={ordersInPeriod}
+        orders={orders as ExtendedOrder[]}
       />
     </div>
   )

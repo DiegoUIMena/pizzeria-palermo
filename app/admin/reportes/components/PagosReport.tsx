@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CreditCard, Banknote, Building, Receipt, RefreshCcw, Loader2, Globe, Store, Calendar, Printer, DollarSign, Truck, ClipboardList, Eye, EyeOff, Check, ChevronDown } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getFunctions, httpsCallable } from "firebase/functions"
+import { doc, getDoc, setDoc } from "firebase/firestore"
 import { db } from "@/lib/firebase"
 import { toast } from "@/hooks/use-toast"
 import ComandaModal from "@/app/admin/components/ComandaModal"
@@ -357,6 +358,111 @@ export default function PagosReport({ orders }: PagosReportProps) {
   const periodoRef = useRef<HTMLDivElement>(null)
   const metodoRef = useRef<HTMLDivElement>(null)
 
+  // Estado para registro diario de ventas PedidosYa (por fecha YYYY-MM-DD)
+  const [pedidosYaRecords, setPedidosYaRecords] = useState<Record<string, number>>({})
+  const [isEditingPedidosYa, setIsEditingPedidosYa] = useState<boolean>(false)
+  const [pedidosYaInput, setPedidosYaInput] = useState<string>("")
+  const pedidosYaInputRef = useRef<HTMLInputElement>(null)
+
+  const activePedidosYaDateKey = useMemo(() => {
+    if (periodoFilter === "fecha" && selectedDate) {
+      return selectedDate
+    }
+    return getTodayDateStr()
+  }, [periodoFilter, selectedDate])
+
+  const currentPedidosYaAmount = pedidosYaRecords[activePedidosYaDateKey] ?? 0
+
+  // Cargar registros de PedidosYa desde Firestore / localStorage
+  useEffect(() => {
+    const LOCAL_KEY = "admin_pedidos_ya_daily_sales"
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem(LOCAL_KEY)
+        if (cached) {
+          const parsed = JSON.parse(cached)
+          if (parsed && typeof parsed === "object") {
+            setPedidosYaRecords(parsed)
+          }
+        }
+      } catch (e) {
+        console.error("Error leyendo cache de PedidosYa:", e)
+      }
+    }
+
+    async function loadFromFirestore() {
+      try {
+        const docRef = doc(db, "settings", "pedidos_ya_daily_sales")
+        const snap = await getDoc(docRef)
+        if (snap.exists()) {
+          const data = snap.data()
+          if (data?.records && typeof data.records === "object") {
+            setPedidosYaRecords(data.records)
+            if (typeof window !== "undefined") {
+              localStorage.setItem(LOCAL_KEY, JSON.stringify(data.records))
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("No se pudo cargar registros de PedidosYa desde Firestore:", err)
+      }
+    }
+
+    loadFromFirestore()
+  }, [])
+
+  const handleStartEditPedidosYa = () => {
+    setPedidosYaInput(currentPedidosYaAmount > 0 ? String(currentPedidosYaAmount) : "")
+    setIsEditingPedidosYa(true)
+    setTimeout(() => {
+      pedidosYaInputRef.current?.focus()
+      pedidosYaInputRef.current?.select()
+    }, 0)
+  }
+
+  const handleSavePedidosYa = async () => {
+    setIsEditingPedidosYa(false)
+    const cleanDigits = pedidosYaInput.replace(/[^\d]/g, "")
+    const newAmount = cleanDigits ? parseInt(cleanDigits, 10) : 0
+    if (isNaN(newAmount) || newAmount < 0) return
+
+    if (newAmount === currentPedidosYaAmount) return
+
+    const updated = {
+      ...pedidosYaRecords,
+      [activePedidosYaDateKey]: newAmount,
+    }
+    setPedidosYaRecords(updated)
+
+    const LOCAL_KEY = "admin_pedidos_ya_daily_sales"
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(LOCAL_KEY, JSON.stringify(updated))
+      } catch (e) {
+        console.error("Error guardando PedidosYa en localStorage:", e)
+      }
+    }
+
+    try {
+      const docRef = doc(db, "settings", "pedidos_ya_daily_sales")
+      await setDoc(
+        docRef,
+        {
+          records: updated,
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      )
+    } catch (err) {
+      console.error("Error al guardar monto de PedidosYa en Firestore:", err)
+      toast({
+        title: "Aviso",
+        description: "El monto se guardó localmente, pero hubo un problema al sincronizar con la nube.",
+        variant: "destructive",
+      })
+    }
+  }
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (periodoRef.current && !periodoRef.current.contains(event.target as Node)) {
@@ -617,7 +723,7 @@ export default function PagosReport({ orders }: PagosReportProps) {
       </div>
 
       {/* Contenedores de Totales de Ventas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* 1. Total Efectivo */}
         <Card className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm hover:shadow transition-shadow">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
@@ -696,6 +802,60 @@ export default function PagosReport({ orders }: PagosReportProps) {
                 </span>
               )}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* 5. PedidosYa */}
+        <Card
+          onClick={() => {
+            if (!isEditingPedidosYa) {
+              handleStartEditPedidosYa()
+            }
+          }}
+          className="bg-white dark:bg-gray-800 border dark:border-gray-700 shadow-sm hover:shadow transition-shadow cursor-pointer flex flex-col justify-center"
+          title="Haz clic para ingresar o editar el monto del día en PedidosYa"
+        >
+          <CardContent className="p-6 flex flex-col items-center justify-center gap-3 h-full">
+            <img
+              src="/iconos/pedidos_ya.svg"
+              alt="PedidosYa"
+              className="h-9 w-auto rounded-md object-contain select-none"
+            />
+            {isEditingPedidosYa ? (
+              <div
+                className="flex items-center justify-center text-2xl font-bold text-gray-900 dark:text-white"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span>$</span>
+                <input
+                  ref={pedidosYaInputRef}
+                  type="text"
+                  inputMode="numeric"
+                  value={pedidosYaInput}
+                  onChange={(e) => setPedidosYaInput(e.target.value.replace(/[^\d]/g, ""))}
+                  onBlur={handleSavePedidosYa}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleSavePedidosYa()
+                    } else if (e.key === "Escape") {
+                      setIsEditingPedidosYa(false)
+                    }
+                  }}
+                  placeholder="0"
+                  className="w-28 bg-transparent border-b-2 border-pink-500 text-center text-2xl font-bold text-gray-900 dark:text-white focus:outline-none ml-0.5"
+                />
+              </div>
+            ) : (
+              <div
+                className={`text-2xl font-bold text-gray-900 dark:text-white text-center transition-all duration-300 ${
+                  mostrarMontos
+                    ? "filter-none select-auto opacity-100"
+                    : "blur-md select-none opacity-40"
+                }`}
+              >
+                ${currentPedidosYaAmount.toLocaleString("es-CL")}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

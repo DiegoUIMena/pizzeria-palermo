@@ -3,6 +3,16 @@
 import { doc, getDoc, setDoc } from "firebase/firestore"
 import { db } from "./firebase"
 
+export interface DriverSettlementOrderItem {
+  id: string
+  orderNumber?: string | number
+  fechaHora: string
+  cliente: string
+  direccion: string
+  estado?: string
+  montoDelivery: number
+}
+
 export interface DriverSettlement {
   id: string
   repartidorIniciales: string
@@ -10,8 +20,12 @@ export interface DriverSettlement {
   repartidorNombre?: string
   fechaPago: string
   fechaPagoTexto: string
+  fechaInicio?: string
+  fechaFin?: string
+  periodoTexto?: string
   totalPagado: number
   pedidosIds: string[]
+  pedidosDetalle?: DriverSettlementOrderItem[]
   pedidosCount: number
   createdAt: string
   notas?: string
