@@ -162,7 +162,13 @@ export default function GoogleReviews() {
   }, [nextPage])
 
   return (
-    <section className="w-full py-12 md:py-16 bg-[#fcfbf9] border-t border-b border-gray-100 relative overflow-hidden select-none">
+    <section
+      className="w-full py-12 md:py-16 relative overflow-hidden select-none border-t border-b border-gray-300/60"
+      style={{
+        background: "linear-gradient(135deg, rgba(229, 231, 235, 0.88) 0%, rgba(243, 232, 238, 0.85) 50%, rgba(226, 232, 240, 0.88) 100%)",
+        backdropFilter: "blur(2px)",
+      }}
+    >
       {/* Estilos para forzar la animación lenta y el tamaño/reseteo exacto de los dots con !important */}
       <style dangerouslySetInnerHTML={{__html: `
         .reviews-slider-desktop {
@@ -182,7 +188,7 @@ export default function GoogleReviews() {
           border: 0 !important;
           margin: 0 6px !important;
           outline: none !important;
-          background-color: #d1d5db !important;
+          background-color: #9ca3af !important;
           border-radius: 9999px !important;
           box-sizing: border-box !important;
           cursor: pointer !important;
@@ -203,7 +209,7 @@ export default function GoogleReviews() {
           border: 0 !important;
           margin: 0 5px !important;
           outline: none !important;
-          background-color: #d1d5db !important;
+          background-color: #9ca3af !important;
           border-radius: 9999px !important;
           box-sizing: border-box !important;
           cursor: pointer !important;
@@ -252,7 +258,7 @@ export default function GoogleReviews() {
             </div>
 
             {/* Subtítulo */}
-            <p className="text-gray-600 text-xs md:text-sm font-medium mb-8 flex items-center justify-center lg:justify-start gap-1">
+            <p className="text-gray-700 text-xs md:text-sm font-semibold mb-8 flex items-center justify-center lg:justify-start gap-1">
               Tu opinión nos ayuda a seguir mejorando cada día <span className="text-[#e21b70] text-sm">❤</span>
             </p>
 
@@ -345,7 +351,7 @@ export default function GoogleReviews() {
             </h3>
 
             {/* Texto Explicativo */}
-            <p className="text-gray-600 text-xs md:text-sm font-medium leading-relaxed max-w-sm mb-6">
+            <p className="text-gray-700 text-xs md:text-sm font-semibold leading-relaxed max-w-sm mb-6">
               Tu opinión en Google ayuda a otros clientes a conocernos y nos motiva a seguir entregando lo mejor.
             </p>
 

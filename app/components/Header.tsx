@@ -4,13 +4,6 @@ import Image from "next/image"
 import { Search, User, ShoppingCart, LogOut, ShoppingBag, UserCircle, Ticket } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu"
 import { useCart } from "../context/CartContext"
 import { useAuth } from "../context/AuthContext"
 import { useEffect, useRef, useState } from "react"
@@ -18,6 +11,8 @@ import Cart from "./Cart"
 import SearchModal from "./SearchModal"
 import SleepingCat from "./SleepingCat"
 import { useBusinessHours } from "@/hooks/useBusinessHours"
+import { doc, onSnapshot } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 export default function Header() {
   const { items } = useCart()
@@ -25,9 +20,40 @@ export default function Header() {
   const { isOpen } = useBusinessHours()
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isCartOpen, setIsCartOpen] = useState(false)
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [showCartHint, setShowCartHint] = useState(false)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const [mainNotice, setMainNotice] = useState<{ text: string; enabled: boolean }>({
+    text: "",
+    enabled: false,
+  })
   const previousItemCount = useRef(0)
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0)
+
+  useEffect(() => {
+    if (!db) return
+
+    const docRef = doc(db, "settings", "main_notice")
+    const unsubscribe = onSnapshot(
+      docRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data()
+          setMainNotice({
+            text: typeof data.text === "string" ? data.text.trim() : "",
+            enabled: Boolean(data.enabled),
+          })
+        } else {
+          setMainNotice({ text: "", enabled: false })
+        }
+      },
+      (error) => {
+        console.error("Error al escuchar main_notice en Header:", error)
+      }
+    )
+
+    return () => unsubscribe()
+  }, [])
 
   useEffect(() => {
     const hadNoItemsBefore = previousItemCount.current === 0
@@ -56,14 +82,42 @@ export default function Header() {
     return () => window.removeEventListener('openCart', handleOpenCart)
   }, [])
 
+  useEffect(() => {
+    if (!isUserMenuOpen) return
+
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsUserMenuOpen(false)
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside)
+    document.addEventListener("touchstart", handleClickOutside)
+    document.addEventListener("keydown", handleEscape)
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+      document.removeEventListener("touchstart", handleClickOutside)
+      document.removeEventListener("keydown", handleEscape)
+    }
+  }, [isUserMenuOpen])
+
   return (
     <>
       {/* Promotional Banner */}
-      <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white text-center py-2 px-4 text-xs sm:text-sm font-medium shadow-sm">
-        <span className="text-shadow-sm">
-          ¿Primera compra? Empanaditas Familiares GRATIS usando el código VECINOJUNIO. Compra mínima de $6.990
-        </span>
-      </div>
+      {mainNotice.enabled && mainNotice.text && (
+        <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white text-center py-2 px-4 text-xs sm:text-sm font-medium shadow-sm">
+          <span className="text-shadow-sm">
+            {mainNotice.text}
+          </span>
+        </div>
+      )}
 
       <header className="bg-white shadow-lg sticky top-0 z-40 border-b border-gray-200">
         <div className="container mx-auto px-4">
@@ -94,7 +148,9 @@ export default function Header() {
               {/* Search Button */}
               <button
                 onClick={() => setIsSearchOpen(true)}
-                className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px]"
+                className={`user-icon-trigger relative flex items-center justify-center rounded-full focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] ${
+                  isSearchOpen ? "is-active" : ""
+                }`}
                 title="Buscar"
               >
                 <Image
@@ -108,7 +164,11 @@ export default function Header() {
 
               {/* Puntos Palermo Icon (Solo registrados) */}
               {isAuthenticated && (
-                <Link href="/perfil/puntos" className="flex items-center hover:opacity-85 transition-opacity" title="Puntos Palermo">
+                <Link
+                  href="/perfil/puntos"
+                  className="user-icon-trigger relative flex items-center justify-center rounded-full focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px]"
+                  title="Puntos Palermo"
+                >
                   <Image
                     src="/iconos/header/puntos.svg"
                     alt="Puntos Palermo"
@@ -121,8 +181,17 @@ export default function Header() {
 
               {/* User Account */}
               {isAuthenticated ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger className="flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px]" title="Mi Cuenta">
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsUserMenuOpen((prev) => !prev)}
+                    aria-expanded={isUserMenuOpen}
+                    aria-haspopup="menu"
+                    className={`user-icon-trigger relative flex items-center justify-center rounded-full focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] ${
+                      isUserMenuOpen ? "is-active" : ""
+                    }`}
+                    title="Mi Cuenta"
+                  >
                     <Image
                       src="/iconos/header/usuario.svg"
                       alt="Usuario"
@@ -130,37 +199,67 @@ export default function Header() {
                       height={58}
                       className="w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] object-contain"
                     />
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-64 p-2">
-                    <div className="px-2 py-1.5">
-                      <p className="font-medium text-gray-900 text-sm">{user?.name}</p>
-                      <p className="text-xs text-gray-500 truncate">{user?.email}</p>
+                  </button>
+
+                  {/* Menú desplegable anclado directamente al botón de usuario */}
+                  <div
+                    role="menu"
+                    aria-hidden={!isUserMenuOpen}
+                    className={`user-dropdown-panel absolute right-0 top-full mt-2.5 w-64 rounded-xl bg-white border border-gray-200/90 shadow-xl p-2 z-50 origin-top-right ${
+                      isUserMenuOpen
+                        ? "is-open pointer-events-auto"
+                        : "is-closed pointer-events-none"
+                    }`}
+                  >
+                    <div className="px-3 py-2.5 bg-gradient-to-r from-pink-50/80 to-white rounded-lg mb-1 border border-pink-100/60">
+                      <p className="font-bold text-gray-900 text-sm truncate">{user?.name}</p>
+                      <p className="text-xs text-gray-500 truncate mt-0.5">{user?.email}</p>
                     </div>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem asChild>
-                      <Link href="/pedidos" className="cursor-pointer flex items-center text-sm">
-                        <ShoppingBag className="mr-2 h-4 w-4" />
-                        <span>Mis compras</span>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/perfil" className="cursor-pointer flex items-center text-sm">
-                        <User className="mr-2 h-4 w-4" />
-                        <span>Mi perfil</span>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={logout}
-                      className="cursor-pointer text-red-600 hover:text-red-700 hover:bg-red-50 text-sm"
+
+                    <div className="my-1 h-px bg-gray-100" />
+
+                    <Link
+                      href="/pedidos"
+                      onClick={() => setIsUserMenuOpen(false)}
+                      role="menuitem"
+                      className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:text-pink-600 hover:bg-pink-50/70 transition-colors cursor-pointer"
                     >
-                      <LogOut className="mr-2 h-4 w-4" />
+                      <ShoppingBag className="h-4 w-4 text-pink-500 shrink-0" />
+                      <span>Mis compras</span>
+                    </Link>
+
+                    <Link
+                      href="/perfil"
+                      onClick={() => setIsUserMenuOpen(false)}
+                      role="menuitem"
+                      className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:text-pink-600 hover:bg-pink-50/70 transition-colors cursor-pointer"
+                    >
+                      <User className="h-4 w-4 text-pink-500 shrink-0" />
+                      <span>Mi perfil</span>
+                    </Link>
+
+                    <div className="my-1 h-px bg-gray-100" />
+
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsUserMenuOpen(false)
+                        logout()
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 transition-colors cursor-pointer text-left"
+                    >
+                      <LogOut className="h-4 w-4 shrink-0" />
                       <span>Cerrar sesión</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <Link href="/auth" className="flex items-center hover:opacity-85 transition-opacity" title="Iniciar sesión">
+                <Link
+                  href="/auth"
+                  className="user-icon-trigger relative flex items-center justify-center rounded-full focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px]"
+                  title="Iniciar sesión"
+                >
                   <Image
                     src="/iconos/header/usuario.svg"
                     alt="Acceder"
@@ -184,9 +283,9 @@ export default function Header() {
 
                 <Sheet open={isCartOpen} onOpenChange={setIsCartOpen}>
                   <SheetTrigger
-                    className={`relative flex items-center justify-center hover:opacity-85 transition-opacity focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] ${
+                    className={`user-icon-trigger relative flex items-center justify-center rounded-full focus:outline-none w-[36px] h-[36px] xs:w-[44px] xs:h-[44px] sm:w-[52px] sm:h-[52px] md:w-[57px] md:h-[57px] ${
                       itemCount > 0 ? "animate-pulse-glow" : ""
-                    }`}
+                    } ${isCartOpen ? "is-active" : ""}`}
                     title="Carrito de compras"
                   >
                     <Image

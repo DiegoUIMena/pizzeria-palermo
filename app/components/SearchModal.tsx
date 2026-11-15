@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Search, X } from "lucide-react"
 import { Input } from "@/components/ui/input"
@@ -72,6 +72,10 @@ const staticProducts = [
 
 export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [searchTerm, setSearchTerm] = useState("")
+  const [shouldRender, setShouldRender] = useState(false)
+  const [isAnimatingIn, setIsAnimatingIn] = useState(false)
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   
   // Obtener datos de Firestore
@@ -143,7 +147,7 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
       router.push(`/?category=${categoryKey}`)
       // Esperar a que cargue y hacer scroll al producto específico
       setTimeout(() => {
-        scrollToProduct(productId)
+        scrollToProduct(product.id)
       }, 800)
     } else {
       // Ya estamos en inicio, activar categoría y hacer scroll
@@ -268,17 +272,44 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     }
   }
 
-  // Bloquear scroll del body cuando el modal está abierto
+  // Gestionar montaje y animación fluida de apertura/cierre
   useEffect(() => {
     if (isOpen) {
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current)
+      }
+      setShouldRender(true)
       document.body.style.overflow = 'hidden'
+
+      const enterFrame = requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsAnimatingIn(true)
+          inputRef.current?.focus()
+        })
+      })
+
+      return () => cancelAnimationFrame(enterFrame)
     } else {
+      setIsAnimatingIn(false)
       document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
+
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current)
+      }
+      exitTimerRef.current = setTimeout(() => {
+        setShouldRender(false)
+      }, 340)
     }
   }, [isOpen])
+
+  useEffect(() => {
+    return () => {
+      document.body.style.overflow = ''
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current)
+      }
+    }
+  }, [])
 
   // Cerrar con tecla Escape
   useEffect(() => {
@@ -291,30 +322,27 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
     return () => window.removeEventListener('keydown', handleEscape)
   }, [isOpen, onClose])
 
-  if (!isOpen) return null
+  if (!shouldRender) return null
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Overlay con blur */}
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
+        isAnimatingIn ? "pointer-events-auto" : "pointer-events-none"
+      }`}
+    >
+      {/* Overlay con blur progresivo */}
       <div
-        className="fixed inset-0 bg-black/75 backdrop-blur-sm animate-dialog-overlay-in"
+        className={`search-modal-backdrop fixed inset-0 bg-black/70 ${
+          isAnimatingIn ? "is-open" : "is-closed"
+        }`}
         onClick={onClose}
       />
       
       {/* Modal Content */}
       <div
-        className="fixed bg-white rounded-lg shadow-2xl animate-dialog-in"
-        style={{
-          left: '50%',
-          top: '50%',
-          transform: 'translate(-50%, -50%)',
-          maxWidth: '56rem',
-          width: '90%',
-          maxHeight: '80vh',
-          zIndex: 51,
-          display: 'flex',
-          flexDirection: 'column',
-        }}
+        className={`search-modal-card relative bg-white rounded-xl shadow-2xl border border-gray-100 w-[92%] max-w-4xl max-h-[80vh] z-[51] flex flex-col overflow-hidden ${
+          isAnimatingIn ? "is-open" : "is-closed"
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -326,7 +354,8 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
             </h2>
             <button
               onClick={onClose}
-              className="rounded-sm opacity-70 hover:opacity-100 transition-opacity"
+              className="rounded-full p-1.5 opacity-70 hover:opacity-100 hover:bg-gray-100 active:scale-95 transition-all"
+              aria-label="Cerrar búsqueda"
             >
               <X className="h-5 w-5 text-gray-500 hover:text-gray-700" />
             </button>
@@ -339,12 +368,12 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
             <Input
+              ref={inputRef}
               type="text"
               placeholder="Buscar pizzas, acompañamientos, bebidas..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-3 text-base border-2 border-gray-200 focus:border-pink-500 rounded-lg"
-              autoFocus
             />
             {searchTerm && (
               <button
@@ -404,6 +433,50 @@ export default function SearchModal({ isOpen, onClose }: SearchModalProps) {
           </div>
         </div>
       </div>
+
+      <style jsx>{`
+        .search-modal-backdrop {
+          opacity: 0;
+          backdrop-filter: blur(0px);
+          -webkit-backdrop-filter: blur(0px);
+          transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+                      backdrop-filter 320ms cubic-bezier(0.16, 1, 0.3, 1),
+                      -webkit-backdrop-filter 320ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+          will-change: opacity, backdrop-filter;
+        }
+
+        .search-modal-backdrop.is-open {
+          opacity: 1;
+          backdrop-filter: blur(5px);
+          -webkit-backdrop-filter: blur(5px);
+        }
+
+        .search-modal-backdrop.is-closed {
+          opacity: 0;
+          backdrop-filter: blur(0px);
+          -webkit-backdrop-filter: blur(0px);
+        }
+
+        .search-modal-card {
+          opacity: 0;
+          transform: translate3d(0, -18px, 0) scale(0.95);
+          transition: opacity 340ms cubic-bezier(0.16, 1, 0.3, 1),
+                      transform 360ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+          will-change: opacity, transform;
+        }
+
+        .search-modal-card.is-open {
+          opacity: 1;
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+
+        .search-modal-card.is-closed {
+          opacity: 0;
+          transform: translate3d(0, -12px, 0) scale(0.96);
+          transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1),
+                      transform 300ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+      `}</style>
     </div>
   )
 }

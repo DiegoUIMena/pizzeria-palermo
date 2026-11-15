@@ -161,7 +161,7 @@ export default function AuthPage() {
 
       <main className="container mx-auto px-4 py-12">
         <div className="flex justify-center">
-          <Card className="w-full max-w-md border-pink-400">
+          <Card className="auth-card-enter w-full max-w-md border-pink-400 shadow-2xl overflow-hidden">
             <CardHeader className="bg-gradient-to-r from-pink-400 to-pink-500 text-white">
               <Link href="/" className="flex items-center text-white mb-4 hover:text-pink-200">
                 <ArrowLeft className="mr-2 h-4 w-4" />

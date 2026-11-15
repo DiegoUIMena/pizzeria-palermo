@@ -18,6 +18,7 @@ import {
   DollarSign,
 } from "lucide-react"
 import BusinessHoursManager from "./components/BusinessHoursManager"
+import MainNoticeManager from "./components/MainNoticeManager"
 import ReposicionConfigManager from "./components/ReposicionConfigManager"
 import PromoCodesManager from "./components/PromoCodesManager"
 import BannersManager from "./components/BannersManager"
@@ -285,6 +286,11 @@ export default function AdminDashboard() {
       {/* Gestión de Horarios */}
       <div className="mt-8">
         <BusinessHoursManager />
+      </div>
+
+      {/* Aviso Principal (Encabezado Público) */}
+      <div className="mt-8">
+        <MainNoticeManager />
       </div>
 
       {/* Gestión de Banners Dinámicos (Inicio) */}

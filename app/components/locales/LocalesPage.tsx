@@ -330,7 +330,7 @@ export default function LocalesPage() {
                 <div className="flex flex-row flex-wrap gap-x-6 gap-y-2 items-center w-full">
                   <div className="flex flex-col">
                     <span className="text-gray-500 dark:text-gray-400 text-[10px] font-bold uppercase tracking-wide">TODOS LOS DÍAS</span>
-                    <span className="text-gray-900 dark:text-gray-100 text-sm sm:text-lg font-black tracking-tight">17:30 — 23:30</span>
+                    <span className="text-gray-900 dark:text-gray-100 text-sm sm:text-lg font-black tracking-tight">18:00 — 23:30</span>
                   </div>
                   <div className="w-px h-8 bg-gray-200 dark:bg-gray-800 hidden xs:block" />
                   <div className="flex flex-col">

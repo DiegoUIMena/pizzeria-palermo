@@ -6,7 +6,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { ShoppingCart } from "lucide-react"
+import { ShoppingCart, Plus, Minus } from "lucide-react"
 import { useCart } from "../context/CartContext"
 import { useFirestorePizzaConfig } from "../../hooks/useFirestorePizzaConfig"
 import { isItemAvailable } from '../../lib/recipes'
@@ -14,6 +14,7 @@ import { db } from "@/lib/firebase"
 import { collection, onSnapshot, doc } from "firebase/firestore"
 import { listenIngredientes } from "@/lib/inventory"
 import { getAgregadosConfig, subscribeAgregadosConfig } from "@/lib/agregados-config"
+import { scrollToSection } from "@/lib/scroll-utils"
 
 // Mapeo de nombres de productos a archivos de imagen conocidos (normalizados sin acentos)
 const imageMap: Record<string, string> = {
@@ -218,7 +219,7 @@ const combos = [
 
 export default function PromoSection() {
   const [activeCategory, setActiveCategory] = useState<string | null>("Todas las Pizzas")
-  const { addItem, items } = useCart()
+  const { addItem, updateQuantity, items } = useCart()
   const [selectedSizes, setSelectedSizes] = useState<{ [key: string]: "familiar" | "mediana" }>({})
   const { loading: configLoading, itemsMenu } = useFirestorePizzaConfig()
 
@@ -540,6 +541,74 @@ export default function PromoSection() {
     }
   }
 
+  const getCartIdForItem = (item: any): string => {
+    if (item.isPromo) {
+      return String(item.id)
+    }
+    if (pizzaCategoryKeys.includes(activeCategory || "")) {
+      const selectedSize = selectedSizes[String(item.id)] || "familiar"
+      return `${item.id}-${selectedSize}`
+    }
+    if (item.variants) {
+      const selectedVariant = selectedSizes[String(item.id)] || "familiar"
+      return `${item.id}-${selectedVariant}`
+    }
+    return String(item.id)
+  }
+
+  const getQuantityForItem = (item: any): number => {
+    if (!pizzaCategoryKeys.includes(activeCategory || "") && item.variants && !String(item.name || "").toLowerCase().includes("lipton")) {
+      const familiarItem = items.find(cartItem => cartItem.id === `${item.id}-familiar`)
+      const medianaItem = items.find(cartItem => cartItem.id === `${item.id}-mediana`)
+      return (familiarItem?.quantity || 0) + (medianaItem?.quantity || 0)
+    }
+    const targetId = getCartIdForItem(item)
+    const cartItem = items.find(c => c.id === targetId)
+    return cartItem?.quantity || 0
+  }
+
+  const handleDecrementFromCart = (item: any) => {
+    if (!pizzaCategoryKeys.includes(activeCategory || "") && item.variants && !String(item.name || "").toLowerCase().includes("lipton")) {
+      const selectedVariant = selectedSizes[String(item.id)] || "familiar"
+      const primaryId = `${item.id}-${selectedVariant}`
+      const secondaryId = selectedVariant === "familiar" ? `${item.id}-mediana` : `${item.id}-familiar`
+      const primaryItem = items.find(c => c.id === primaryId)
+      const secondaryItem = items.find(c => c.id === secondaryId)
+
+      if (primaryItem && primaryItem.quantity > 0) {
+        updateQuantity(primaryId, primaryItem.quantity - 1)
+      } else if (secondaryItem && secondaryItem.quantity > 0) {
+        updateQuantity(secondaryId, secondaryItem.quantity - 1)
+      }
+      return
+    }
+
+    const targetId = getCartIdForItem(item)
+    const cartItem = items.find(c => c.id === targetId)
+    if (cartItem && cartItem.quantity > 0) {
+      updateQuantity(targetId, cartItem.quantity - 1)
+    }
+  }
+
+  const handleCenterCartClick = (item: any) => {
+    const qty = getQuantityForItem(item)
+    if (qty === 0) {
+      if (!(item.variants && !String(item.name || "").toLowerCase().includes("lipton"))) {
+        handleAddToCart(item)
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("openCart"))
+    }
+  }
+
+  const handleCategorySelect = (categoryKey: string) => {
+    setActiveCategory(categoryKey)
+    requestAnimationFrame(() => {
+      scrollToSection("category-products-start")
+    })
+  }
+
   return (
     <section id="promo-section" className="py-12 bg-gray-50">
       <div className="container mx-auto px-4">
@@ -551,23 +620,23 @@ export default function PromoSection() {
               cat.icon ? (
                 cat.href ? (
                   <Link href={cat.href} key={cat.key}>
-                    <div className="flex flex-col items-center gap-2 cursor-pointer transition-all hover:scale-110 group" data-category={cat.key}>
-                      <div className={`relative transition-all rounded-full aspect-square w-24 md:w-28 lg:w-36 xl:w-40 ${
+                    <div className="category-btn-item flex flex-col items-center gap-2.5 cursor-pointer group" data-category={cat.key}>
+                      <div className={`category-btn-circle relative rounded-full aspect-square w-24 md:w-28 lg:w-36 xl:w-40 ${
                         activeCategory === cat.key 
-                          ? "shadow-[0_0_20px_rgba(236,72,153,0.6),0_0_40px_rgba(236,72,153,0.4),0_0_60px_rgba(236,72,153,0.2)]" 
-                          : "opacity-80"
+                          ? "is-active" 
+                          : "opacity-85"
                       }`}>
                         <Image 
                           src={cat.icon} 
                           alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
                           width={160} 
                           height={160} 
-                          className={`w-full h-full object-contain transition-all ${
+                          className={`category-btn-img w-full h-full object-contain ${
                             activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
                           }`}
                         />
                       </div>
-                      <span className={`text-xl md:text-2xl lg:text-3xl font-bold transition-all barbershop-text whitespace-nowrap ${
+                      <span className={`category-btn-label text-xl md:text-2xl lg:text-3xl font-bold barbershop-text whitespace-nowrap ${
                         activeCategory === cat.key
                           ? "text-pink-600"
                           : "text-gray-600"
@@ -580,25 +649,25 @@ export default function PromoSection() {
                   <div
                     key={cat.key}
                     data-category={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
-                    className="flex flex-col items-center gap-2 cursor-pointer transition-all hover:scale-110 group"
+                    onClick={() => handleCategorySelect(cat.key)}
+                    className="category-btn-item flex flex-col items-center gap-2.5 cursor-pointer group"
                   >
-                    <div className={`relative transition-all rounded-full aspect-square w-24 md:w-28 lg:w-36 xl:w-40 ${
+                    <div className={`category-btn-circle relative rounded-full aspect-square w-24 md:w-28 lg:w-36 xl:w-40 ${
                       activeCategory === cat.key 
-                        ? "shadow-[0_0_20px_rgba(236,72,153,0.6),0_0_40px_rgba(236,72,153,0.4),0_0_60px_rgba(236,72,153,0.2)]" 
-                        : "opacity-80"
+                        ? "is-active" 
+                        : "opacity-85"
                     }`}>
                       <Image 
                         src={cat.icon} 
                         alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
                         width={160} 
                         height={160} 
-                        className={`w-full h-full object-contain transition-all ${
+                        className={`category-btn-img w-full h-full object-contain ${
                           activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
                         }`}
                       />
                     </div>
-                    <span className={`text-xl md:text-2xl lg:text-3xl font-bold transition-all barbershop-text whitespace-nowrap ${
+                    <span className={`category-btn-label text-xl md:text-2xl lg:text-3xl font-bold barbershop-text whitespace-nowrap ${
                       activeCategory === cat.key
                         ? "text-pink-600"
                         : "text-gray-600"
@@ -611,7 +680,7 @@ export default function PromoSection() {
                 <Link href={cat.href} key={cat.key}>
                   <Button
                     variant={activeCategory === cat.key ? "default" : "outline"}
-                    className={`px-4 lg:px-8 py-3 font-bold rounded-full transition-all whitespace-nowrap ${
+                    className={`category-btn-item px-4 lg:px-8 py-3 font-bold rounded-full whitespace-nowrap ${
                       activeCategory === cat.key
                         ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
                         : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
@@ -625,8 +694,8 @@ export default function PromoSection() {
                   key={cat.key}
                   data-category={cat.key}
                   variant={activeCategory === cat.key ? "default" : "outline"}
-                  onClick={() => setActiveCategory(cat.key)}
-                  className={`px-4 lg:px-8 py-3 font-bold rounded-full transition-all whitespace-nowrap ${
+                  onClick={() => handleCategorySelect(cat.key)}
+                  className={`category-btn-item px-4 lg:px-8 py-3 font-bold rounded-full whitespace-nowrap ${
                     activeCategory === cat.key
                       ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
                       : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
@@ -646,23 +715,23 @@ export default function PromoSection() {
               cat.icon ? (
                 cat.href ? (
                   <Link href={cat.href} key={cat.key} className="col-span-1">
-                    <div className="flex flex-col items-center gap-2 cursor-pointer transition-all active:scale-95 group" data-category={cat.key}>
-                      <div className={`relative transition-all rounded-full aspect-square w-20 sm:w-24 ${
+                    <div className="category-btn-item flex flex-col items-center gap-2 cursor-pointer group" data-category={cat.key}>
+                      <div className={`category-btn-circle relative rounded-full aspect-square w-20 sm:w-24 ${
                         activeCategory === cat.key 
-                          ? "shadow-[0_0_15px_rgba(236,72,153,0.6),0_0_30px_rgba(236,72,153,0.4)]" 
-                          : "opacity-80"
+                          ? "is-active" 
+                          : "opacity-85"
                       }`}>
                         <Image 
                           src={cat.icon} 
                           alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
                           width={80} 
                           height={80} 
-                          className={`w-full h-full object-contain transition-all ${
+                          className={`category-btn-img w-full h-full object-contain ${
                             activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
                           }`}
                         />
                       </div>
-                      <span className={`text-sm sm:text-base font-bold text-center transition-all barbershop-text whitespace-nowrap ${
+                      <span className={`category-btn-label text-sm sm:text-base font-bold text-center barbershop-text whitespace-nowrap ${
                         activeCategory === cat.key
                           ? "text-pink-600"
                           : "text-gray-600"
@@ -675,25 +744,25 @@ export default function PromoSection() {
                   <div
                     key={cat.key}
                     data-category={cat.key}
-                    onClick={() => setActiveCategory(cat.key)}
-                    className="col-span-1 flex flex-col items-center gap-2 cursor-pointer transition-all active:scale-95 group"
+                    onClick={() => handleCategorySelect(cat.key)}
+                    className="category-btn-item col-span-1 flex flex-col items-center gap-2 cursor-pointer group"
                   >
-                    <div className={`relative transition-all rounded-full aspect-square w-20 sm:w-24 ${
+                    <div className={`category-btn-circle relative rounded-full aspect-square w-20 sm:w-24 ${
                       activeCategory === cat.key 
-                        ? "shadow-[0_0_15px_rgba(236,72,153,0.6),0_0_30px_rgba(236,72,153,0.4)]" 
-                        : "opacity-80"
+                        ? "is-active" 
+                        : "opacity-85"
                     }`}>
                       <Image 
                         src={cat.icon} 
                         alt={cat.label.replace(/^[🥬🥩🐟🍕🎁🍟🥤]\s*/, "")} 
                         width={80} 
                         height={80} 
-                        className={`w-full h-full object-contain transition-all ${
+                        className={`category-btn-img w-full h-full object-contain ${
                           activeCategory === cat.key ? "" : "grayscale group-hover:grayscale-0"
                         }`}
                       />
                     </div>
-                    <span className={`text-sm sm:text-base font-bold text-center transition-all barbershop-text whitespace-nowrap ${
+                    <span className={`category-btn-label text-sm sm:text-base font-bold text-center barbershop-text whitespace-nowrap ${
                       activeCategory === cat.key
                         ? "text-pink-600"
                         : "text-gray-600"
@@ -706,7 +775,7 @@ export default function PromoSection() {
                 <Link href={cat.href} key={cat.key} className="col-span-1">
                   <Button
                     variant={activeCategory === cat.key ? "default" : "outline"}
-                    className={`px-2 py-3 font-bold rounded-full transition-all text-xs leading-tight text-center whitespace-normal break-words ${
+                    className={`category-btn-item px-2 py-3 font-bold rounded-full text-xs leading-tight text-center whitespace-normal break-words ${
                       activeCategory === cat.key
                         ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
                         : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
@@ -720,8 +789,8 @@ export default function PromoSection() {
                   key={cat.key}
                   data-category={cat.key}
                   variant={activeCategory === cat.key ? "default" : "outline"}
-                  onClick={() => setActiveCategory(cat.key)}
-                  className={`px-2 py-3 font-bold rounded-full transition-all text-xs leading-tight text-center whitespace-normal break-words ${
+                  onClick={() => handleCategorySelect(cat.key)}
+                  className={`category-btn-item px-2 py-3 font-bold rounded-full text-xs leading-tight text-center whitespace-normal break-words ${
                     activeCategory === cat.key
                       ? "bg-pink-600 text-white hover:bg-pink-700 shadow-lg"
                       : "border-pink-300 text-pink-600 hover:bg-pink-50 hover:border-pink-400"
@@ -736,7 +805,10 @@ export default function PromoSection() {
           </div>
         </div>
 
-        <h2 className="text-3xl md:text-4xl font-bold text-gray-800 mb-12 text-center barbershop-text">
+        <h2
+          id="category-products-start"
+          className="text-3xl md:text-4xl font-bold text-gray-800 mb-12 text-center barbershop-text scroll-mt-24"
+        >
           {activeCategory === "Pizzas con Carne" 
             ? "Pizzas con Carne y derivados" 
             : activeCategory === "Pizzas Vegetarianas"
@@ -792,9 +864,18 @@ export default function PromoSection() {
                       }}
                     />
                   </div>
-                  <div className="flex-1 p-6 bg-white">
-                    <h3 className="font-bold text-xl mb-3 text-gray-800">{formatItemName(item.name)}</h3>
-                    <p className="text-sm mb-4 text-gray-600 leading-relaxed">{item.description}</p>
+                  <div className="flex-1 p-6 bg-white flex flex-col justify-between">
+                    <div className="mb-4">
+                      <h3 className="font-product-title font-extrabold text-2xl sm:text-[26px] text-gray-900 group-hover:text-pink-600 transition-colors leading-tight tracking-tight mb-2.5">
+                        {formatItemName(item.name)}
+                      </h3>
+                      <div className="w-10 h-1 bg-pink-500 rounded-full mb-3 opacity-85 group-hover:w-16 transition-all duration-300" />
+                      {item.description && (
+                        <p className="font-product-desc text-[15px] sm:text-base font-medium text-gray-700 leading-relaxed">
+                          {item.description}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex flex-col space-y-3">
                       {/* Mostrar precios para pizzas Palermo y Tradicionales */}
                       {pizzaCategoryKeys.includes(activeCategory || "") && (
@@ -935,65 +1016,84 @@ export default function PromoSection() {
                             {finalDisabled ? (
                               <div className="text-sm text-gray-500 font-semibold">No disponible</div>
                             ) : (
-                              <Button
-                                className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 px-4 h-10 flex items-center gap-2"
-                                onClick={() => {
-                                  // Solo agregar si NO es una bebida con botones de variantes
-                                if (!(item.variants && !String(item.name || "").toLowerCase().includes("lipton"))) {
-                                    handleAddToCart(item)
-                                  }
-                                }}
-                              >
-                                {(() => {
-                                  // Para productos con variantes (bebidas)
-                                  if (item.variants) {
-                                    // Si tiene botones de variantes (no es Lipton), sumar ambas variantes
-                                  if (!String(item.name || "").toLowerCase().includes("lipton")) {
-                                      const familiarItem = items.find(cartItem => cartItem.id === `${item.id}-familiar`)
-                                      const medianaItem = items.find(cartItem => cartItem.id === `${item.id}-mediana`)
-                                      const totalQuantity = (familiarItem?.quantity || 0) + (medianaItem?.quantity || 0)
-                                      return totalQuantity > 0 ? (
-                                        <span className="font-bold text-sm">{totalQuantity}</span>
-                                      ) : null
-                                    }
-                                    // Para Lipton, mostrar solo la variante seleccionada
-                                  const selectedVariant = selectedSizes[String(item.id)] || "familiar"
-                                    const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedVariant}`)
-                                    const quantity = cartItem?.quantity || 0
+                              <div className="inline-flex items-center bg-pink-600 text-white rounded-full shadow-md hover:shadow-lg transition-all h-10 p-1 gap-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddToCart(item)}
+                                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-pink-700 active:scale-90 transition-all focus:outline-none"
+                                  title="Sumar unidad"
+                                  aria-label="Sumar unidad"
+                                >
+                                  <Plus className="w-4 h-4 stroke-[2.5]" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCenterCartClick(item)}
+                                  className="px-2.5 h-8 rounded-full flex items-center justify-center gap-1.5 hover:bg-pink-700 active:scale-95 transition-all border-x border-pink-500/60 focus:outline-none"
+                                  title="Ver carrito y continuar al pago"
+                                  aria-label="Ver carrito y continuar al pago"
+                                >
+                                  {(() => {
+                                    const quantity = getQuantityForItem(item)
                                     return quantity > 0 ? (
                                       <span className="font-bold text-sm">{quantity}</span>
                                     ) : null
-                                  }
-                                  // Para otros productos sin variantes
-                                  const cartItem = items.find(cartItem => cartItem.id === item.id)
-                                  const quantity = cartItem?.quantity || 0
-                                  return quantity > 0 ? (
-                                    <span className="font-bold text-sm">{quantity}</span>
-                                  ) : null
-                                })()}
-                                <ShoppingCart className="w-5 h-5" />
-                              </Button>
+                                  })()}
+                                  <ShoppingCart className="w-5 h-5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDecrementFromCart(item)}
+                                  disabled={getQuantityForItem(item) === 0}
+                                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-pink-700 active:scale-90 transition-all disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 focus:outline-none"
+                                  title="Restar unidad"
+                                  aria-label="Restar unidad"
+                                >
+                                  <Minus className="w-4 h-4 stroke-[2.5]" />
+                                </button>
+                              </div>
                             )}
                           </>
                         ) : (
                           finalDisabled ? (
                             <div className="text-sm text-gray-500 font-semibold ml-auto">No disponible</div>
                           ) : (
-                            <Button
-                              className="bg-pink-600 text-white hover:bg-pink-700 rounded-full shadow-md hover:shadow-lg transition-all transform hover:-translate-y-1 ml-auto px-4 h-10 flex items-center gap-2"
-                              onClick={() => handleAddToCart(item)}
-                            >
-                              {(() => {
-                                // Para pizzas, buscar por ID con tamaño
-                              const selectedSize = selectedSizes[String(item.id)] || "familiar"
-                                const cartItem = items.find(cartItem => cartItem.id === `${item.id}-${selectedSize}`)
-                                const quantity = cartItem?.quantity || 0
-                                return quantity > 0 ? (
-                                  <span className="font-bold text-sm">{quantity}</span>
-                                ) : null
-                              })()}
-                              <ShoppingCart className="w-5 h-5" />
-                            </Button>
+                            <div className="inline-flex items-center bg-pink-600 text-white rounded-full shadow-md hover:shadow-lg transition-all ml-auto h-10 p-1 gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => handleAddToCart(item)}
+                                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-pink-700 active:scale-90 transition-all focus:outline-none"
+                                title="Sumar unidad"
+                                aria-label="Sumar unidad"
+                              >
+                                <Plus className="w-4 h-4 stroke-[2.5]" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCenterCartClick(item)}
+                                className="px-2.5 h-8 rounded-full flex items-center justify-center gap-1.5 hover:bg-pink-700 active:scale-95 transition-all border-x border-pink-500/60 focus:outline-none"
+                                title="Ver carrito y continuar al pago"
+                                aria-label="Ver carrito y continuar al pago"
+                              >
+                                {(() => {
+                                  const quantity = getQuantityForItem(item)
+                                  return quantity > 0 ? (
+                                    <span className="font-bold text-sm">{quantity}</span>
+                                  ) : null
+                                })()}
+                                <ShoppingCart className="w-5 h-5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDecrementFromCart(item)}
+                                disabled={getQuantityForItem(item) === 0}
+                                className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-pink-700 active:scale-90 transition-all disabled:opacity-40 disabled:hover:bg-transparent disabled:active:scale-100 focus:outline-none"
+                                title="Restar unidad"
+                                aria-label="Restar unidad"
+                              >
+                                <Minus className="w-4 h-4 stroke-[2.5]" />
+                              </button>
+                            </div>
                           )
                         )}
                       </div>
