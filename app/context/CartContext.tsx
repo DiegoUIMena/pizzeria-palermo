@@ -265,6 +265,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
     }
   }, [state.items, storageHydrated])
 
+  useEffect(() => {
+    const handleForceClear = () => {
+      dispatch({ type: "CLEAR_CART" })
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.removeItem(CART_STORAGE_KEY)
+        } catch {
+          // Ignorar errores de storage
+        }
+      }
+    }
+    window.addEventListener("palermo:cart-clear", handleForceClear)
+    return () => window.removeEventListener("palermo:cart-clear", handleForceClear)
+  }, [])
+
   const addItem = (item: CartItem) => {
     dispatch({ type: "ADD_ITEM", payload: item })
   }

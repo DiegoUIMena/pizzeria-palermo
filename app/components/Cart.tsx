@@ -9,7 +9,7 @@ import { Trash, ChevronDown, ChevronUp, AlertCircle, X } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { Minus, Plus } from "lucide-react"
-import { Truck, Store, MapPin, CheckCircle, ArrowLeft, CreditCard, Banknote, ArrowRightCircle, Tag, Sparkles } from "lucide-react"
+import { Truck, Store, MapPin, CheckCircle, ArrowLeft, CreditCard, Banknote, ArrowRightCircle, Tag, Sparkles, Search, LocateFixed } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
@@ -25,7 +25,7 @@ import { httpsCallable } from "firebase/functions"
 import { collection, getDocs, query, where, doc, updateDoc, serverTimestamp } from "firebase/firestore"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useFirestorePizzaConfig } from "@/hooks/useFirestorePizzaConfig"
-import { subscribeAgregadosConfig, type BebidasDisponiblesConfig } from "@/lib/agregados-config"
+import { subscribeAgregadosConfig, type BebidasDisponiblesConfig, type SalsasDisponiblesConfig } from "@/lib/agregados-config"
 
 interface CartProps {
   onClose?: () => void
@@ -42,16 +42,13 @@ const Cart = ({ onClose }: CartProps) => {
   const { preciosConfig } = useFirestorePizzaConfig()
   const [isMounted, setIsMounted] = useState(false)
   const [expandedItems, setExpandedItems] = useState<{ [key: string]: boolean }>({})
+  const [expandedPrepOptions, setExpandedPrepOptions] = useState<{ [key: string]: boolean }>({})
   const [inventoryErrorDetails, setInventoryErrorDetails] = useState<any[] | undefined>(undefined)
   const [isInventoryErrorModalOpen, setIsInventoryErrorModalOpen] = useState(false)
   const [showInventoryError, setShowInventoryError] = useState(false)
 
-  // Estados para desplegables de upselling
-  const [expandedUpsell, setExpandedUpsell] = useState({
-    salsas: false,
-    bebidas: false,
-    snacks: false
-  })
+  // Estado para el desplegable unificado de extras
+  const [isExtrasOpen, setIsExtrasOpen] = useState(false)
 
   const { isAuthenticated, user, updateUser } = useAuth()
   const [guestName, setGuestName] = useState("")
@@ -75,7 +72,14 @@ const Cart = ({ onClose }: CartProps) => {
   const [serverCalculation, setServerCalculation] = useState<{ subtotal: number; deliveryFee: number; total: number } | null>(null)
   const [isServerCalcLoading, setIsServerCalcLoading] = useState(false)
   const [serverCalcError, setServerCalcError] = useState<string | null>(null)
+  const [rollitosPackStock, setRollitosPackStock] = useState<number>(99)
   const [gauchitosDisponible, setGauchitosDisponible] = useState<boolean>(true)
+  const [salsasDisponibles, setSalsasDisponibles] = useState<SalsasDisponiblesConfig>({
+    ajo: true,
+    chimichurri: true,
+    bbq: true,
+    pesto: true,
+  })
   const [bebidasDisponibles, setBebidasDisponibles] = useState<BebidasDisponiblesConfig>({
     liptonLata: true,
     liptonBotella: true,
@@ -245,7 +249,9 @@ const Cart = ({ onClose }: CartProps) => {
   useEffect(() => {
     const unsubscribe = subscribeAgregadosConfig((config) => {
       setBebidasDisponibles(config.bebidasDisponibles)
+      setSalsasDisponibles(config.salsasDisponibles)
       setGauchitosDisponible(config.gauchitosDisponible)
+      setRollitosPackStock(config.rollitosPackStock)
     })
 
     return () => unsubscribe()
@@ -291,6 +297,13 @@ const Cart = ({ onClose }: CartProps) => {
   const [depto, setDepto] = useState("")
   const [comuna, setComuna] = useState("")
   const [referencia, setReferencia] = useState("")
+  const [addressQuery, setAddressQuery] = useState("")
+  const [numberDraft, setNumberDraft] = useState("")
+  const [hasCheckedAddressNumber, setHasCheckedAddressNumber] = useState(false)
+  const [isGeocodingAddress, setIsGeocodingAddress] = useState(false)
+  const [isLocatingUser, setIsLocatingUser] = useState(false)
+  const [showLastAddressModal, setShowLastAddressModal] = useState(false)
+  const [hasAskedLastAddress, setHasAskedLastAddress] = useState(false)
 
   // Estados para pago en efectivo
   const [cashAmount, setCashAmount] = useState("")
@@ -372,6 +385,13 @@ const Cart = ({ onClose }: CartProps) => {
 
   const toggleItemExpansion = (itemId: string) => {
     setExpandedItems((prev) => ({
+      ...prev,
+      [itemId]: !prev[itemId],
+    }))
+  }
+
+  const togglePrepOptions = (itemId: string) => {
+    setExpandedPrepOptions((prev) => ({
       ...prev,
       [itemId]: !prev[itemId],
     }))
@@ -678,6 +698,13 @@ const Cart = ({ onClose }: CartProps) => {
     }
   }
 
+  const isValidHouseNumber = (num: string): boolean => {
+    const clean = (num || "").trim()
+    if (!clean) return false
+    if (/^s\/n$/i.test(clean)) return true
+    return /\d{1,5}/.test(clean)
+  }
+
   const handleAddressSubmit = () => {
     // Debe existir una zona definida (no aceptar fallback fuera de zonas) y estar disponible
     if (!deliveryInfo.zone) {
@@ -696,15 +723,200 @@ const Cart = ({ onClose }: CartProps) => {
       })
       return
     }
-    if (calle && numero && depto && comuna && selectedLocation) {
+    if (!calle.trim() || !isValidHouseNumber(numero)) {
+      setHasCheckedAddressNumber(true)
+      toast({
+        title: "Falta el número de dirección",
+        description: "Es obligatorio ingresar el número de tu domicilio o seleccionar S/N para continuar.",
+        variant: "destructive"
+      })
+      return
+    }
+    if (selectedLocation) {
       setCurrentView("payment")
     } else {
       toast({
         title: "Campos incompletos",
-        description: "Por favor completa todos los campos obligatorios (Número y Depto/Casa).",
+        description: "Por favor confirma tu punto en el mapa.",
         variant: "destructive"
       })
     }
+  }
+
+  const geocodeAndCenterMap = async (streetText: string, houseNumber: string) => {
+    const cleanStreet = streetText.trim()
+    const cleanNumber = houseNumber.trim()
+    if (!cleanStreet) return
+
+    // No ubicar el punto en un número aleatorio si el cliente aún no ingresa numeración o "S/N"
+    if (!cleanNumber) {
+      setHasCheckedAddressNumber(true)
+      toast({
+        title: "Falta el número de dirección",
+        description: "Ingresa el número de tu domicilio o selecciona S/N antes de ubicarlo en el mapa.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsGeocodingAddress(true)
+    try {
+      const isSinNumero = cleanNumber.toUpperCase() === "S/N"
+      const fullQuery = isSinNumero
+        ? `${cleanStreet}, Los Andes, Chile`
+        : `${cleanStreet} ${cleanNumber}, Los Andes, Chile`
+
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(fullQuery)}&limit=1&accept-language=es`
+      )
+      const data = await response.json()
+
+      if (Array.isArray(data) && data.length > 0) {
+        const lat = parseFloat(data[0].lat)
+        const lng = parseFloat(data[0].lon)
+        const formattedAddr = isSinNumero ? `${cleanStreet} S/N` : `${cleanStreet} ${cleanNumber}`
+
+        setSelectedLocation({ lat, lng, address: formattedAddr })
+        if (!comuna) {
+          setComuna("Los Andes")
+        }
+
+        // Detectar zona y tarifa automáticamente
+        const { detectarZonaCliente } = await import("../../lib/delivery-zones")
+        const result = detectarZonaCliente(lat, lng, deliveryZones)
+        if (result.zona) {
+          handleDeliveryInfoChange(result.zona, result.disponible ? result.tarifa : 0, !!result.disponible)
+        } else {
+          handleDeliveryInfoChange(null, 0, false)
+        }
+      } else {
+        toast({
+          title: "Dirección no encontrada exactamente",
+          description: "Puedes ajustar el punto directamente haciendo clic en el mapa.",
+        })
+      }
+    } catch (error) {
+      console.error("Error geocodificando dirección:", error)
+    } finally {
+      setIsGeocodingAddress(false)
+    }
+  }
+
+  const handleAddStreetNumber = async () => {
+    const cleanNum = numberDraft.trim()
+    if (!cleanNum) {
+      toast({
+        title: "Ingresa un número",
+        description: "Escribe el número de tu casa o edificio para ubicarlo en el mapa.",
+        variant: "destructive",
+      })
+      return
+    }
+    setNumero(cleanNum)
+    setHasCheckedAddressNumber(false)
+    const rawText = (addressQuery || calle).trim()
+    if (rawText) {
+      const parts = rawText.split(",")
+      const streetOnly = parts[0].trim()
+      const rest = parts.slice(1).join(",").trim()
+      setCalle(streetOnly)
+      const updatedDisplay = rest ? `${streetOnly} ${cleanNum}, ${rest}` : `${streetOnly} ${cleanNum}`
+      setAddressQuery(updatedDisplay)
+      // Si el cliente ya pinchó un punto en el mapa, respetar esas coordenadas exactas
+      if (selectedLocation) {
+        setSelectedLocation({ ...selectedLocation, address: updatedDisplay })
+      } else {
+        await geocodeAndCenterMap(streetOnly, cleanNum)
+      }
+    }
+  }
+
+  const handleSelectSinNumero = async () => {
+    setNumero("S/N")
+    setNumberDraft("S/N")
+    setHasCheckedAddressNumber(false)
+    const rawText = (addressQuery || calle).trim()
+    if (rawText) {
+      const parts = rawText.split(",")
+      const streetOnly = parts[0].trim()
+      const rest = parts.slice(1).join(",").trim()
+      setCalle(streetOnly)
+      const updatedDisplay = rest ? `${streetOnly} S/N, ${rest}` : `${streetOnly} S/N`
+      setAddressQuery(updatedDisplay)
+      // Si el cliente ya pinchó un punto en el mapa, respetar esas coordenadas exactas
+      if (selectedLocation) {
+        setSelectedLocation({ ...selectedLocation, address: updatedDisplay })
+      } else {
+        await geocodeAndCenterMap(streetOnly, "S/N")
+      }
+    }
+  }
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: "Geolocalización no soportada",
+        description: "Tu navegador no permite obtener la ubicación actual.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsLocatingUser(true)
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const lat = position.coords.latitude
+        const lng = position.coords.longitude
+
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=es`
+          )
+          const data = await response.json()
+          const addr = data?.address || {}
+          const road = addr.road || addr.pedestrian || addr.suburb || ""
+          const houseNumber = addr.house_number || ""
+          const city = addr.city || addr.town || addr.village || "Los Andes"
+
+          if (road) {
+            setCalle(road)
+            setComuna(city)
+            if (houseNumber) {
+              setNumero(houseNumber)
+              setNumberDraft(houseNumber)
+              setAddressQuery(`${road} ${houseNumber}, ${city}`)
+            } else {
+              setAddressQuery(`${road}, ${city}`)
+            }
+          }
+
+          setSelectedLocation({ lat, lng, address: data?.display_name || `${road} ${houseNumber}`.trim() })
+
+          const { detectarZonaCliente } = await import("../../lib/delivery-zones")
+          const result = detectarZonaCliente(lat, lng, deliveryZones)
+          if (result.zona) {
+            handleDeliveryInfoChange(result.zona, result.disponible ? result.tarifa : 0, !!result.disponible)
+          } else {
+            handleDeliveryInfoChange(null, 0, false)
+          }
+        } catch (err) {
+          console.error("Error en geocodificación inversa:", err)
+          setSelectedLocation({ lat, lng })
+        } finally {
+          setIsLocatingUser(false)
+        }
+      },
+      (error) => {
+        console.error("Error obteniendo ubicación:", error)
+        setIsLocatingUser(false)
+        toast({
+          title: "No se pudo obtener tu ubicación",
+          description: "Verifica los permisos de ubicación o selecciona tu punto en el mapa.",
+          variant: "destructive",
+        })
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
   }
 
   const handleSavePhoneAndContinue = async (e: React.FormEvent) => {
@@ -917,11 +1129,21 @@ const Cart = ({ onClose }: CartProps) => {
 
       // Solo agregar dirección si es delivery
       if (isDelivery) {
+        const cleanNumero = (numero || '').trim()
+        // Limpiar calle para que no incluya el número ni la comuna duplicados
+        let cleanCalle = (calle || '').split(',')[0].trim()
+        if (cleanNumero && cleanNumero.toUpperCase() !== 'S/N') {
+          const escapedNum = cleanNumero.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          cleanCalle = cleanCalle.replace(new RegExp(`\\s+(?:#|n°|nro\\.?\\s*)?${escapedNum}$`, 'i'), '').trim()
+        } else if (cleanNumero.toUpperCase() === 'S/N') {
+          cleanCalle = cleanCalle.replace(/\s+s\/n$/i, '').trim()
+        }
+
         orderData.direccion = {
-          calle: calle || '',
-          numero: numero || '',
+          calle: cleanCalle,
+          numero: cleanNumero,
           depto: depto || '',
-          comuna: comuna || '',
+          comuna: (comuna || '').trim() || 'Los Andes',
           referencia: referencia || '',
           lat: selectedLocation?.lat,
           lng: selectedLocation?.lng
@@ -1008,8 +1230,8 @@ const Cart = ({ onClose }: CartProps) => {
         }
       }
 
-      // Construir notas finales con referencia y fallback de códigos promocionales
-      let notasFinales = referencia ? referencia.trim() : ''
+      // Construir notas finales (la referencia de dirección se mantiene solo en direccion.referencia para el repartidor)
+      let notasFinales = ''
       if (appliedDiscount && appliedDiscount.code) {
         const promoText = `[CÓDIGO USADO: ${appliedDiscount.code}]`
         notasFinales = notasFinales ? `${notasFinales} | ${promoText}` : promoText
@@ -1070,6 +1292,25 @@ const Cart = ({ onClose }: CartProps) => {
       }
 
       console.log('Pedido creado exitosamente:', result)
+
+      // Si es usuario registrado y pidió delivery, guardar su última dirección tras crear el pedido exitosamente
+      if (hasAuthenticatedUser && user?.id && isDelivery && orderData.direccion?.lat && orderData.direccion?.lng) {
+        const lastDeliveryAddress = {
+          calle: orderData.direccion.calle,
+          numero: orderData.direccion.numero,
+          depto: orderData.direccion.depto || '',
+          comuna: orderData.direccion.comuna,
+          referencia: orderData.direccion.referencia || '',
+          lat: orderData.direccion.lat,
+          lng: orderData.direccion.lng,
+          updatedAt: new Date().toISOString(),
+        }
+        updateDoc(doc(db, "users", user.id), {
+          lastDeliveryAddress,
+          updatedAt: serverTimestamp(),
+        }).catch((err) => console.warn("No se pudo guardar lastDeliveryAddress:", err))
+        updateUser({ lastDeliveryAddress } as any).catch(() => {})
+      }
 
       // Si el método de pago es Webpay, iniciar transacción
       if (paymentMethod === "webpay") {
@@ -1358,12 +1599,34 @@ const Cart = ({ onClose }: CartProps) => {
     setSelectedLocation({ lat, lng, address })
     if (address) {
       const addressParts = address.split(",")
-      if (addressParts.length >= 2) {
-        setCalle(addressParts[0].trim())
-        setComuna(addressParts[addressParts.length - 2].trim())
+      const streetPart = addressParts[0]?.trim() || ""
+      const comunaPart = addressParts.length >= 2 ? addressParts[addressParts.length - 1].trim() : "Los Andes"
+
+      // Detectar si Nominatim devolvió un número al final de la calle (evita confundir calles como "18 de Septiembre")
+      const numMatch = streetPart.match(/\s+(\d{1,5}[a-zA-Z]?)$/)
+      if (numMatch) {
+        const streetOnly = streetPart.replace(/\s+\d{1,5}[a-zA-Z]?$/, "").trim()
+        setCalle(streetOnly)
+        setNumero(numMatch[1])
+        setNumberDraft(numMatch[1])
+        setHasCheckedAddressNumber(false)
+        setAddressQuery(addressParts.slice(0, 2).join(", ").trim())
+      } else if (streetPart) {
+        setCalle(streetPart)
+        if (isValidHouseNumber(numero)) {
+          // Conservar el número que el cliente ya había ingresado al ajustar el punto
+          setAddressQuery(`${streetPart} ${numero.trim()}, ${comunaPart}`)
+          setHasCheckedAddressNumber(false)
+        } else {
+          setNumero("")
+          setAddressQuery(addressParts.slice(0, 2).join(", ").trim())
+          setHasCheckedAddressNumber(true)
+        }
       }
+
+      setComuna(comunaPart || "Los Andes")
     }
-  }, [])
+  }, [numero])
 
   const handleDeliveryInfoChange = useCallback((zone: DeliveryZone | null, tarifa: number, disponible: boolean) => {
     setDeliveryInfo({ zone, tarifa, disponible })
@@ -1378,6 +1641,50 @@ const Cart = ({ onClose }: CartProps) => {
     setIsMounted(true)
   }, [])
 
+  // Resetear completamente el estado local del carrito al cerrar sesión
+  useEffect(() => {
+    const handleCartReset = () => {
+      setCurrentView("cart")
+      setIsDelivery(null)
+      setCalle("")
+      setNumero("")
+      setNumberDraft("")
+      setDepto("")
+      setComuna("")
+      setReferencia("")
+      setAddressQuery("")
+      setSelectedLocation(null)
+      setDeliveryInfo({ zone: null, tarifa: 0, disponible: false })
+      setHasCheckedAddressNumber(false)
+      setHasAskedLastAddress(false)
+      setShowLastAddressModal(false)
+      setAppliedDiscount(null)
+      setDiscountCode("")
+      setDiscountError("")
+      setCashAmount("")
+      setCashAmountError("")
+      setExpandedItems({})
+      setExpandedPrepOptions({})
+      setIsExtrasOpen(false)
+    }
+    window.addEventListener("palermo:cart-clear", handleCartReset)
+    return () => window.removeEventListener("palermo:cart-clear", handleCartReset)
+  }, [])
+
+  // Mostrar modal de última dirección registrada al entrar a "Dirección de Entrega" (solo usuarios con cuenta)
+  useEffect(() => {
+    if (currentView === "address" && isAuthenticated && user?.id && !hasAskedLastAddress) {
+      const saved = (user as any)?.lastDeliveryAddress
+      if (saved && saved.calle && saved.numero && typeof saved.lat === "number" && typeof saved.lng === "number") {
+        setShowLastAddressModal(true)
+        setHasAskedLastAddress(true)
+      }
+    }
+    if (currentView !== "address") {
+      setShowLastAddressModal(false)
+    }
+  }, [currentView, isAuthenticated, user, hasAskedLastAddress])
+
   // Función para obtener el precio real de un extra
   const getExtraPrice = (extraName: string) => {
     const extraPrices = {
@@ -1388,6 +1695,7 @@ const Cart = ({ onClose }: CartProps) => {
       "Coca Cola 1.5L": 2900,
       "Rollitos de Canela": 4900,
       "Gauchitos x24": 7000,
+      "Gauchitos x12": 4000,
       Gauchitos: 4000,
     }
 
@@ -1555,10 +1863,98 @@ const Cart = ({ onClose }: CartProps) => {
     )
   }
 
+  const handleAcceptLastAddress = async () => {
+    const saved = (user as any)?.lastDeliveryAddress
+    if (!saved) {
+      setShowLastAddressModal(false)
+      return
+    }
+
+    const savedCalle = String(saved.calle || "").trim()
+    const savedNumero = String(saved.numero || "").trim()
+    const savedComuna = String(saved.comuna || "Los Andes").trim()
+    const savedRef = String(saved.referencia || "").trim()
+    const savedDepto = String(saved.depto || "").trim()
+    const displayAddr = `${savedCalle} ${savedNumero}${savedComuna ? `, ${savedComuna}` : ""}`
+
+    setCalle(savedCalle)
+    setNumero(savedNumero)
+    setNumberDraft(savedNumero)
+    setDepto(savedDepto)
+    setComuna(savedComuna)
+    setReferencia(savedRef)
+    setAddressQuery(displayAddr)
+    setHasCheckedAddressNumber(false)
+    setSelectedLocation({ lat: saved.lat, lng: saved.lng, address: displayAddr })
+
+    const { detectarZonaCliente } = await import("../../lib/delivery-zones")
+    const result = detectarZonaCliente(saved.lat, saved.lng, deliveryZones)
+    if (result.zona) {
+      handleDeliveryInfoChange(result.zona, result.disponible ? result.tarifa : 0, !!result.disponible)
+    } else {
+      handleDeliveryInfoChange(null, 0, false)
+    }
+
+    setShowLastAddressModal(false)
+  }
+
   // Vista de dirección
   if (currentView === "address") {
+    const needsHouseNumber = hasCheckedAddressNumber && addressQuery.trim().length > 0 && !numero.trim()
+
     return (
-      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white relative">
+        {/* Modal sobre el carrito para usar la última dirección registrada */}
+        {showLastAddressModal && (user as any)?.lastDeliveryAddress && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-2xl max-w-sm w-full p-5 sm:p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-gray-900 leading-tight">
+                    ¿Enviamos el pedido a tu última dirección registrada?
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Encontramos la dirección de tu último delivery:
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-pink-50/60 border border-pink-100 rounded-xl p-3.5 text-sm space-y-1">
+                <p className="font-bold text-gray-900">
+                  {(user as any).lastDeliveryAddress.calle} {(user as any).lastDeliveryAddress.numero}
+                  {(user as any).lastDeliveryAddress.comuna ? `, ${(user as any).lastDeliveryAddress.comuna}` : ""}
+                </p>
+                {(user as any).lastDeliveryAddress.referencia && (
+                  <p className="text-xs text-gray-600">
+                    Ref: {(user as any).lastDeliveryAddress.referencia}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowLastAddressModal(false)}
+                  className="h-11 rounded-xl border-gray-300 text-gray-700 hover:bg-gray-100 font-bold"
+                >
+                  No
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleAcceptLastAddress}
+                  className="h-11 rounded-xl bg-pink-600 hover:bg-pink-700 text-white font-bold shadow-md"
+                >
+                  Sí
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex items-center">
             <Button variant="ghost" size="icon" onClick={goBack} className="mr-2 hover:bg-gray-200">
@@ -1570,157 +1966,251 @@ const Cart = ({ onClose }: CartProps) => {
             </div>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="space-y-6">
-            {/* Sección del mapa con altura aumentada */}
-            <div className="space-y-2">
-              <Label className="text-base font-medium">Seleccionar Ubicación</Label>
-              <div className="h-[260px] xs:h-[320px] sm:h-[380px] md:h-[450px] overflow-hidden rounded-lg border border-gray-200 shadow-sm">
-                <LocationPicker
-                  key={mapKey} // Forzar recreación del componente
-                  onLocationSelect={handleLocationSelect}
-                  selectedLocation={selectedLocation}
-                  onDeliveryInfoChange={handleDeliveryInfoChange}
-                />
-              </div>
-              {/* Indicación de uso como mensaje flotante que se auto-oculta */}
-              {!selectedLocation && (
-                <div className="bg-yellow-50 border border-yellow-100 rounded-md p-2 text-center">
-                  <p className="text-xs text-yellow-700">Haz clic en el mapa donde quieres recibir tu pedido</p>
-                </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* 1. Buscador / Input principal de dirección */}
+          <div className="space-y-2">
+            <Label htmlFor="address-search" className="text-sm font-bold text-gray-900 block">
+              ¿Dónde te lo llevamos?
+            </Label>
+            <div className="relative flex items-center">
+              <Search className="w-4 h-4 text-gray-500 absolute left-3.5 pointer-events-none" />
+              <Input
+                id="address-search"
+                value={addressQuery}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setAddressQuery(val)
+                  setHasCheckedAddressNumber(false)
+                  // Detectar número de domicilio al final de la calle (antes de una coma opcional) o "S/N"
+                  const parts = val.split(",")
+                  const streetSegment = (parts[0] || "").trim()
+                  const comunaSegment = parts.slice(1).join(",").trim()
+                  if (comunaSegment) {
+                    setComuna(comunaSegment)
+                  }
+
+                  const hasSinNumero = /\bs\/n\b/i.test(streetSegment)
+                  const numMatch = streetSegment.match(/\s+(?:#|n°|nro\.?\s*)?(\d{1,5}[a-zA-Z]?)$/i)
+                  if (hasSinNumero) {
+                    setCalle(streetSegment.replace(/\s+s\/n$/i, "").trim())
+                    setNumero("S/N")
+                  } else if (numMatch) {
+                    setCalle(streetSegment.replace(/\s+(?:#|n°|nro\.?\s*)?\d{1,5}[a-zA-Z]?$/i, "").trim())
+                    setNumero(numMatch[1])
+                  } else {
+                    setCalle(streetSegment)
+                    setNumero("")
+                  }
+                }}
+                onBlur={() => {
+                  if (addressQuery.trim().length > 0 && !numero.trim()) {
+                    setHasCheckedAddressNumber(true)
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault()
+                    geocodeAndCenterMap(addressQuery, numero)
+                  }
+                }}
+                placeholder="Ej. Av. Santa Teresa, Los Andes"
+                className="h-11 pl-10 pr-24 rounded-xl border-2 border-pink-400/80 focus-visible:ring-pink-500 focus-visible:border-pink-600 text-sm text-gray-900 bg-white"
+              />
+              {addressQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={() => geocodeAndCenterMap(addressQuery, numero)}
+                  disabled={isGeocodingAddress}
+                  className="absolute right-2 px-2.5 py-1 text-xs font-bold text-pink-600 hover:bg-pink-50 rounded-lg transition-colors !min-h-0 !min-w-0"
+                >
+                  {isGeocodingAddress ? "Buscando..." : "Buscar"}
+                </button>
               )}
             </div>
-            <div className="space-y-4">
-              <h3 className="font-medium text-gray-800">Detalles de la Dirección</h3>
+          </div>
 
-              {/* Resumen de ubicación seleccionada */}
-              {selectedLocation && (
-                <div className={`p-3 rounded-lg mb-4 border-2 ${deliveryInfo.disponible ? "bg-green-50 border-green-300" : "bg-red-50 border-red-300"}`}>
-                  <div className="flex items-center mb-2">
-                    <MapPin className="h-4 w-4 mr-2 flex-shrink-0 text-gray-600" />
-                    <span className="text-sm font-medium text-gray-800 truncate">
-                      {selectedLocation?.address || "Ubicación seleccionada en el mapa"}
-                    </span>
+          {/* 2. Contenedor desplegable con animación sutil (!important) solo tras validar dirección sin número */}
+          <div
+            aria-hidden={!needsHouseNumber}
+            className={`address-number-accordion ${
+              needsHouseNumber ? "is-open" : "pointer-events-none"
+            }`}
+          >
+            <div className="address-number-accordion-inner">
+              <div className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 sm:p-4 space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <MapPin className="w-4 h-4" />
                   </div>
-                  {deliveryInfo.zone && (
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-200">
-                      <div className="text-sm text-gray-700">
-                        Zona: <span style={{ color: deliveryInfo.zone.color }} className="font-semibold">{deliveryInfo.zone.nombre}</span>
-                      </div>
-                      {deliveryInfo.disponible && (
-                        <div className={`px-3 py-1 rounded-md ${deliveryInfo.disponible ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
-                          <span className="text-xs font-medium">Costo delivery:</span>
-                          <span className="text-lg font-bold ml-1">${deliveryInfo.tarifa.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {!deliveryInfo.disponible && (
-                        <div className="px-3 py-1 rounded-md bg-red-600 text-white">
-                          <span className="text-sm font-bold">No disponible</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm font-bold text-gray-900 leading-tight">Falta el número</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Agrégalo para ubicar tu punto exacto en el mapa.
+                    </p>
+                  </div>
                 </div>
-              )}
 
-              {/* Grid responsivo con mejor manejo para móviles */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="calle" className="text-sm">Calle</Label>
+                <div className="flex flex-wrap items-center gap-2">
                   <Input
-                    id="calle"
-                    value={calle}
-                    onChange={(e) => setCalle(e.target.value)}
-                    placeholder="Av. Principal"
-                    className="h-9"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="N° 1234"
+                    value={numberDraft}
+                    onChange={(e) => setNumberDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault()
+                        handleAddStreetNumber()
+                      }
+                    }}
+                    className="h-10 w-28 sm:w-32 rounded-xl border-gray-300 bg-white text-sm font-medium text-gray-900 focus-visible:ring-pink-500"
                   />
+                  <Button
+                    type="button"
+                    onClick={handleAddStreetNumber}
+                    disabled={isGeocodingAddress}
+                    className="h-10 px-4 sm:px-5 rounded-full bg-gray-900 hover:bg-pink-600 text-white font-bold text-xs tracking-wider uppercase transition-colors"
+                  >
+                    {isGeocodingAddress ? "UBICANDO..." : "AGREGAR"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSelectSinNumero}
+                    disabled={isGeocodingAddress}
+                    className="h-10 px-3.5 rounded-full border-gray-300 bg-white hover:bg-pink-50 hover:border-pink-400 hover:text-pink-600 text-gray-700 font-bold text-xs tracking-wider uppercase transition-colors"
+                  >
+                    S/N
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="numero" className="text-sm font-medium">
-                    Número <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="numero"
-                    value={numero}
-                    onChange={(e) => setNumero(e.target.value)}
-                    placeholder="123"
-                    className={`h-9 ${!numero ? 'border-2 border-yellow-400 focus:border-yellow-500 bg-yellow-50' : ''}`}
-                  />
-                  {!numero && (
-                    <p className="text-xs text-yellow-600 italic">⚠️ Campo requerido</p>
-                  )}
-                </div>
-              </div>
-              {/* Segunda fila también adaptativa */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="depto" className="text-sm font-medium">
-                    Depto/Casa <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="depto"
-                    value={depto}
-                    onChange={(e) => setDepto(e.target.value)}
-                    placeholder="Depto 42 o Casa 5"
-                    className={`h-9 ${!depto ? 'border-2 border-yellow-400 focus:border-yellow-500 bg-yellow-50' : ''}`}
-                  />
-                  {!depto && (
-                    <p className="text-xs text-yellow-600 italic">⚠️ Campo requerido</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="comuna" className="text-sm">Comuna</Label>
-                  <Input
-                    id="comuna"
-                    value={comuna}
-                    onChange={(e) => setComuna(e.target.value)}
-                    placeholder="Santiago"
-                    className="h-9"
-                  />
-                </div>
-              </div>
-              {/* Referencia a pantalla completa */}
-              <div className="space-y-2">
-                <Label htmlFor="referencia" className="text-sm text-gray-600">
-                  Referencia <span className="text-gray-400 italic text-xs">(Opcional)</span>
-                </Label>
-                <Input
-                  id="referencia"
-                  value={referencia}
-                  onChange={(e) => setReferencia(e.target.value)}
-                  placeholder="Edificio azul, cerca del parque, timbre 3"
-                  className="h-9"
-                />
               </div>
             </div>
           </div>
+
+          {/* 3. Botón "Usar mi ubicación actual" */}
+          <div>
+            <button
+              type="button"
+              onClick={handleUseCurrentLocation}
+              disabled={isLocatingUser}
+              className="inline-flex items-center gap-2 text-sm font-bold text-pink-600 hover:text-pink-700 underline underline-offset-4 transition-colors cursor-pointer !min-h-0 !min-w-0"
+            >
+              <LocateFixed className={`w-4 h-4 ${isLocatingUser ? "animate-spin" : ""}`} />
+              <span>{isLocatingUser ? "Obteniendo ubicación..." : "Usar mi ubicación actual"}</span>
+            </button>
+          </div>
+
+          {/* 4. Mapa abajo */}
+          <div className="space-y-2">
+            <div className="relative h-[240px] sm:h-[280px] overflow-hidden rounded-2xl border border-gray-200 shadow-sm">
+              {/* Botón flotante superior para ajustar el punto */}
+              <button
+                type="button"
+                onClick={() => {
+                  toast({
+                    title: "Ajusta tu punto en el mapa",
+                    description: "Toca o haz clic directamente sobre el mapa donde quieres recibir tu pedido.",
+                  })
+                }}
+                className="absolute top-2.5 left-1/2 -translate-x-1/2 z-[1000] bg-gray-900/90 hover:bg-gray-900 text-white text-xs font-semibold px-3.5 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-transform active:scale-95 !min-h-0 !min-w-0"
+              >
+                <LocateFixed className="w-3.5 h-3.5 text-pink-400" />
+                <span>Ajustar el punto</span>
+              </button>
+
+              <LocationPicker
+                key={mapKey}
+                onLocationSelect={handleLocationSelect}
+                selectedLocation={selectedLocation}
+                onDeliveryInfoChange={handleDeliveryInfoChange}
+              />
+            </div>
+
+            {!selectedLocation && (
+              <p className="text-xs text-gray-500 text-center">
+                Haz clic en el mapa o ingresa tu dirección para ubicar tu punto de entrega.
+              </p>
+            )}
+          </div>
+
+          {/* 5. Valor del delivery minimalista y resaltado según la zona */}
+          {selectedLocation && (
+            <div
+              className={`rounded-xl px-4 py-3 border flex items-center justify-between transition-all ${
+                deliveryInfo.zone && deliveryInfo.disponible
+                  ? "bg-pink-50/70 border-pink-200"
+                  : "bg-red-50 border-red-200"
+              }`}
+            >
+              {deliveryInfo.zone ? (
+                deliveryInfo.disponible ? (
+                  <>
+                    <div className="min-w-0 pr-2">
+                      <span className="text-xs text-gray-500 block">Zona de entrega</span>
+                      <span className="text-sm font-bold text-gray-900 truncate block">
+                        {deliveryInfo.zone.nombre}
+                      </span>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <span className="text-[11px] uppercase tracking-wider font-semibold text-pink-600 block">
+                        Delivery
+                      </span>
+                      <span className="text-lg sm:text-xl font-black text-pink-600">
+                        ${deliveryInfo.tarifa.toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="w-full text-center text-xs sm:text-sm font-semibold text-red-700">
+                    La zona "{deliveryInfo.zone.nombre}" no está disponible actualmente.
+                  </div>
+                )
+              ) : (
+                <div className="w-full text-center text-xs sm:text-sm font-semibold text-red-700">
+                  Ubicación fuera de nuestras zonas de delivery.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 6. Input de referencia al final */}
+          <div className="space-y-1.5 pt-1">
+            <Label htmlFor="referencia" className="text-xs font-bold text-gray-700">
+              Referencia <span className="text-gray-400 font-normal">(Opcional)</span>
+            </Label>
+            <Input
+              id="referencia"
+              value={referencia}
+              onChange={(e) => setReferencia(e.target.value)}
+              placeholder="Ej. Depto 42, Casa 5, portón negro, timbre 3"
+              className="h-10 rounded-xl border-gray-300 bg-white text-sm"
+            />
+          </div>
         </div>
-        <div className="p-4 border-t border-gray-200 bg-gray-50">
-          {/* Mensajes de error dinámicos que solo aparecen cuando son necesarios */}
-          {(!calle || !numero || !depto || !comuna || !selectedLocation) ? (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-3 animate-fadeIn">
-              <p className="text-sm text-yellow-700 text-center">
-                Por favor, completa todos los campos obligatorios (*) y selecciona una ubicación.
+
+        <div className="p-4 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+          {(!calle || !numero || !selectedLocation) ? (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2.5 mb-3">
+              <p className="text-xs text-yellow-800 text-center font-medium">
+                Ingresa tu dirección con número y confirma el punto en el mapa para continuar.
               </p>
             </div>
           ) : selectedLocation && !deliveryInfo.disponible ? (
-            <div className="bg-red-50 border border-red-200 rounded-md p-3 mb-3 animate-fadeIn">
-              <p className="text-sm text-red-700 text-center">
-                Lo sentimos, el delivery no está disponible en esta zona. Por favor, selecciona otra ubicación.
+            <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 mb-3">
+              <p className="text-xs text-red-700 text-center font-medium">
+                El delivery no está disponible en esta zona. Ajusta el punto en el mapa.
               </p>
             </div>
           ) : null}
 
           <Button
             onClick={handleAddressSubmit}
-            disabled={!calle || !numero || !depto || !comuna || !selectedLocation || !deliveryInfo.disponible || !deliveryInfo.zone}
-            className="w-full bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 rounded-lg"
+            disabled={!calle.trim() || !isValidHouseNumber(numero) || !selectedLocation || !deliveryInfo.disponible || !deliveryInfo.zone}
+            className="w-full bg-pink-600 text-white hover:bg-pink-700 font-bold py-3 rounded-xl shadow-md"
           >
             Continuar al Pago
           </Button>
-          {deliveryInfo.disponible && !deliveryInfo.zone && (
-            <p className="mt-2 text-xs text-red-600 text-center">Debes seleccionar una ubicación dentro de una zona válida de delivery.</p>
-          )}
         </div>
       </div>
     )
@@ -1787,7 +2277,58 @@ const Cart = ({ onClose }: CartProps) => {
   // Vista de pago
   if (currentView === "payment") {
     return (
-      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white">
+      <div className="flex-1 w-full h-full min-h-0 flex flex-col bg-white relative">
+        {/* Modal sobre el carrito para usar la última dirección registrada */}
+        {showLastAddressModal && (user as any)?.lastDeliveryAddress && (
+          <div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl border border-gray-200 shadow-2xl max-w-sm w-full p-5 sm:p-6 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center flex-shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-extrabold text-gray-900 leading-tight">
+                    ¿Enviamos el pedido a tu última dirección registrada?
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Encontramos la dirección de tu último delivery:
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-pink-50/60 border border-pink-100 rounded-xl p-3.5 text-sm space-y-1">
+                <p className="font-bold text-gray-900">
+                  {(user as any).lastDeliveryAddress.calle} {(user as any).lastDeliveryAddress.numero}
+                  {(user as any).lastDeliveryAddress.comuna ? `, ${(user as any).lastDeliveryAddress.comuna}` : ""}
+                </p>
+                {(user as any).lastDeliveryAddress.referencia && (
+                  <p className="text-xs text-gray-600">
+                    Ref: {(user as any).lastDeliveryAddress.referencia}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowLastAddressModal(false)}
+                  className="h-11 rounded-xl border-gray-300 text-gray-700 hover:bg-gray-100 font-bold"
+                >
+                  No
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleAcceptLastAddress}
+                  className="h-11 rounded-xl bg-pink-600 hover:bg-pink-700 text-white font-bold shadow-md"
+                >
+                  Sí
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="p-4 border-b border-gray-200 bg-gray-50 flex-shrink-0">
           <div className="flex items-center">
             <Button variant="ghost" size="icon" onClick={goBack} className="mr-2 hover:bg-gray-200">
@@ -2229,322 +2770,391 @@ const Cart = ({ onClose }: CartProps) => {
             const extraIngredients = calculateExtraIngredients(displayItem)
             const ingredientPrices = getIngredientPrices(displayItem.size || "Familiar")
             const isExpanded = expandedItems[displayItem.id] || false
+            const isPrepExpanded = expandedPrepOptions[displayItem.id] || false
 
-            const finalImageUrl = getStorageUrl(displayItem.image);
+            const finalImageUrl = getStorageUrl(displayItem.image)
+
+            // Extraer tamaño y limpiar el nombre para no repetir "(Familiar)" o "(Mediana)"
+            const sizeMatchInName = displayItem.name?.match(/\((Familiar|Mediana|Personal|Grande)\)/i)
+            const rawSizeText = displayItem.size || (sizeMatchInName ? sizeMatchInName[1] : undefined)
+            const formattedSize = rawSizeText
+              ? rawSizeText.charAt(0).toUpperCase() + rawSizeText.slice(1).toLowerCase()
+              : undefined
+
+            const cleanDisplayName = (shouldGroup
+              ? displayItem.name.replace(/ (Tradicional|Zero)$/, "")
+              : displayItem.name
+            )
+              .replace(/\s*\((?:Familiar|Mediana|Personal|Grande)\)\s*$/i, "")
+              .trim()
+
+            // Determinar si es una pizza real (para mostrar opciones Sin Orégano / Sin Queso / Sin Salsa Tomate)
+            const itemNameLower = displayItem.name.toLowerCase()
+            const itemNameNormalized = normalizeText(displayItem.name || "")
+            const isCuatroQuesos = itemNameNormalized.includes("4 quesos") || itemNameNormalized.includes("cuatro quesos")
+            const excludedFromPizzaPrep = ["salsa", "coca", "lipton", "sprite", "fanta", "agua", "jugo", "gauchitos", "rollitos"]
+            const isPizzaItem = !excludedFromPizzaPrep.some((excluded) => itemNameLower.includes(excluded)) && !shouldGroup && !displayItem.isPromo
+
+            const activePrepLabels = [
+              item.sinOregano ? "Sin Orégano" : null,
+              item.sinQueso ? "Sin Queso" : null,
+              item.sinSalsaTomate ? "Sin Salsa Tomate" : null,
+            ].filter(Boolean) as string[]
 
             return (
               <div
                 key={displayItem.id}
-                className="bg-gray-50 rounded-lg sm:rounded-xl p-2 sm:p-4 border border-gray-200 hover:shadow-md transition-shadow"
+                className="bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition-all"
               >
-                <div className="flex items-start space-x-2 sm:space-x-3">
-                  <img
-                    src={finalImageUrl}
-                    loading="eager"
-                    decoding="sync"
-                    alt={displayItem.name}
-                    className="rounded-lg object-cover flex-shrink-0 w-[50px] h-[50px] sm:w-[60px] sm:h-[60px]"
-                    onError={(e: any) => {
-                      const currentSrc = e.currentTarget.src;
+                <div className="flex items-stretch">
+                  {/* Lado izquierdo: Imagen grande ocupando la altura del bloque */}
+                  <div className="relative w-[108px] xs:w-[120px] sm:w-[140px] flex-shrink-0 bg-gray-100 self-stretch min-h-[124px]">
+                    <img
+                      src={finalImageUrl}
+                      loading="eager"
+                      decoding="sync"
+                      alt={cleanDisplayName}
+                      className="w-full h-full object-cover block"
+                      onError={(e: any) => {
+                        const currentSrc = e.currentTarget.src
 
-                      // Sistema de auto-recuperación de enlaces rotos por Case Sensitivity o Extensión
-                      if (currentSrc.includes('.jpg') && !currentSrc.includes('_retry1')) {
-                        e.currentTarget.src = currentSrc.replace('.jpg', '.png') + '&_retry1=true';
-                      }
-                      else if (currentSrc.includes('.png') && !currentSrc.includes('_retry2')) {
-                        const urlBase = currentSrc.split('&_retry')[0].replace('.png', '.jpg');
-                        const urlMayuscula = urlBase.replace(/%2F([a-z])/g, (match: string, p1: string) => `%2F${p1.toUpperCase()}`);
-                        e.currentTarget.src = urlMayuscula + '&_retry2=true';
-                      }
-                      else if (!currentSrc.includes("placeholder.svg")) {
-                        e.currentTarget.src = "/placeholder.svg"
-                      }
-                    }}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between mb-1 sm:mb-2">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-xs sm:text-sm text-gray-800 leading-tight flex flex-row items-center gap-2">
-                          <span>{shouldGroup ? displayItem.name.replace(/ (Tradicional|Zero)$/, "") : displayItem.name}</span>
-                          {displayItem.isCanje && (
-                            <img
-                              src="/iconos/puntos.png"
-                              alt="Puntos Palermo"
-                              className="w-8 h-8 sm:w-[50px] sm:h-[50px] object-contain flex-shrink-0"
-                              title="Canje por Puntos Palermo"
-                            />
-                          )}
-                        </h3>
-                        {shouldGroup && variantInfo.length > 0 && (
-                          <div className="text-[10px] sm:text-xs text-gray-600 mt-0.5 sm:mt-1">
-                            {variantInfo.map((vi, idx) => (
-                              <span key={idx} className="inline-block mr-2">
-                                <span className="font-medium">{vi.quantity}x {vi.variant}</span>
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {displayItem.isPromo && Array.isArray(displayItem.productos) && (
-                          <div className="mt-1 space-y-0.5">
-                            {displayItem.productos.map((prod: any, idx: number) => (
-                              <div key={idx} className="text-[10px] sm:text-xs text-gray-500 font-medium flex items-center gap-1.5 bg-gray-50 dark:bg-gray-900/40 px-2 py-0.5 rounded border border-gray-100 dark:border-gray-800 w-fit">
-                                <span>{prod.nombre || prod.name}</span>
-                                <span className="text-pink-600 dark:text-pink-400 font-bold">x{prod.cantidad}</span>
-                                {prod.size && <span className="text-gray-400 font-normal">({prod.size})</span>}
-                                {prod.variant && <span className="text-gray-400 font-normal">({prod.variant})</span>}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {displayItem.size && !shouldGroup && (
-                          <span className="text-[10px] sm:text-xs text-pink-600 font-medium bg-pink-50 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full inline-block mt-0.5 sm:mt-1">
-                            {displayItem.size}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex space-x-0.5 sm:space-x-1 ml-1 sm:ml-2 flex-shrink-0">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-red-500 hover:text-red-700 hover:bg-red-50 p-0.5 sm:p-1 h-auto"
-                          onClick={() => {
-                            if (shouldGroup && variantInfo.length > 0) {
-                              // Eliminar ambas variantes (Tradicional y Zero)
-                              const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
-                              items.forEach(i => {
-                                if ((i.variant === "Tradicional" || i.variant === "Zero") &&
-                                  i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison) {
-                                  removeItem(i.id)
-                                }
-                              })
-                            } else {
-                              removeItem(displayItem.id)
-                            }
-                            setShowInventoryError(false)
-                          }}
-                          title="Eliminar pedido"
-                        >
-                          <Trash className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                        </Button>
-                      </div>
-                    </div>
+                        // Sistema de auto-recuperación de enlaces rotos por Case Sensitivity o Extensión
+                        if (currentSrc.includes(".jpg") && !currentSrc.includes("_retry1")) {
+                          e.currentTarget.src = currentSrc.replace(".jpg", ".png") + "&_retry1=true"
+                        } else if (currentSrc.includes(".png") && !currentSrc.includes("_retry2")) {
+                          const urlBase = currentSrc.split("&_retry")[0].replace(".png", ".jpg")
+                          const urlMayuscula = urlBase.replace(/%2F([a-z])/g, (match: string, p1: string) => `%2F${p1.toUpperCase()}`)
+                          e.currentTarget.src = urlMayuscula + "&_retry2=true"
+                        } else if (!currentSrc.includes("placeholder.svg")) {
+                          e.currentTarget.src = "/placeholder.svg"
+                        }
+                      }}
+                    />
+                  </div>
 
-                    {/* Botón para expandir/contraer detalles - solo para pizzas personalizadas (excepto DUO) */}
-                    {displayItem.pizzaType !== 'duo' && ((displayItem.ingredients && displayItem.ingredients.length > 0) ||
-                      (displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0) ||
-                      (displayItem.sauces && displayItem.sauces.length > 0) ||
-                      (displayItem.drinks && displayItem.drinks.length > 0) ||
-                      (displayItem.extras && displayItem.extras.length > 0)) ? (
-                      <div className="mb-1.5 sm:mb-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => toggleItemExpansion(displayItem.id.toString())}
-                          className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 p-1 sm:p-2 h-auto text-[10px] sm:text-xs"
-                        >
-                          <span className="mr-0.5 sm:mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
-                          {isExpanded ? <ChevronUp className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> : <ChevronDown className="w-2.5 h-2.5 sm:w-3 sm:h-3" />}
-                        </Button>
-                      </div>
-                    ) : null}
-
-                    {/* Desglose de precios con ingredientes individuales */}
-                    {isExpanded && (
-                      <div className="space-y-2 mb-3 animate-in slide-in-from-top-2 duration-200">
-                        <div className="bg-white p-3 rounded-lg border border-gray-200 text-xs space-y-1">
-                          <div className="font-medium text-gray-700 mb-2">Desglose de Precio:</div>
-
-                          <div className="flex justify-between">
-                            <span className="text-gray-600">
-                              {displayItem.name.includes("DUO")
-                                ? `Pizza DUO (${displayItem.size}):`
-                                : displayItem.selectedMenuPizza && displayItem.selectedMenuPizza !== 'base'
-                                  ? `Pizza base ${displayItem.selectedMenuPizza} (${displayItem.size}):`
-                                  : `Pizza base (${displayItem.size}):`}
+                  {/* Lado derecho: Toda la información y controles del producto */}
+                  <div className="flex-1 min-w-0 p-3 sm:p-4 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <div className="flex-1 min-w-0">
+                          {/* Primero el tamaño en rojo fucsia */}
+                          {formattedSize && !shouldGroup && (
+                            <span className="block text-[11px] sm:text-xs font-extrabold uppercase tracking-wider text-pink-600 mb-0.5 leading-tight">
+                              {formattedSize}
                             </span>
-                            <span>${(displayItem.basePrice || 0).toLocaleString()}</span>
-                          </div>
-
-                          {/* Ingredientes simples individuales */}
-                          {displayItem.ingredients && displayItem.ingredients.length > 0 && (
-                            <>
-                              {displayItem.ingredients.map((ingredient, index) => {
-                                // En Promo: los primeros 2 están incluidos en la base, no mostrarlos
-                                // En Premium: todos los ingredientes se cobran, mostrar todos
-                                if (displayItem.name.includes("Promo") && index < 2) return null
-
-                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                                const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
-                                const ingredientName = match ? match[1] : ingredient
-                                const quantity = match ? parseInt(match[2]) : 1
-                                const totalPrice = ingredientPrices.simple * quantity
-
-                                return (
-                                  <div key={`ingredient-${index}`} className="flex justify-between">
-                                    <span className="text-gray-600">{ingredient}:</span>
-                                    <span>+${totalPrice.toLocaleString()}</span>
-                                  </div>
-                                )
-                              })}
-                            </>
                           )}
 
-                          {/* Ingredientes premium individuales */}
-                          {displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0 && (
-                            <>
-                              {displayItem.premiumIngredients.map((ingredient, index) => {
-                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                                const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
-                                const ingredientName = match ? match[1] : ingredient
-                                const quantity = match ? parseInt(match[2]) : 1
-                                const totalPrice = ingredientPrices.premium * quantity
+                          {/* Luego el nombre de la pizza sin repetir el tamaño entre paréntesis */}
+                          <h3 className="font-bold text-sm sm:text-base text-gray-900 leading-snug flex flex-row items-center gap-2 break-words">
+                            <span>{cleanDisplayName}</span>
+                            {displayItem.isCanje && (
+                              <img
+                                src="/iconos/puntos.png"
+                                alt="Puntos Palermo"
+                                className="w-7 h-7 sm:w-9 sm:h-9 object-contain flex-shrink-0"
+                                title="Canje por Puntos Palermo"
+                              />
+                            )}
+                          </h3>
 
-                                return (
-                                  <div key={`premium-${index}`} className="flex justify-between">
-                                    <span className="text-gray-600">{ingredient}:</span>
-                                    <span>+${totalPrice.toLocaleString()}</span>
-                                  </div>
-                                )
-                              })}
-                            </>
+                          {shouldGroup && variantInfo.length > 0 && (
+                            <div className="text-[11px] sm:text-xs text-gray-600 mt-0.5">
+                              {variantInfo.map((vi, idx) => (
+                                <span key={idx} className="inline-block mr-2">
+                                  <span className="font-medium">{vi.quantity}x {vi.variant}</span>
+                                </span>
+                              ))}
+                            </div>
                           )}
 
-                          {/* Salsas individuales */}
-                          {displayItem.sauces && displayItem.sauces.length > 0 && (
-                            <>
-                              {displayItem.sauces.map((sauce, index) => {
-                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                                const match = sauce.match(/^(.+?)\s*\((\d+)\)$/)
-                                const sauceName = match ? match[1] : sauce
-                                const quantity = match ? parseInt(match[2]) : 1
-                                const unitPrice = getExtraPrice(sauceName)
-                                const totalPrice = unitPrice * quantity
-
-                                return (
-                                  <div key={`sauce-${index}`} className="flex justify-between">
-                                    <span className="text-green-600">{sauce}:</span>
-                                    <span className="text-green-600">+${totalPrice.toLocaleString()}</span>
-                                  </div>
-                                )
-                              })}
-                            </>
+                          {displayItem.isPromo && Array.isArray(displayItem.productos) && (
+                            <div className="mt-1.5 space-y-0.5">
+                              {displayItem.productos.map((prod: any, idx: number) => (
+                                <div
+                                  key={idx}
+                                  className="text-[10px] sm:text-xs text-gray-500 font-medium flex items-center gap-1.5 bg-gray-50 px-2 py-0.5 rounded border border-gray-100 w-fit"
+                                >
+                                  <span>{prod.nombre || prod.name}</span>
+                                  <span className="text-pink-600 font-bold">x{prod.cantidad}</span>
+                                  {prod.size && <span className="text-gray-400 font-normal">({prod.size})</span>}
+                                  {prod.variant && <span className="text-gray-400 font-normal">({prod.variant})</span>}
+                                </div>
+                              ))}
+                            </div>
                           )}
+                        </div>
 
-                          {/* Bebidas individuales */}
-                          {displayItem.drinks && displayItem.drinks.length > 0 && (
-                            <>
-                              {displayItem.drinks.map((drink, index) => {
-                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                                const match = drink.match(/^(.+?)\s*\((\d+)\)$/)
-                                const drinkName = match ? match[1] : drink
-                                const quantity = match ? parseInt(match[2]) : 1
-                                const unitPrice = getExtraPrice(drinkName)
-                                const totalPrice = unitPrice * quantity
-
-                                return (
-                                  <div key={`drink-${index}`} className="flex justify-between">
-                                    <span className="text-blue-600">{drink}:</span>
-                                    <span className="text-blue-600">+${totalPrice.toLocaleString()}</span>
-                                  </div>
-                                )
-                              })}
-                            </>
-                          )}
-
-                          {/* Agregados individuales */}
-                          {displayItem.extras && displayItem.extras.length > 0 && (
-                            <>
-                              {displayItem.extras.map((extra, index) => {
-                                // Extraer nombre y cantidad del formato "Nombre (cantidad)"
-                                const match = extra.match(/^(.+?)\s*\((\d+)\)$/)
-                                const extraName = match ? match[1] : extra
-                                const quantity = match ? parseInt(match[2]) : 1
-                                const unitPrice = getExtraPrice(extraName)
-                                const totalPrice = unitPrice * quantity
-
-                                return (
-                                  <div key={`extra-${index}`} className="flex justify-between">
-                                    <span className="text-purple-600">{extra}:</span>
-                                    <span className="text-purple-600">+${totalPrice.toLocaleString()}</span>
-                                  </div>
-                                )
-                              })}
-                            </>
-                          )}
-
-                          <div className="flex justify-between font-medium border-t pt-2 mt-2 text-pink-600">
-                            <span>Subtotal unitario:</span>
-                            <span>${item.price.toLocaleString()}</span>
-                          </div>
+                        <div className="flex space-x-0.5 sm:space-x-1 flex-shrink-0">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1 h-auto !min-h-0 !min-w-0"
+                            onClick={() => {
+                              if (shouldGroup && variantInfo.length > 0) {
+                                // Eliminar ambas variantes (Tradicional y Zero)
+                                const baseNameForComparison = item.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim()
+                                items.forEach((i) => {
+                                  if (
+                                    (i.variant === "Tradicional" || i.variant === "Zero") &&
+                                    i.name?.replace(/ \(Tradicional|Zero\)$/i, "").trim() === baseNameForComparison
+                                  ) {
+                                    removeItem(i.id)
+                                  }
+                                })
+                              } else {
+                                removeItem(displayItem.id)
+                              }
+                              setShowInventoryError(false)
+                            }}
+                            title="Eliminar pedido"
+                          >
+                            <Trash className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
-                    )}
 
-                    {/* Opciones de Personalización - Solo para pizzas reales */}
-                    {(() => {
-                      const itemNameLower = displayItem.name.toLowerCase()
-                      // Excluir salsas, bebidas, gauchitos y rollitos
-                      const excludedItems = ['salsa', 'coca', 'lipton', 'sprite', 'fanta', 'agua', 'jugo', 'gauchitos', 'rollitos']
-                      const isExcluded = excludedItems.some(excluded => itemNameLower.includes(excluded))
-
-                      // Mostrar para todo excepto los productos excluidos y bebidas agrupadas
-                      return !isExcluded && !shouldGroup
-                    })() && (
-                        <div className="mt-2 mb-2 flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              updateItem({
-                                ...item,
-                                sinOregano: !item.sinOregano
-                              })
-                            }}
-                            className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${item.sinOregano
-                              ? 'bg-pink-600 text-white border-pink-600 font-semibold'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
-                              }`}
+                      {/* Botón para expandir/contraer detalles de ingredientes - solo para pizzas personalizadas (excepto DUO) */}
+                      {displayItem.pizzaType !== "duo" &&
+                      ((displayItem.ingredients && displayItem.ingredients.length > 0) ||
+                        (displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0) ||
+                        (displayItem.sauces && displayItem.sauces.length > 0) ||
+                        (displayItem.drinks && displayItem.drinks.length > 0) ||
+                        (displayItem.extras && displayItem.extras.length > 0)) ? (
+                        <div className="mb-1.5">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleItemExpansion(displayItem.id.toString())}
+                            className="text-gray-600 hover:text-gray-800 hover:bg-gray-100 px-1.5 py-0.5 h-auto text-[11px] sm:text-xs !min-h-0 !min-w-0"
                           >
-                            Sin Orégano
-                          </button>
+                            <span className="mr-1">{isExpanded ? "Ocultar detalles" : "Ver detalles"}</span>
+                            {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          </Button>
+                        </div>
+                      ) : null}
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              updateItem({
-                                ...item,
-                                sinQueso: !item.sinQueso
-                              })
-                            }}
-                            className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${item.sinQueso
-                              ? 'bg-pink-600 text-white border-pink-600 font-semibold'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
-                              }`}
-                          >
-                            Sin Queso
-                          </button>
+                      {/* Desglose de precios con ingredientes individuales */}
+                      {isExpanded && (
+                        <div className="space-y-2 mb-2.5 animate-in slide-in-from-top-2 duration-200">
+                          <div className="bg-gray-50 p-2.5 rounded-lg border border-gray-200 text-xs space-y-1">
+                            <div className="font-medium text-gray-700 mb-1.5">Desglose de Precio:</div>
 
-                          <button
-                            type="button"
-                            onClick={() => {
-                              updateItem({
-                                ...item,
-                                sinSalsaTomate: !item.sinSalsaTomate
-                              })
-                            }}
-                            className={`px-3 py-1.5 text-xs rounded-md border transition-all cursor-pointer ${item.sinSalsaTomate
-                              ? 'bg-pink-600 text-white border-pink-600 font-semibold'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-pink-400'
-                              }`}
-                          >
-                            Sin Salsa Tomate
-                          </button>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">
+                                {displayItem.name.includes("DUO")
+                                  ? `Pizza DUO (${displayItem.size}):`
+                                  : displayItem.selectedMenuPizza && displayItem.selectedMenuPizza !== "base"
+                                    ? `Pizza base ${displayItem.selectedMenuPizza} (${displayItem.size}):`
+                                    : `Pizza base (${displayItem.size}):`}
+                              </span>
+                              <span>${(displayItem.basePrice || 0).toLocaleString()}</span>
+                            </div>
+
+                            {/* Ingredientes simples individuales */}
+                            {displayItem.ingredients && displayItem.ingredients.length > 0 && (
+                              <>
+                                {displayItem.ingredients.map((ingredient, index) => {
+                                  if (displayItem.name.includes("Promo") && index < 2) return null
+
+                                  const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
+                                  const quantity = match ? parseInt(match[2]) : 1
+                                  const totalPrice = ingredientPrices.simple * quantity
+
+                                  return (
+                                    <div key={`ingredient-${index}`} className="flex justify-between">
+                                      <span className="text-gray-600">{ingredient}:</span>
+                                      <span>+${totalPrice.toLocaleString()}</span>
+                                    </div>
+                                  )
+                                })}
+                              </>
+                            )}
+
+                            {/* Ingredientes premium individuales */}
+                            {displayItem.premiumIngredients && displayItem.premiumIngredients.length > 0 && (
+                              <>
+                                {displayItem.premiumIngredients.map((ingredient, index) => {
+                                  const match = ingredient.match(/^(.+?)\s*\((\d+)\)$/)
+                                  const quantity = match ? parseInt(match[2]) : 1
+                                  const totalPrice = ingredientPrices.premium * quantity
+
+                                  return (
+                                    <div key={`premium-${index}`} className="flex justify-between">
+                                      <span className="text-gray-600">{ingredient}:</span>
+                                      <span>+${totalPrice.toLocaleString()}</span>
+                                    </div>
+                                  )
+                                })}
+                              </>
+                            )}
+
+                            {/* Salsas individuales */}
+                            {displayItem.sauces && displayItem.sauces.length > 0 && (
+                              <>
+                                {displayItem.sauces.map((sauce, index) => {
+                                  const match = sauce.match(/^(.+?)\s*\((\d+)\)$/)
+                                  const sauceName = match ? match[1] : sauce
+                                  const quantity = match ? parseInt(match[2]) : 1
+                                  const unitPrice = getExtraPrice(sauceName)
+                                  const totalPrice = unitPrice * quantity
+
+                                  return (
+                                    <div key={`sauce-${index}`} className="flex justify-between">
+                                      <span className="text-green-600">{sauce}:</span>
+                                      <span className="text-green-600">+${totalPrice.toLocaleString()}</span>
+                                    </div>
+                                  )
+                                })}
+                              </>
+                            )}
+
+                            {/* Bebidas individuales */}
+                            {displayItem.drinks && displayItem.drinks.length > 0 && (
+                              <>
+                                {displayItem.drinks.map((drink, index) => {
+                                  const match = drink.match(/^(.+?)\s*\((\d+)\)$/)
+                                  const drinkName = match ? match[1] : drink
+                                  const quantity = match ? parseInt(match[2]) : 1
+                                  const unitPrice = getExtraPrice(drinkName)
+                                  const totalPrice = unitPrice * quantity
+
+                                  return (
+                                    <div key={`drink-${index}`} className="flex justify-between">
+                                      <span className="text-blue-600">{drink}:</span>
+                                      <span className="text-blue-600">+${totalPrice.toLocaleString()}</span>
+                                    </div>
+                                  )
+                                })}
+                              </>
+                            )}
+
+                            {/* Agregados individuales */}
+                            {displayItem.extras && displayItem.extras.length > 0 && (
+                              <>
+                                {displayItem.extras.map((extra, index) => {
+                                  const match = extra.match(/^(.+?)\s*\((\d+)\)$/)
+                                  const extraName = match ? match[1] : extra
+                                  const quantity = match ? parseInt(match[2]) : 1
+                                  const unitPrice = getExtraPrice(extraName)
+                                  const totalPrice = unitPrice * quantity
+
+                                  return (
+                                    <div key={`extra-${index}`} className="flex justify-between">
+                                      <span className="text-purple-600">{extra}:</span>
+                                      <span className="text-purple-600">+${totalPrice.toLocaleString()}</span>
+                                    </div>
+                                  )
+                                })}
+                              </>
+                            )}
+
+                            <div className="flex justify-between font-medium border-t pt-1.5 mt-1.5 text-pink-600">
+                              <span>Subtotal unitario:</span>
+                              <span>${item.price.toLocaleString()}</span>
+                            </div>
+                          </div>
                         </div>
                       )}
 
-                    {/* Controles de cantidad */}
-                    <div className="flex items-center justify-between">
+                      {/* Opciones de Personalización desplegables con flecha - Solo para pizzas reales */}
+                      {isPizzaItem && (
+                        <div className="mt-1 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => togglePrepOptions(displayItem.id.toString())}
+                            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-semibold text-gray-600 hover:text-pink-600 bg-gray-100/80 hover:bg-pink-50/70 px-2.5 py-1 rounded-md transition-colors cursor-pointer !min-h-0 !min-w-0"
+                          >
+                            <span>Opciones de preparación</span>
+                            {activePrepLabels.length > 0 && (
+                              <span className="bg-pink-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full leading-tight">
+                                {activePrepLabels.length}
+                              </span>
+                            )}
+                            {isPrepExpanded ? (
+                              <ChevronUp className="w-3.5 h-3.5 text-pink-600" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                            )}
+                          </button>
+
+                          {/* Mostrar resumen compacto si está contraído pero tiene opciones activas */}
+                          {!isPrepExpanded && activePrepLabels.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {activePrepLabels.map((lbl) => (
+                                <span
+                                  key={lbl}
+                                  className="text-[10px] font-semibold text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded"
+                                >
+                                  {lbl}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {isPrepExpanded && (
+                            <div className="mt-2 flex flex-nowrap items-center gap-1 sm:gap-1.5 overflow-x-auto animate-in slide-in-from-top-1 duration-150">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateItem({
+                                    ...item,
+                                    sinOregano: !item.sinOregano,
+                                  })
+                                }}
+                                className={`px-2 py-1 text-[10px] sm:text-[11px] whitespace-nowrap rounded-md border transition-all cursor-pointer !min-h-0 !min-w-0 ${
+                                  item.sinOregano
+                                    ? "bg-pink-600 text-white border-pink-600 font-semibold shadow-xs"
+                                    : "bg-white text-gray-700 border-gray-300 hover:border-pink-400"
+                                }`}
+                              >
+                                Sin Orégano
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateItem({
+                                    ...item,
+                                    sinQueso: !item.sinQueso,
+                                  })
+                                }}
+                                className={`px-2 py-1 text-[10px] sm:text-[11px] whitespace-nowrap rounded-md border transition-all cursor-pointer !min-h-0 !min-w-0 ${
+                                  item.sinQueso
+                                    ? "bg-pink-600 text-white border-pink-600 font-semibold shadow-xs"
+                                    : "bg-white text-gray-700 border-gray-300 hover:border-pink-400"
+                                }`}
+                              >
+                                Sin Queso
+                              </button>
+
+                              {!isCuatroQuesos && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    updateItem({
+                                      ...item,
+                                      sinSalsaTomate: !item.sinSalsaTomate,
+                                    })
+                                  }}
+                                  className={`px-2 py-1 text-[10px] sm:text-[11px] whitespace-nowrap rounded-md border transition-all cursor-pointer !min-h-0 !min-w-0 ${
+                                    item.sinSalsaTomate
+                                      ? "bg-pink-600 text-white border-pink-600 font-semibold shadow-xs"
+                                      : "bg-white text-gray-700 border-gray-300 hover:border-pink-400"
+                                  }`}
+                                >
+                                  Sin Salsa Tomate
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Controles de cantidad y precio */}
+                    <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-1">
                       {displayItem.isCanje ? (
-                        <div className="text-xs text-pink-700 font-extrabold bg-pink-50 border border-pink-100 px-3 py-1.5 rounded-xl shadow-sm">
+                        <div className="text-xs text-pink-700 font-extrabold bg-pink-50 border border-pink-100 px-3 py-1 rounded-xl shadow-xs">
                           Cantidad: {displayItem.quantity}
                         </div>
                       ) : (
@@ -2552,7 +3162,7 @@ const Cart = ({ onClose }: CartProps) => {
                           <Button
                             size="icon"
                             variant="outline"
-                            className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600 !min-h-0 !min-w-0"
                             onClick={() => {
                               if (shouldGroup) {
                                 updateQuantity(item.id, Math.max(0, item.quantity - 1))
@@ -2562,13 +3172,15 @@ const Cart = ({ onClose }: CartProps) => {
                               setShowInventoryError(false)
                             }}
                           >
-                            <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                            <Minus className="w-3 h-3" />
                           </Button>
-                          <span className="w-6 sm:w-8 text-center text-sm sm:text-base font-medium text-gray-800">{displayItem.quantity}</span>
+                          <span className="w-6 sm:w-7 text-center text-sm sm:text-base font-bold text-gray-800">
+                            {displayItem.quantity}
+                          </span>
                           <Button
                             size="icon"
                             variant="outline"
-                            className="w-7 h-7 sm:w-8 sm:h-8 bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600"
+                            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white border-gray-300 text-gray-600 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600 !min-h-0 !min-w-0"
                             onClick={() => {
                               if (shouldGroup) {
                                 updateQuantity(item.id, item.quantity + 1)
@@ -2578,7 +3190,7 @@ const Cart = ({ onClose }: CartProps) => {
                               setShowInventoryError(false)
                             }}
                           >
-                            <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                            <Plus className="w-3 h-3" />
                           </Button>
                         </div>
                       )}
@@ -2586,13 +3198,19 @@ const Cart = ({ onClose }: CartProps) => {
                         {displayItem.isCanje ? (
                           <>
                             <div className="font-bold text-sm sm:text-base text-pink-600">$0 (Canje)</div>
-                            <div className="text-[9px] sm:text-[10px] text-gray-500 font-semibold">{displayItem.canjePoints?.toLocaleString('es-CL')} pts</div>
+                            <div className="text-[9px] sm:text-[10px] text-gray-500 font-semibold">
+                              {displayItem.canjePoints?.toLocaleString("es-CL")} pts
+                            </div>
                           </>
                         ) : (
                           <>
-                            <div className="font-bold text-sm sm:text-base text-gray-800">${(displayItem.price * displayItem.quantity).toLocaleString()}</div>
+                            <div className="font-extrabold text-sm sm:text-base text-gray-900">
+                              ${(displayItem.price * displayItem.quantity).toLocaleString()}
+                            </div>
                             {displayItem.quantity > 1 && (
-                              <div className="text-[10px] sm:text-xs text-gray-500">${displayItem.price.toLocaleString()} c/u</div>
+                              <div className="text-[10px] sm:text-xs text-gray-500">
+                                ${displayItem.price.toLocaleString()} c/u
+                              </div>
                             )}
                           </>
                         )}
@@ -2605,319 +3223,240 @@ const Cart = ({ onClose }: CartProps) => {
           })}
           </div>
 
-        {/* Secciones de Upselling */}
-        {/* Funciones auxiliares para detectar categorías en el carrito */}
-        {(() => {
-          const hasSalsas = items.some(item =>
-            ['17', '18', '19', '20'].includes(String(item.id)) ||
-            item.name?.toLowerCase().includes('salsa')
-          )
-          const hasBebidas = items.some(item => {
-            const itemName = item.name?.toLowerCase() || ''
-            const itemIdStr = String(item.id)
-            return itemIdStr.includes('401') || itemIdStr.includes('402') ||
-              itemName.includes('coca') ||
-              itemName.includes('bebida') ||
-              itemName.includes('lipton') ||
-              itemName.includes('sprite') ||
-              itemName.includes('fanta') ||
-              itemName.includes('agua') ||
-              itemName.includes('jugo')
-          })
-          const hasSnacks = items.some(item =>
-            ['15', '16'].includes(String(item.id)) ||
-            item.name?.toLowerCase().includes('gauchito') ||
-            item.name?.toLowerCase().includes('rollito')
-          )
+          {/* Sección Unificada de Upselling: "¿Quieres agregar un extra?" */}
+          {(() => {
+            const unifiedExtras = [
+              // Snacks / Acompañamientos
+              {
+                id: "15",
+                name: "Rollitos de Canela",
+                price: 4900,
+                image: "/acompañamientos/canela.jpg",
+                isAvailable: rollitosPackStock > 0,
+              },
+              {
+                id: "16",
+                name: "Gauchitos x12",
+                price: 4000,
+                image: "/acompañamientos/gauchitos.jpg",
+                isAvailable: gauchitosDisponible,
+              },
+              {
+                id: "21",
+                name: "Gauchitos x24",
+                price: 7000,
+                image: "/acompañamientos/Gauchitosx24.webp",
+                isAvailable: gauchitosDisponible,
+              },
+              // Bebidas
+              {
+                id: "coca-botella-tradicional",
+                name: "Coca Cola 1.5 Litro",
+                price: 2900,
+                image: "/bebidas/coca_cola_1.5_litro.jpg",
+                isAvailable: bebidasDisponibles.cocaBotellaTradicional,
+              },
+              {
+                id: "coca-botella-zero",
+                name: "Coca Cola Zero 1.5 Litro",
+                price: 2900,
+                image: "/bebidas/coca_cola_1.5_litro_zero.jpg",
+                isAvailable: bebidasDisponibles.cocaBotellaZero,
+              },
+              {
+                id: "coca-lata-tradicional",
+                name: "Coca Cola Lata 350cc",
+                price: 1500,
+                image: "/bebidas/coca_cola_lata.jpg",
+                isAvailable: bebidasDisponibles.cocaLataTradicional,
+              },
+              {
+                id: "coca-lata-zero",
+                name: "Coca Cola Zero Lata 350cc",
+                price: 1500,
+                image: "/bebidas/coca_cola_lata_zero.jpg",
+                isAvailable: bebidasDisponibles.cocaLataZero,
+              },
+              {
+                id: "lipton-botella",
+                name: "Lipton Botella",
+                price: 2900,
+                image: "/bebidas/lipton_botella.jpg",
+                isAvailable: bebidasDisponibles.liptonBotella,
+              },
+              {
+                id: "lipton-lata",
+                name: "Lipton Lata",
+                price: 1500,
+                image: "/bebidas/lipton_lata.jpg",
+                isAvailable: bebidasDisponibles.liptonLata,
+              },
+              // Salsas
+              {
+                id: "17",
+                name: "Salsa de Ajo",
+                price: 700,
+                image: "/acompañamientos/salsa_de_ajo.jpg",
+                isAvailable: salsasDisponibles.ajo,
+              },
+              {
+                id: "18",
+                name: "Salsa Chimichurri",
+                price: 700,
+                image: "/acompañamientos/salsa_chimichurri.jpg",
+                isAvailable: salsasDisponibles.chimichurri,
+              },
+              {
+                id: "19",
+                name: "Salsa BBQ",
+                price: 700,
+                image: "/acompañamientos/salsa_bbq.jpg",
+                isAvailable: salsasDisponibles.bbq,
+              },
+              {
+                id: "20",
+                name: "Salsa Pesto",
+                price: 1000,
+                image: "/acompañamientos/salsa_pesto.jpg",
+                isAvailable: salsasDisponibles.pesto,
+              },
+            ]
 
-          return (
-            <div className="px-2 sm:px-4 pb-2 sm:pb-4 space-y-2 sm:space-y-3">
-              {/* Sección 1: Salsas - Solo mostrar si NO hay salsas en el carrito */}
-              {!hasSalsas && (
-                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            const findMatchingCartItem = (extra: { id: string; name: string }) => {
+              const targetNorm = normalizeText(extra.name)
+              return items.find((item) => {
+                if (item.isCanje || item.isPromo) return false
+                if (String(item.id) === String(extra.id)) return true
+                const itemNorm = normalizeText(item.name || "")
+                if (itemNorm === targetNorm) return true
+                if (extra.id === "16" && (itemNorm === "gauchitos" || itemNorm === "gauchitos x12")) return true
+                return false
+              })
+            }
+
+            return (
+              <div className="pt-2 pb-2">
+                <h3 className="font-arial-narrow font-extrabold text-lg sm:text-xl text-gray-900 mb-2.5 tracking-tight">
+                  ¿Quieres agregar un extra?
+                </h3>
+
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                   <button
-                    onClick={() => setExpandedUpsell(prev => ({ ...prev, salsas: !prev.salsas }))}
-                    className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
+                    type="button"
+                    onClick={() => setIsExtrasOpen((prev) => !prev)}
+                    className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-gray-50/80 transition-colors cursor-pointer !min-h-0"
                   >
-                    <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregas Salsas?</span>
-                    {expandedUpsell.salsas ? (
-                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                    <span className="text-sm sm:text-[15px] text-gray-700 font-medium">
+                      Selecciona más opciones
+                    </span>
+                    {isExtrasOpen ? (
+                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                     ) : (
-                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
+                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                     )}
                   </button>
 
-                  {expandedUpsell.salsas && (
-                    <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-                      {[
-                        { id: 17, name: "Salsa de Ajo", price: 700, image: "/acompañamientos/salsa_de_ajo.jpg" },
-                        { id: 18, name: "Salsa Chimichurri", price: 700, image: "/acompañamientos/salsa_chimichurri.jpg" },
-                        { id: 19, name: "Salsa BBQ", price: 700, image: "/acompañamientos/salsa_bbq.jpg" },
-                        { id: 20, name: "Salsa Pesto", price: 1000, image: "/acompañamientos/salsa_pesto.jpg" },
-                      ].map(salsa => {
-                        const cartItem = items.find(item => item.id === String(salsa.id))
-                        const isInCart = !!cartItem
-                        const quantity = cartItem?.quantity || 1
+                  {isExtrasOpen && (
+                    <div className="px-4 pb-3 pt-1 divide-y divide-gray-100 border-t border-gray-100 animate-in slide-in-from-top-1 duration-200">
+                      {unifiedExtras.map((extra) => {
+                        const matchedItem = findMatchingCartItem(extra)
+                        const quantity = matchedItem?.quantity || 0
+                        const isAvailable = extra.isAvailable
 
                         return (
-                          <div key={salsa.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                            <label className="flex items-center gap-1.5 sm:gap-2 cursor-pointer flex-1">
-                              <input
-                                type="checkbox"
-                                checked={isInCart}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    addItem({
-                                      id: String(salsa.id),
-                                      name: salsa.name,
-                                      price: salsa.price,
-                                      quantity: 1,
-                                      image: getStorageUrl(salsa.image)
-                                    })
-                                  } else {
-                                    removeItem(String(salsa.id))
-                                  }
-                                }}
-                                className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                              />
-                              <span className="text-xs sm:text-sm text-gray-700">{salsa.name}</span>
-                              <span className="text-xs sm:text-sm text-gray-500">${salsa.price.toLocaleString()}</span>
-                            </label>
+                          <div
+                            key={extra.id}
+                            className={`flex items-center justify-between py-2.5 gap-2 ${
+                              !isAvailable ? "opacity-55" : ""
+                            }`}
+                          >
+                            <span className="font-arial-narrow font-extrabold text-xs sm:text-sm uppercase tracking-wide text-gray-800 flex-1 min-w-0 pr-2 leading-tight">
+                              {extra.name}
+                            </span>
 
-                            {isInCart && (
-                              <div className="flex items-center gap-1 sm:gap-2">
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                                  onClick={() => updateQuantity(String(salsa.id), Math.max(0, quantity - 1))}
-                                >
-                                  <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                </Button>
-                                <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                                  onClick={() => updateQuantity(String(salsa.id), quantity + 1)}
-                                >
-                                  <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Sección 2: Bebidas - Solo mostrar si NO hay bebidas en el carrito */}
-              {!hasBebidas && (
-                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                  <button
-                    onClick={() => setExpandedUpsell(prev => ({ ...prev, bebidas: !prev.bebidas }))}
-                    className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agregar Bebida?</span>
-                    {expandedUpsell.bebidas ? (
-                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-                    )}
-                  </button>
-
-                  {expandedUpsell.bebidas && (
-                    <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-                      {([
-                        { id: 'lipton-lata', name: 'Lipton Lata', price: 1500, image: '/bebidas/lipton_lata.jpg', availabilityKey: 'liptonLata' as const },
-                        { id: 'lipton-botella', name: 'Lipton Botella', price: 2900, image: '/bebidas/lipton_botella.jpg', availabilityKey: 'liptonBotella' as const },
-                        { id: 'coca-lata-tradicional', name: 'Coca Cola Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata.jpg', availabilityKey: 'cocaLataTradicional' as const },
-                        { id: 'coca-lata-zero', name: 'Coca Cola Zero Lata 350cc', price: 1500, image: '/bebidas/coca_cola_lata_zero.jpg', availabilityKey: 'cocaLataZero' as const },
-                        { id: 'coca-botella-tradicional', name: 'Coca Cola 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro.jpg', availabilityKey: 'cocaBotellaTradicional' as const },
-                        { id: 'coca-botella-zero', name: 'Coca Cola Zero 1.5 Litro', price: 2900, image: '/bebidas/coca_cola_1.5_litro_zero.jpg', availabilityKey: 'cocaBotellaZero' as const },
-                      ] as const).map((bebida) => {
-                        const cartItem = items.find(item => item.id === bebida.id)
-                        const isInCart = !!cartItem
-                        const quantity = cartItem?.quantity || 1
-                        const isAvailable = bebidasDisponibles[bebida.availabilityKey]
-
-                        return (
-                          <div key={bebida.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                            <label className={`flex items-center gap-1.5 sm:gap-2 flex-1 ${isAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
-                              <input
-                                type="checkbox"
-                                checked={isInCart}
-                                disabled={!isAvailable}
-                                onChange={(e) => {
-                                  if (!isAvailable) {
-                                    toast({
-                                      title: 'Producto sin stock',
-                                      description: `${bebida.name} no tiene stock disponible.`,
-                                      variant: 'destructive',
-                                    })
-                                    return
-                                  }
-
-                                  if (e.target.checked) {
-                                    addItem({
-                                      id: bebida.id,
-                                      name: bebida.name,
-                                      price: bebida.price,
-                                      quantity: 1,
-                                      image: getStorageUrl(bebida.image),
-                                    })
-                                  } else {
-                                    removeItem(bebida.id)
-                                  }
-                                }}
-                                className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                              />
-                              <span className="text-xs sm:text-sm text-gray-700">{bebida.name}</span>
-                              <span className={`text-xs sm:text-sm ${isAvailable ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
-                                {isAvailable ? `$${bebida.price.toLocaleString()}` : 'Sin Stock'}
+                            <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+                              <span className="font-arial-narrow font-extrabold text-xs sm:text-sm text-pink-600 whitespace-nowrap">
+                                {isAvailable ? `$ ${extra.price.toLocaleString("es-CL")}` : "Sin Stock"}
                               </span>
-                            </label>
 
-                            {isInCart && (
-                              <div className="flex items-center gap-1 sm:gap-2">
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                                  onClick={() => updateQuantity(bebida.id, Math.max(0, quantity - 1))}
+                              <div className="flex items-center gap-2 sm:gap-2.5">
+                                <button
+                                  type="button"
+                                  disabled={quantity === 0}
+                                  onClick={() => {
+                                    if (!matchedItem) return
+                                    if (quantity <= 1) {
+                                      removeItem(matchedItem.id)
+                                    } else {
+                                      updateQuantity(matchedItem.id, quantity - 1)
+                                    }
+                                    setShowInventoryError(false)
+                                  }}
+                                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center transition-all !min-h-0 !min-w-0 ${
+                                    quantity > 0
+                                      ? "border-gray-700 text-gray-800 hover:border-pink-600 hover:text-pink-600 hover:bg-pink-50 cursor-pointer"
+                                      : "border-gray-300 text-gray-300 cursor-not-allowed"
+                                  }`}
+                                  aria-label={`Quitar ${extra.name}`}
                                 >
-                                  <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                </Button>
-                                <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                                  onClick={() => updateQuantity(bebida.id, quantity + 1)}
+                                  <Minus className="w-3.5 h-3.5 stroke-[2.2]" />
+                                </button>
+
+                                <span className="w-4 text-center text-xs sm:text-sm font-semibold text-gray-800 select-none">
+                                  {quantity}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  disabled={!isAvailable}
+                                  onClick={() => {
+                                    if (!isAvailable) {
+                                      toast({
+                                        title: "Producto sin stock",
+                                        description: `${extra.name} no tiene stock disponible.`,
+                                        variant: "destructive",
+                                      })
+                                      return
+                                    }
+
+                                    if (matchedItem) {
+                                      updateQuantity(matchedItem.id, quantity + 1)
+                                    } else {
+                                      addItem({
+                                        id: String(extra.id),
+                                        name: extra.name,
+                                        price: extra.price,
+                                        quantity: 1,
+                                        image: getStorageUrl(extra.image),
+                                      })
+                                    }
+                                    setShowInventoryError(false)
+                                  }}
+                                  className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full border flex items-center justify-center transition-all !min-h-0 !min-w-0 ${
+                                    isAvailable
+                                      ? "border-gray-800 text-gray-900 hover:border-pink-600 hover:bg-pink-600 hover:text-white cursor-pointer"
+                                      : "border-gray-300 text-gray-300 cursor-not-allowed"
+                                  }`}
+                                  aria-label={`Agregar ${extra.name}`}
                                 >
-                                  <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                </Button>
+                                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                                </button>
                               </div>
-                            )}
+                            </div>
                           </div>
                         )
                       })}
                     </div>
                   )}
                 </div>
-              )}
-
-              {/* Sección 3: Gauchitos y Rollitos - Solo mostrar si NO hay snacks en el carrito */}
-              {!hasSnacks && (
-                <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                  <button
-                    onClick={() => setExpandedUpsell(prev => ({ ...prev, snacks: !prev.snacks }))}
-                    className="w-full flex items-center justify-between p-2 sm:p-3 hover:bg-gray-50 transition-colors"
-                  >
-                    <span className="font-medium text-xs sm:text-sm text-gray-700">¿Agrega Gauchitos o Rollitos Canela?</span>
-                    {expandedUpsell.snacks ? (
-                      <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-                    ) : (
-                      <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500" />
-                    )}
-                  </button>
-
-                  {expandedUpsell.snacks && (
-                    <div className="px-2 sm:px-3 pb-2 sm:pb-3 space-y-1 sm:space-y-2 border-t border-gray-100">
-                      {[
-                        { id: 15, name: "Rollitos de Canela", price: 4900, image: "/acompañamientos/canela.jpg" },
-                        { id: 16, name: "Gauchitos", price: 4000, image: "/acompañamientos/gauchitos.jpg", isGauchito: true },
-                        { id: 21, name: "Gauchitos x24", price: 7000, image: "/acompañamientos/Gauchitosx24.webp", isGauchito: true },
-                      ].map(snack => {
-                        const cartItem = items.find(item => item.id === String(snack.id))
-                        const isInCart = !!cartItem
-                        const quantity = cartItem?.quantity || 1
-                        const isAvailable = (snack as any).isGauchito ? gauchitosDisponible : true
-
-                        return (
-                          <div key={snack.id} className="flex items-center justify-between py-1.5 sm:py-2">
-                            <label className={`flex items-center gap-1.5 sm:gap-2 flex-1 ${isAvailable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
-                              <input
-                                type="checkbox"
-                                checked={isInCart}
-                                disabled={!isAvailable}
-                                onChange={(e) => {
-                                  if (!isAvailable) {
-                                    toast({
-                                      title: 'Producto sin stock',
-                                      description: `${snack.name} no tiene stock disponible.`,
-                                      variant: 'destructive',
-                                    })
-                                    return
-                                  }
-
-                                  if (e.target.checked) {
-                                    const imageMap: Record<string, string> = {
-                                      "Rollitos de Canela": "/acompañamientos/canela.jpg",
-                                      "Gauchitos": "/acompañamientos/gauchitos.jpg",
-                                      "Gauchitos x24": "/acompañamientos/Gauchitosx24.webp"
-                                    };
-                                    addItem({
-                                      id: String(snack.id),
-                                      name: snack.name,
-                                      price: snack.price,
-                                      quantity: 1,
-                                      image: getStorageUrl(imageMap[snack.name] || "/placeholder.svg?height=200&width=200")
-                                    })
-                                  } else {
-                                    removeItem(String(snack.id))
-                                  }
-                                }}
-                                className="w-3.5 h-3.5 sm:w-4 sm:h-4 accent-pink-600"
-                              />
-                              <span className="text-xs sm:text-sm text-gray-700">{snack.name}</span>
-                              <span className={`text-xs sm:text-sm ${isAvailable ? 'text-gray-500' : 'text-red-600 font-medium'}`}>
-                                {isAvailable ? `$${snack.price.toLocaleString()}` : 'Sin Stock'}
-                              </span>
-                            </label>
-
-                            {isInCart && (
-                              <div className="flex items-center gap-1.5 sm:gap-2">
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                                  onClick={() => updateQuantity(String(snack.id), Math.max(0, quantity - 1))}
-                                >
-                                  <Minus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                </Button>
-                                <span className="w-5 sm:w-6 text-center text-xs sm:text-sm font-medium">{quantity}</span>
-                                <Button
-                                  size="icon"
-                                  variant="outline"
-                                  className="w-5 h-5 sm:w-6 sm:h-6 p-0"
-                                  onClick={() => updateQuantity(String(snack.id), quantity + 1)}
-                                >
-                                  <Plus className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )
-        })()}
+              </div>
+            )
+          })()}
         </div>
 
         <div className="p-2 sm:p-4 border-t border-gray-200 space-y-2 sm:space-y-4 bg-gray-50 flex-shrink-0">
           {/* Resumen de totales */}
-          <div className="space-y-1 sm:space-y-2">
-            <div className="flex justify-between text-xs sm:text-sm text-gray-700">
-              <span>Subtotal</span>
-              <span className="font-medium">{showCalculatingTotal ? 'Calculando...' : `$${subtotal.toLocaleString()}`}</span>
-            </div>
+          <div className="space-y-1.5">
             {isDelivery && deliveryCost > 0 && (
               <div className="flex justify-between text-xs sm:text-sm text-blue-600">
                 <span>Delivery</span>
@@ -2931,9 +3470,11 @@ const Cart = ({ onClose }: CartProps) => {
               </div>
             )}
 
-            <div className="flex justify-between font-bold text-base sm:text-lg text-gray-800 border-t pt-1.5 sm:pt-2">
-              <span>Total</span>
-              <span className="text-pink-600">{showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}</span>
+            <div className="flex items-center justify-between bg-white px-3.5 py-2.5 sm:px-4 sm:py-3 rounded-xl border border-pink-100 shadow-xs">
+              <span className="font-extrabold text-base sm:text-lg uppercase tracking-wide text-gray-900">Total</span>
+              <span className="font-black text-xl sm:text-2xl text-pink-600">
+                {showCalculatingTotal ? 'Calculando...' : `$${totalFinal.toLocaleString()}`}
+              </span>
             </div>
             {serverCalcError && (
               <div className="text-xs text-red-600 text-center mt-2">{serverCalcError}</div>

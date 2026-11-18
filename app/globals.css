@@ -71,6 +71,37 @@
   will-change: opacity, transform;
 }
 
+/* Acordeón suave con !important para el bloque "Falta el número" en el carrito */
+.address-number-accordion {
+  display: grid !important;
+  grid-template-rows: 0fr !important;
+  opacity: 0 !important;
+  margin-top: 0 !important;
+  transition: grid-template-rows 340ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 280ms ease,
+              margin-top 340ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.address-number-accordion.is-open {
+  grid-template-rows: 1fr !important;
+  opacity: 1 !important;
+  margin-top: 0.75rem !important;
+}
+
+.address-number-accordion-inner {
+  min-height: 0 !important;
+  overflow: hidden !important;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+.address-number-accordion:not(.is-open) .address-number-accordion-inner {
+  transform: translateY(-10px) !important;
+}
+
+.address-number-accordion.is-open .address-number-accordion-inner {
+  transform: translateY(0) !important;
+}
+
 /* Animación fluida e interactiva para los botones de categorías principales */
 .category-btn-item {
   transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1) !important;
@@ -1217,4 +1248,76 @@ textarea:focus {
   animation: dialog-out 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
   transform: translate(-50%, -50%) !important;
 }
+
+/* ============================================================
+   Widget de Chatbot Flotante y Despliegue de Ventana
+   ============================================================ */
+@keyframes chatbotFloatGlow {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+    box-shadow: 0 8px 22px rgba(236, 72, 153, 0.42),
+                0 0 0 0 rgba(236, 72, 153, 0.45);
+  }
+  50% {
+    transform: translate3d(0, -5px, 0);
+    box-shadow: 0 14px 28px rgba(236, 72, 153, 0.55),
+                0 0 0 8px rgba(236, 72, 153, 0);
+  }
+}
+
+.chatbot-fab-wrapper {
+  transform-origin: center center;
+  transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 360ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: opacity, transform;
+}
+
+.chatbot-fab-wrapper.is-visible {
+  opacity: 1;
+  transform: scale(1) rotate(0deg);
+}
+
+.chatbot-fab-wrapper.is-hidden {
+  opacity: 0;
+  transform: scale(0.45) rotate(-18deg);
+}
+
+.chatbot-fab-btn {
+  animation: chatbotFloatGlow 3.2s ease-in-out infinite !important;
+  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1),
+              box-shadow 300ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+  will-change: transform, box-shadow;
+}
+
+.chatbot-fab-btn:hover {
+  animation-play-state: paused !important;
+  transform: translate3d(0, -4px, 0) scale(1.1) !important;
+  box-shadow: 0 14px 32px rgba(236, 72, 153, 0.65),
+              0 0 20px rgba(236, 72, 153, 0.45) !important;
+}
+
+.chatbot-fab-btn:active {
+  transform: scale(0.92) !important;
+  transition-duration: 140ms !important;
+}
+
+.chatbot-window-panel {
+  transform-origin: bottom right;
+  transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1),
+              transform 400ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+  will-change: opacity, transform;
+}
+
+.chatbot-window-panel.is-open {
+  opacity: 1;
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+.chatbot-window-panel.is-closed {
+  opacity: 0;
+  transform: translate3d(14px, 24px, 0) scale(0.72);
+  transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1),
+              transform 300ms cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
 

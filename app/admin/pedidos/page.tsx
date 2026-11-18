@@ -610,76 +610,100 @@ export default function AdminPedidos() {
     const printContent = document.getElementById('comanda-para-imprimir');
     if (!printContent) return;
 
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'absolute';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
+    const printStyles = `
+      <style>
+        @media print {
+          @page { size: 58mm auto; margin: 0; }
+          body { margin: 0; padding: 4mm 3mm; font-size: 12pt; }
+          .comanda-container { width: 58mm; max-width: 58mm; margin: 0 auto; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        body { font-family: Arial, sans-serif; color: #000; }
+        .comanda-container { font-size: 12px; line-height: 1.2; }
+        .comanda-header { text-align: center; }
+        .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
+        .comanda-order-number { 
+          font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+          font-stretch: condensed;
+          font-size: 26px; 
+          font-weight: 800; 
+          letter-spacing: -0.2px; 
+          margin: 2px 0 2px; 
+          line-height: 1.05;
+        }
+        .comanda-client-name {
+          font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+          font-stretch: condensed;
+          font-size: 16px;
+          font-weight: 700;
+          text-decoration: underline;
+          margin: 0 0 4px;
+        }
+        .comanda-estimada {
+          display: flex; align-items: center; justify-content: center; gap: 6px;
+          font-size: 13px; font-weight: 700; margin: 4px 0 6px;
+        }
+        .comanda-clock {
+          width: 14px; height: 14px; display: inline-block; vertical-align: middle;
+        }
+        .comanda-pill {
+          display: inline-block; background: #fff; color: #000; 
+          border: 1.5px solid #000;
+          border-radius: 999px; padding: 5px 14px; font-weight: 700; 
+          font-size: 13px; letter-spacing: 0.7px; margin: 6px 0 4px;
+        }
+        .comanda-meta { font-size: 9px; margin: 3px 0; }
+        .comanda-payment { font-size: 9px; margin-top: 3px; }
+        .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
+        .comanda-items { margin-top: 6px; text-align: center; }
+        .comanda-item { margin-bottom: 6px; }
+        .comanda-item-name { font-size: 16px; font-weight: 700; text-align: center; }
+        .comanda-item-detail { font-size: 14px; text-align: center; }
+        .comanda-totals { text-align: center; margin-top: 6px; }
+        .comanda-total-row { font-size: 12px; margin: 2px 0; }
+        .comanda-total-strong { font-size: 14px; font-weight: 700; }
+      </style>
+    `;
 
-    iframe.onload = () => {
-      const printStyles = `
-        <style>
-          @media print {
-            @page { size: 58mm auto; margin: 0; }
-            body { margin: 0; padding: 4mm 3mm; font-size: 12pt; }
-            .comanda-container { width: 58mm; max-width: 58mm; margin: 0 auto; }
-            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-          body { font-family: Arial, sans-serif; color: #000; }
-          .comanda-container { font-size: 12px; line-height: 1.2; }
-          .comanda-header { text-align: center; }
-          .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
-          .comanda-order-number { 
-            font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
-            font-stretch: condensed;
-            font-size: 18px; 
-            font-weight: 700; 
-            letter-spacing: -0.2px; 
-            text-decoration: underline; 
-            margin: 2px 0 4px; 
-          }
-          .comanda-estimada {
-            display: flex; align-items: center; justify-content: center; gap: 6px;
-            font-size: 13px; font-weight: 700; margin: 4px 0 6px;
-          }
-          .comanda-clock {
-            width: 14px; height: 14px; display: inline-block; vertical-align: middle;
-          }
-          .comanda-pill {
-            display: inline-block; background: #fff; color: #000; 
-            border: 1.5px solid #000;
-            border-radius: 999px; padding: 5px 14px; font-weight: 700; 
-            font-size: 13px; letter-spacing: 0.7px; margin: 6px 0 4px;
-          }
-          .comanda-meta { font-size: 9px; margin: 3px 0; }
-          .comanda-payment { font-size: 9px; margin-top: 3px; }
-          .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
-          .comanda-items { margin-top: 6px; text-align: center; }
-          .comanda-item { margin-bottom: 6px; }
-          .comanda-item-name { font-size: 13px; font-weight: 700; text-align: center; }
-          .comanda-item-detail { font-size: 12px; text-align: center; }
-          .comanda-totals { text-align: center; margin-top: 6px; }
-          .comanda-total-row { font-size: 12px; margin: 2px 0; }
-          .comanda-total-strong { font-size: 14px; font-weight: 700; }
-        </style>
-      `;
+    const printSingleJob = (onDone?: () => void) => {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'absolute';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
 
-      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
-      if (!iframeDoc) {
-        return;
-      }
+      iframe.onload = () => {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!iframeDoc) {
+          onDone?.();
+          return;
+        }
 
-      iframeDoc.open();
-      iframeDoc.write(printStyles + printContent.innerHTML);
-      iframeDoc.close();
-
-      setTimeout(() => {
-        iframe.contentWindow?.print();
+        iframeDoc.open();
+        iframeDoc.write(printStyles + printContent.innerHTML);
+        iframeDoc.close();
 
         setTimeout(() => {
-          document.body.removeChild(iframe);
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
 
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+            onDone?.();
+          }, 150);
+        }, 200);
+      };
+
+      iframe.src = 'about:blank';
+    };
+
+    // Enviar 2 trabajos de impresión independientes para que el driver POS-80 active el autocorte entre copias
+    printSingleJob(() => {
+      setTimeout(() => {
+        printSingleJob(() => {
           setModalImpresionAbierto(false);
 
           if (pedidoAImprimir.documentId) {
@@ -697,11 +721,9 @@ export default function AdminPedidos() {
               return updated;
             });
           }
-        }, 100);
-      }, 200);
-    };
-
-    iframe.src = 'about:blank';
+        });
+      }, 250);
+    });
   }
   
   // Función para asignar y/o enviar los datos del delivery a WhatsApp de un repartidor específico
@@ -736,42 +758,40 @@ export default function AdminPedidos() {
       // 2. Si el pedido tiene dirección (ej: web), enviamos los datos por WhatsApp al repartidor
       if (pedido.direccion && repartidor.telefono) {
         const { valorDelivery, totalConDelivery } = getPedidoMontos(pedido);
-        const pagaCon = Number(pedido.paymentDetails?.cashAmount || pedido.montoVuelto || 0)
-        const vuelto = Number(
-          pedido.paymentDetails?.change ??
-          (pedido.requiereVuelto && pedido.montoVuelto ? pedido.montoVuelto - totalConDelivery : 0)
-        )
-        const detalleEfectivo = pedido.metodoPago === "Efectivo"
-          ? `
-*PAGA CON:* ${pagaCon > 0 ? formatCurrency(pagaCon) : 'No informado'}
-*VUELTO A ENTREGAR:* ${formatCurrency(Math.max(0, vuelto))}`
-          : ''
-        
-        // Limpiar notas de códigos promocionales, vouchers o POS para no enviar información extra al delivery
-        let notasDelivery = getSpecialOrderNote(pedido.notas);
-        notasDelivery = notasDelivery
-          .replace(/\|?\s*\[CÓDIGO USADO:[^\]]+\]/g, '')
-          .replace(/\|?\s*\[VOUCHER USADO:[^\]]+\]/g, '')
-          .trim();
-        notasDelivery = notasDelivery.replace(/^\|\s*/, '').replace(/\s*\|$/, '').trim();
+        const numeroPedido = String(pedido.orderNumber || pedido.id || '').replace('#', '').trim();
+        const telefonoCliente = pedido.cliente?.telefono || 'No informado';
+        const direccionEntrega = `${pedido.direccion.calle || ''} ${pedido.direccion.numero || ''}${pedido.direccion.comuna ? `, ${pedido.direccion.comuna}` : ''}`.trim();
+        const referenciaDomicilio = pedido.direccion.referencia?.trim() || 'Sin referencia';
+        const linkGoogleMaps = pedido.direccion.lat && pedido.direccion.lng
+          ? `https://www.google.com/maps?q=${pedido.direccion.lat},${pedido.direccion.lng}`
+          : 'No disponible';
 
-        // Crear el mensaje con todos los datos relevantes e iniciales del repartidor
-        const mensaje = `
-🍕 *DELIVERY PIZZERÍA PALERMO* 🍕
-🛵 *REPARTIDOR:* [${repartidor.iniciales}] ${repartidor.nombre}
+        const metodoLower = String(pedido.metodoPago || '').toLowerCase();
+        let bloquePago = '';
 
-*CLIENTE:* ${pedido.cliente.nombre}
-*TELÉFONO:* ${pedido.cliente.telefono}
-*DIRECCIÓN:* ${pedido.direccion.calle} ${pedido.direccion.numero}, ${pedido.direccion.comuna}
-${pedido.direccion.referencia ? `*REFERENCIAS:* ${pedido.direccion.referencia}` : ''}
-*UBICACIÓN EN MAPA:* ${pedido.direccion.lat && pedido.direccion.lng 
-  ? `https://www.google.com/maps?q=${pedido.direccion.lat},${pedido.direccion.lng}` 
-  : 'No disponible'}
-*MÉTODO DE PAGO:* ${pedido.metodoPago}
-${detalleEfectivo}
-*VALOR DELIVERY:* ${formatCurrency(valorDelivery)}
-${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
-`.trim();
+        if (metodoLower.includes('efectivo')) {
+          const pagaCon = Number(pedido.paymentDetails?.cashAmount || pedido.montoVuelto || 0);
+          const vuelto = Number(
+            pedido.paymentDetails?.change ??
+            (pedido.requiereVuelto && pedido.montoVuelto ? pedido.montoVuelto - totalConDelivery : 0)
+          );
+          bloquePago = `      💵 Efectivo\n      └ Con: ${pagaCon > 0 ? formatCurrency(pagaCon) : '$0'}\n      └ Vuelto: ${formatCurrency(Math.max(0, vuelto))}`;
+        } else if (metodoLower.includes('transferencia')) {
+          bloquePago = `      🏦 Transferencia`;
+        } else {
+          bloquePago = `      💳 Tarjeta (POS)`;
+        }
+
+        const mensaje = [
+          `🔢 Pedido #${numeroPedido}`,
+          `📞 ${telefonoCliente}`,
+          `🏠 ${direccionEntrega}`,
+          `📌 ${referenciaDomicilio}`,
+          `📍 ${linkGoogleMaps}`,
+          `💲 Pago: `,
+          bloquePago,
+          `🚗 ${formatCurrency(valorDelivery)}`,
+        ].join('\n');
 
         const functions = getFunctions();
         const sendDeliveryDataWhatsApp = httpsCallable(functions, "sendDeliveryDataWhatsApp");
@@ -1750,7 +1770,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
             <DialogTitle>Comanda de Pedido {pedidoAImprimir?.id}</DialogTitle>
           </DialogHeader>
           
-          <div id="comanda-para-imprimir" className="mt-4">
+          <div id="comanda-para-imprimir" className="mt-4 p-4 bg-white text-black rounded border mx-auto">
             <style jsx global>{`
               @media print {
                 .no-print { 
@@ -1771,17 +1791,26 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                 width: 58mm;
                 max-width: 58mm;
                 margin: 0 auto;
+                color: #000;
               }
               .comanda-header { text-align: center; }
               .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
               .comanda-order-number { 
                 font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
                 font-stretch: condensed;
-                font-size: 18px; 
-                font-weight: 700; 
+                font-size: 26px; 
+                font-weight: 800; 
                 letter-spacing: -0.2px; 
-                text-decoration: underline; 
-                margin: 2px 0 4px; 
+                margin: 2px 0 2px; 
+                line-height: 1.05;
+              }
+              .comanda-client-name {
+                font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+                font-stretch: condensed;
+                font-size: 16px;
+                font-weight: 700;
+                text-decoration: underline;
+                margin: 0 0 4px;
               }
               .comanda-estimada {
                 display: flex; align-items: center; justify-content: center; gap: 6px;
@@ -1799,8 +1828,8 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
               .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
               .comanda-items { margin-top: 6px; text-align: center; }
               .comanda-item { margin-bottom: 6px; }
-              .comanda-item-name { font-size: 13px; font-weight: 700; text-align: center; }
-              .comanda-item-detail { font-size: 12px; text-align: center; }
+              .comanda-item-name { font-size: 16px; font-weight: 700; text-align: center; }
+              .comanda-item-detail { font-size: 14px; text-align: center; }
               .comanda-totals { text-align: center; margin-top: 6px; }
               .comanda-total-row { font-size: 12px; margin: 2px 0; }
               .comanda-total-strong { font-size: 14px; font-weight: 700; }
@@ -1815,19 +1844,22 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                 <br />
                 <br />
 
-                {/* 2. Número de pedido - NOMBRE CLIENTE (subrayado, sin palabra N° Pedido, 15px Arial Narrow Bold) */}
-                <div className="comanda-order-number">
-                  {(() => {
-                    const orderNum = (pedidoAImprimir?.id || '').replace('#', '').trim()
-                    const nombre = (pedidoAImprimir?.cliente?.nombre && 
-                      pedidoAImprimir.cliente.nombre !== 'Usuario anónimo' && 
-                      pedidoAImprimir.cliente.nombre !== 'No especificado' && 
-                      pedidoAImprimir.cliente.nombre !== 'No informado')
-                      ? pedidoAImprimir.cliente.nombre.toUpperCase().trim()
-                      : 'CLIENTE'
-                    return `${orderNum} - ${nombre}`
-                  })()}
-                </div>
+                {/* 2. Número de comanda arriba en grande y nombre del cliente debajo */}
+                {(() => {
+                  const orderNum = (pedidoAImprimir?.id || '').replace('#', '').trim()
+                  const nombre = (pedidoAImprimir?.cliente?.nombre && 
+                    pedidoAImprimir.cliente.nombre !== 'Usuario anónimo' && 
+                    pedidoAImprimir.cliente.nombre !== 'No especificado' && 
+                    pedidoAImprimir.cliente.nombre !== 'No informado')
+                    ? pedidoAImprimir.cliente.nombre.toUpperCase().trim()
+                    : 'CLIENTE'
+                  return (
+                    <>
+                      <div className="comanda-order-number">#{orderNum}</div>
+                      <div className="comanda-client-name">{nombre}</div>
+                    </>
+                  )
+                })()}
 
                 {/* 3. Hora de retiro con pictograma de reloj (sin iniciales p.m./a.m.) */}
                 {(() => {
@@ -1863,7 +1895,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
 
                 {/* 6. Medio de pago con el valor en MAYÚSCULAS */}
                 <div className="comanda-payment">
-                  Medio de pago: {String(pedidoAImprimir?.metodoPago || '').toUpperCase()}
+                  {String(pedidoAImprimir?.metodoPago || '').toUpperCase()}
                 </div>
               </div>
               
@@ -1922,7 +1954,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
 
                     const todaLaPizzaExtras = [
                       ...rawExtraSimple.map((ex: string) => `+ ${ex}`),
-                      ...rawExtraPremium.map((ex: string) => `+ ${ex} (P)`),
+                      ...rawExtraPremium.map((ex: string) => `+ ${ex}`),
                     ]
                     if (todaLaPizzaExtras.length) {
                       detalles.push('\u00A0')
@@ -1934,7 +1966,7 @@ ${notasDelivery ? `\n*NOTAS ADICIONALES:* ${notasDelivery}` : ''}
                       detalles.push(...item.ingredients.map((i: string) => `+ ${i}`))
                     }
                     if (item.premiumIngredients && item.premiumIngredients.length) {
-                      detalles.push(...item.premiumIngredients.map((i: string) => `+ ${i} (P)`))
+                      detalles.push(...item.premiumIngredients.map((i: string) => `+ ${i}`))
                     }
                   }
 

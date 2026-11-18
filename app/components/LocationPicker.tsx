@@ -30,37 +30,24 @@ export default function LocationPicker({
   const [mapKey, setMapKey] = useState<number>(1) // Iniciar en 1 para que el mapa se renderice inmediatamente
   const [locationDebug, setLocationDebug] = useState<string>("")
   const [zoneStatus, setZoneStatus] = useState<{ name: string, available: boolean } | null>(null)
-  const [showEmergencyButton, setShowEmergencyButton] = useState(false)
   
   // Obtener zonas de delivery desde Firestore
   const { zones, loading: loadingZones } = useDeliveryZones()
 
-  // Log del estado del componente
+  // Sincronizar cuando selectedLocation cambia desde el padre (ej. geocodificación o GPS)
   useEffect(() => {
-    console.log("📍 LocationPicker - Estado actual:", { mapKey, showEmergencyButton });
-  }, [mapKey, showEmergencyButton]);
-
-  // Log cuando LocationPicker se monta
-  useEffect(() => {
-    console.log("🎭 LocationPicker MONTADO con mapKey:", mapKey);
-    return () => {
-      console.log("🎭 LocationPicker DESMONTADO");
-    };
-  }, []);
-
-  // Mostrar botón de emergencia solo si el mapa no carga en 8 segundos (una sola vez)
-  useEffect(() => {
-    console.log("⏰ Iniciando timer para botón de emergencia");
-    
-    const timer = setTimeout(() => {
-      console.log("⏰ Mostrando botón de emergencia por timeout");
-      setShowEmergencyButton(true);
-    }, 8000); // Aumentado a 8 segundos para dar más tiempo
-    
-    return () => {
-      clearTimeout(timer);
-    };
-  }, []); // Solo ejecutar una vez al montar
+    if (selectedLocation) {
+      setLocalSelectedLocation(selectedLocation)
+      if (zones.length > 0) {
+        const result = detectarZonaCliente(selectedLocation.lat, selectedLocation.lng, zones)
+        if (result.zona) {
+          setZoneStatus({ name: result.zona.nombre, available: !!result.disponible })
+        } else {
+          setZoneStatus({ name: "Fuera de zona", available: false })
+        }
+      }
+    }
+  }, [selectedLocation?.lat, selectedLocation?.lng, zones])
 
   const handleMapLocationSelect = (lat: number, lng: number, address?: string) => {
     // Actualizar el estado local
@@ -231,9 +218,19 @@ export default function LocationPicker({
       )
       const data = await response.json()
 
-      if (data.display_name) {
-        const addressParts = data.display_name.split(",")
-        return addressParts.slice(0, 3).join(", ")
+      if (data) {
+        const addr = data.address || {}
+        const road = addr.road || addr.pedestrian || addr.footway || addr.residential || addr.path || ""
+        const houseNumber = addr.house_number || ""
+        const city = addr.city || addr.town || addr.village || addr.municipality || "Los Andes"
+        if (road) {
+          const streetWithNumber = houseNumber ? `${road} ${houseNumber}` : road
+          return `${streetWithNumber}, ${city}`
+        }
+        if (data.display_name) {
+          const addressParts = data.display_name.split(",")
+          return addressParts.slice(0, 3).join(", ").trim()
+        }
       }
       return ""
     } catch (error) {
@@ -275,27 +272,6 @@ export default function LocationPicker({
             </div>
           )}
         </div>
-        
-        {/* Botón de emergencia (visible solo si el mapa no carga después de 5 segundos) */}
-        {showEmergencyButton && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
-            <div className="bg-white p-4 rounded-lg shadow-xl border-2 border-red-500">
-              <p className="text-sm text-gray-700 mb-3 text-center">¿El mapa no carga correctamente?</p>
-              <Button
-                type="button"
-                variant="destructive"
-                onClick={() => {
-                  console.log("⚠️ Reinicio de emergencia activado");
-                  resetMap();
-                }}
-                className="bg-red-600 hover:bg-red-700 text-white shadow-lg w-full"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Reintentar carga
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Botón compacto para modal de mapa completo */}

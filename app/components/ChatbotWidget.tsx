@@ -22,12 +22,46 @@ const TENANT_ID = process.env.NEXT_PUBLIC_TENANT_ID || 'pizzeria-palermo-17f6d'
 
 export function ChatbotWidget() {
   const [isOpen, setIsOpen] = useState(false)
+  const [shouldRenderWindow, setShouldRenderWindow] = useState(false)
+  const [isAnimatingIn, setIsAnimatingIn] = useState(false)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputMessage, setInputMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Control de montaje y animación orgánica de apertura/cierre
+  useEffect(() => {
+    if (isOpen) {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+        closeTimerRef.current = null
+      }
+      setShouldRenderWindow(true)
+      const raf1 = requestAnimationFrame(() => {
+        const raf2 = requestAnimationFrame(() => {
+          setIsAnimatingIn(true)
+        })
+        return () => cancelAnimationFrame(raf2)
+      })
+      return () => cancelAnimationFrame(raf1)
+    } else {
+      setIsAnimatingIn(false)
+      if (shouldRenderWindow) {
+        closeTimerRef.current = setTimeout(() => {
+          setShouldRenderWindow(false)
+        }, 300)
+      }
+    }
+
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+    }
+  }, [isOpen, shouldRenderWindow])
 
   // Generar sessionId único al montar el componente
   useEffect(() => {
@@ -73,8 +107,10 @@ export function ChatbotWidget() {
 
   // Auto-scroll al último mensaje y foco al abrir
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (isOpen && shouldRenderWindow) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, isOpen, shouldRenderWindow])
 
   useEffect(() => {
     if (isOpen) {
@@ -183,180 +219,112 @@ export function ChatbotWidget() {
       </div>
 
       {/* Ventana del chat con despliegue orgánico desde el ícono */}
-      <div
-        aria-hidden={!isOpen}
-        className={`chatbot-window-panel fixed bottom-6 right-6 w-[calc(100vw-2rem)] sm:w-96 h-[500px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl flex flex-col border border-gray-200/90 overflow-hidden ${
-          isOpen
-            ? 'is-open pointer-events-auto'
-            : 'is-closed pointer-events-none'
-        }`}
-      >
-        {/* Header */}
-        <div className="bg-black text-white p-4 flex justify-between items-center">
-          <div className="flex items-center space-x-2.5">
-            <img src="/iconos/chatbot_pink.svg" alt="Chat" className="w-11 h-11 rounded-full" />
-            <div>
-              <h3 className="font-semibold text-sm sm:text-base">Pizzería Palermo</h3>
-              <p className="text-xs text-pink-300 flex items-center gap-1.5">
-                <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                Asistente Virtual
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-2">
-            <button 
-              onClick={clearChat}
-              className="text-white/80 hover:text-white text-xs px-2 py-1 rounded hover:bg-white/10 transition-colors"
-              title="Limpiar chat"
-            >
-              Limpiar
-            </button>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-white/80 hover:text-white p-1.5 rounded-full hover:bg-white/10 active:scale-90 transition-all"
-              aria-label="Cerrar chat"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Mensajes */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-[80%] rounded-xl p-3 shadow-sm ${
-                  message.sender === 'user'
-                    ? 'bg-pink-500 text-white'
-                    : 'bg-white border border-gray-200 text-gray-800'
-                }`}
-              >
-                <p className="text-sm leading-relaxed">{message.text}</p>
-                <p className={`text-xs mt-1 ${
-                  message.sender === 'user' ? 'text-pink-100' : 'text-gray-400'
-                }`}>
-                  {message.timestamp.toLocaleTimeString('es-CL', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })}
+      {shouldRenderWindow && (
+        <div
+          aria-hidden={!isOpen}
+          className={`chatbot-window-panel fixed bottom-6 right-6 w-[calc(100vw-2rem)] sm:w-96 h-[500px] max-h-[calc(100vh-3rem)] bg-white rounded-2xl shadow-2xl flex flex-col border border-gray-200/90 overflow-hidden ${
+            isAnimatingIn
+              ? 'is-open pointer-events-auto'
+              : 'is-closed pointer-events-none'
+          }`}
+        >
+          {/* Header */}
+          <div className="bg-black text-white p-4 flex justify-between items-center">
+            <div className="flex items-center space-x-2.5">
+              <img src="/iconos/chatbot_pink.svg" alt="Chat" className="w-11 h-11 rounded-full" />
+              <div>
+                <h3 className="font-semibold text-sm sm:text-base">Pizzería Palermo</h3>
+                <p className="text-xs text-pink-300 flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  Asistente Virtual
                 </p>
               </div>
             </div>
-          ))}
+            <div className="flex items-center space-x-2">
+              <button 
+                onClick={clearChat}
+                className="text-white/80 hover:text-white text-xs px-2 py-1 rounded hover:bg-white/10 transition-colors"
+                title="Limpiar chat"
+              >
+                Limpiar
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="text-white/80 hover:text-white p-1.5 rounded-full hover:bg-white/10 active:scale-90 transition-all"
+                aria-label="Cerrar chat"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
 
-          {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-                <div className="flex space-x-2">
-                  <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                  <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+          {/* Mensajes */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-xl p-3 shadow-sm ${
+                    message.sender === 'user'
+                      ? 'bg-pink-500 text-white'
+                      : 'bg-white border border-gray-200 text-gray-800'
+                  }`}
+                >
+                  <p className="text-sm leading-relaxed">{message.text}</p>
+                  <p className={`text-xs mt-1 ${
+                    message.sender === 'user' ? 'text-pink-100' : 'text-gray-400'
+                  }`}>
+                    {message.timestamp.toLocaleTimeString('es-CL', {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })}
+                  </p>
                 </div>
               </div>
+            ))}
+
+            {isLoading && (
+              <div className="flex justify-start">
+                <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
+                  <div className="flex space-x-2">
+                    <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="w-2 h-2 bg-pink-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="p-4 border-t border-gray-200 bg-white">
+            <div className="flex space-x-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputMessage}
+                onChange={(e) => setInputMessage(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Escribe tu mensaje..."
+                className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all"
+                disabled={isLoading}
+              />
+              <Button
+                size="icon"
+                onClick={sendMessage}
+                disabled={isLoading || !inputMessage.trim()}
+                className="rounded-full bg-pink-500 hover:bg-pink-600 active:scale-95 transition-all"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
             </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="p-4 border-t border-gray-200 bg-white">
-          <div className="flex space-x-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Escribe tu mensaje..."
-              className="flex-1 px-4 py-2 text-sm border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-400 focus:border-transparent transition-all"
-              disabled={isLoading}
-            />
-            <Button
-              size="icon"
-              onClick={sendMessage}
-              disabled={isLoading || !inputMessage.trim()}
-              className="rounded-full bg-pink-500 hover:bg-pink-600 active:scale-95 transition-all"
-            >
-              <Send className="w-4 h-4" />
-            </Button>
           </div>
         </div>
-      </div>
-
-      <style jsx>{`
-        @keyframes chatbotFloatGlow {
-          0%, 100% {
-            transform: translate3d(0, 0, 0);
-            box-shadow: 0 8px 22px rgba(236, 72, 153, 0.42),
-                        0 0 0 0 rgba(236, 72, 153, 0.45);
-          }
-          50% {
-            transform: translate3d(0, -5px, 0);
-            box-shadow: 0 14px 28px rgba(236, 72, 153, 0.55),
-                        0 0 0 8px rgba(236, 72, 153, 0);
-          }
-        }
-
-        .chatbot-fab-wrapper {
-          transform-origin: center center;
-          transition: opacity 320ms cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 360ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-          will-change: opacity, transform;
-        }
-
-        .chatbot-fab-wrapper.is-visible {
-          opacity: 1;
-          transform: scale(1) rotate(0deg);
-        }
-
-        .chatbot-fab-wrapper.is-hidden {
-          opacity: 0;
-          transform: scale(0.45) rotate(-18deg);
-        }
-
-        .chatbot-fab-btn {
-          animation: chatbotFloatGlow 3.2s ease-in-out infinite !important;
-          transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1),
-                      box-shadow 300ms cubic-bezier(0.22, 1, 0.36, 1) !important;
-          will-change: transform, box-shadow;
-        }
-
-        .chatbot-fab-btn:hover {
-          animation-play-state: paused !important;
-          transform: translate3d(0, -4px, 0) scale(1.1) !important;
-          box-shadow: 0 14px 32px rgba(236, 72, 153, 0.65),
-                      0 0 20px rgba(236, 72, 153, 0.45) !important;
-        }
-
-        .chatbot-fab-btn:active {
-          transform: scale(0.92) !important;
-          transition-duration: 140ms !important;
-        }
-
-        .chatbot-window-panel {
-          transform-origin: bottom right;
-          transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1),
-                      transform 400ms cubic-bezier(0.16, 1, 0.3, 1) !important;
-          will-change: opacity, transform;
-        }
-
-        .chatbot-window-panel.is-open {
-          opacity: 1;
-          transform: translate3d(0, 0, 0) scale(1);
-        }
-
-        .chatbot-window-panel.is-closed {
-          opacity: 0;
-          transform: translate3d(14px, 24px, 0) scale(0.72);
-          transition: opacity 280ms cubic-bezier(0.4, 0, 0.2, 1),
-                      transform 300ms cubic-bezier(0.4, 0, 0.2, 1) !important;
-        }
-      `}</style>
+      )}
     </div>
   )
 }

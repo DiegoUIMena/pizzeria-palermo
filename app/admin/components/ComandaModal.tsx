@@ -86,83 +86,104 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
     const printContent = document.getElementById('comanda-reporte-imprimir')
     if (!printContent) return
 
-    const iframe = document.createElement('iframe')
-    iframe.style.position = 'absolute'
-    iframe.style.width = '0'
-    iframe.style.height = '0'
-    iframe.style.border = '0'
-    document.body.appendChild(iframe)
+    const printStyles = `
+      <style>
+        @media print {
+          @page { size: 58mm auto; margin: 0; }
+          body { margin: 0; padding: 4mm 3mm; font-size: 12pt; }
+          .comanda-container { width: 58mm; max-width: 58mm; margin: 0 auto; }
+          * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+        body { font-family: Arial, sans-serif; color: #000; }
+        .comanda-container { font-size: 12px; line-height: 1.2; }
+        .comanda-header { text-align: center; }
+        .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
+        .comanda-order-number { 
+          font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+          font-stretch: condensed;
+          font-size: 26px; 
+          font-weight: 800; 
+          letter-spacing: -0.2px; 
+          margin: 2px 0 2px; 
+          line-height: 1.05;
+        }
+        .comanda-client-name {
+          font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+          font-stretch: condensed;
+          font-size: 16px;
+          font-weight: 700;
+          text-decoration: underline;
+          margin: 0 0 4px;
+        }
+        .comanda-pill {
+          display: inline-block; background: #fff; color: #000; 
+          border: 1.5px solid #000;
+          border-radius: 999px; padding: 4px 12px; font-weight: 700; 
+          font-size: 12px; letter-spacing: 0.7px; margin: 4px 0 4px;
+        }
+        .comanda-meta { font-size: 9px; margin: 3px 0; }
+        .comanda-payment { font-size: 9px; margin-top: 3px; }
+        .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
+        .comanda-items { margin-top: 6px; text-align: center; }
+        .comanda-item { margin-bottom: 6px; }
+        .comanda-item-name { font-size: 16px; font-weight: 700; text-align: center; }
+        .comanda-item-detail { font-size: 14px; text-align: center; }
+        .comanda-totals { text-align: center; margin-top: 6px; }
+        .comanda-total-row { font-size: 12px; margin: 2px 0; }
+        .comanda-total-strong { font-size: 14px; font-weight: 700; }
+      </style>
+    `
 
-    iframe.onload = () => {
-      const printStyles = `
-        <style>
-          @media print {
-            @page { size: 58mm auto; margin: 0; }
-            body { margin: 0; padding: 4mm 3mm; font-size: 12pt; }
-            .comanda-container { width: 58mm; max-width: 58mm; margin: 0 auto; }
-            * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          }
-          body { font-family: Arial, sans-serif; color: #000; }
-          .comanda-container { font-size: 12px; line-height: 1.2; }
-          .comanda-header { text-align: center; }
-          .comanda-logo { width: 32mm; height: auto; margin: 4px auto 3px; display: block; }
-          .comanda-order-number { 
-            font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
-            font-stretch: condensed;
-            font-size: 18px; 
-            font-weight: 700; 
-            letter-spacing: -0.2px; 
-            text-decoration: underline; 
-            margin: 2px 0 4px; 
-          }
-          .comanda-pill {
-            display: inline-block; background: #fff; color: #000; 
-            border: 1.5px solid #000;
-            border-radius: 999px; padding: 4px 12px; font-weight: 700; 
-            font-size: 12px; letter-spacing: 0.7px; margin: 4px 0 4px;
-          }
-          .comanda-meta { font-size: 9px; margin: 3px 0; }
-          .comanda-payment { font-size: 9px; margin-top: 3px; }
-          .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
-          .comanda-items { margin-top: 6px; text-align: center; }
-          .comanda-item { margin-bottom: 6px; }
-          .comanda-item-name { font-size: 13px; font-weight: 700; text-align: center; }
-          .comanda-item-detail { font-size: 12px; text-align: center; }
-          .comanda-totals { text-align: center; margin-top: 6px; }
-          .comanda-total-row { font-size: 12px; margin: 2px 0; }
-          .comanda-total-strong { font-size: 14px; font-weight: 700; }
-        </style>
-      `
+    const content = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Comanda #${orderNum}</title>
+          ${printStyles}
+        </head>
+        <body>
+          ${printContent.innerHTML}
+        </body>
+      </html>
+    `
 
-      const content = `
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>Comanda #${orderNum}</title>
-            ${printStyles}
-          </head>
-          <body>
-            ${printContent.innerHTML}
-          </body>
-        </html>
-      `
+    const printSingleJob = (onDone?: () => void) => {
+      const iframe = document.createElement('iframe')
+      iframe.style.position = 'absolute'
+      iframe.style.width = '0'
+      iframe.style.height = '0'
+      iframe.style.border = '0'
+      document.body.appendChild(iframe)
 
-      iframe.contentWindow?.document.open()
-      iframe.contentWindow?.document.write(content)
-      iframe.contentWindow?.document.close()
-
-      setTimeout(() => {
-        iframe.contentWindow?.focus()
-        iframe.contentWindow?.print()
+      iframe.onload = () => {
+        iframe.contentWindow?.document.open()
+        iframe.contentWindow?.document.write(content)
+        iframe.contentWindow?.document.close()
 
         setTimeout(() => {
-          document.body.removeChild(iframe)
-          onOpenChange(false)
-        }, 100)
-      }, 200)
+          iframe.contentWindow?.focus()
+          iframe.contentWindow?.print()
+
+          setTimeout(() => {
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe)
+            }
+            onDone?.()
+          }, 150)
+        }, 200)
+      }
+
+      iframe.src = 'about:blank'
     }
 
-    iframe.src = 'about:blank'
+    // Enviar 2 trabajos de impresión independientes para garantizar el autocorte de la POS-80 entre copias
+    printSingleJob(() => {
+      setTimeout(() => {
+        printSingleJob(() => {
+          onOpenChange(false)
+        })
+      }, 250)
+    })
   }
 
   const { subtotal, valorDelivery, descuentos, discountCode, voucherCode, totalConDelivery } = getPedidoMontos(pedido)
@@ -194,11 +215,19 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
             .comanda-order-number { 
               font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
               font-stretch: condensed;
-              font-size: 18px; 
-              font-weight: 700; 
+              font-size: 26px; 
+              font-weight: 800; 
               letter-spacing: -0.2px; 
-              text-decoration: underline; 
-              margin: 2px 0 4px; 
+              margin: 2px 0 2px; 
+              line-height: 1.05;
+            }
+            .comanda-client-name {
+              font-family: 'Arial Narrow', 'Roboto Condensed', 'Archivo Narrow', sans-serif-condensed, sans-serif;
+              font-stretch: condensed;
+              font-size: 16px;
+              font-weight: 700;
+              text-decoration: underline;
+              margin: 0 0 4px;
             }
             .comanda-pill {
               display: inline-block; background: #fff; color: #000; 
@@ -211,8 +240,8 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
             .comanda-divider { border-top: 1px solid #999; margin: 7px 0; }
             .comanda-items { margin-top: 6px; text-align: center; }
             .comanda-item { margin-bottom: 6px; }
-            .comanda-item-name { font-size: 13px; font-weight: 700; text-align: center; }
-            .comanda-item-detail { font-size: 12px; text-align: center; }
+            .comanda-item-name { font-size: 16px; font-weight: 700; text-align: center; }
+            .comanda-item-detail { font-size: 14px; text-align: center; }
             .comanda-totals { text-align: center; margin-top: 6px; }
             .comanda-total-row { font-size: 12px; margin: 2px 0; }
             .comanda-total-strong { font-size: 14px; font-weight: 700; }
@@ -223,7 +252,10 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
               <img src="/iconos/logo_negro.png" alt="Palermo Pizzas" className="comanda-logo" />
               <br />
               <div className="comanda-order-number">
-                {orderNum} - {nombreCliente}
+                #{orderNum}
+              </div>
+              <div className="comanda-client-name">
+                {nombreCliente}
               </div>
 
               <div className="comanda-pill">
@@ -235,7 +267,7 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
               </div>
 
               <div className="comanda-payment">
-                Medio de pago: {String(pedido.metodoPago || '').toUpperCase()}
+                {String(pedido.metodoPago || '').toUpperCase()}
               </div>
             </div>
 
@@ -293,7 +325,7 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
 
                   const todaLaPizzaExtras = [
                     ...rawExtraSimple.map((ex: string) => `+ ${ex}`),
-                    ...rawExtraPremium.map((ex: string) => `+ ${ex} (P)`),
+                    ...rawExtraPremium.map((ex: string) => `+ ${ex}`),
                   ]
                   if (todaLaPizzaExtras.length) {
                     detalles.push('\u00A0')
@@ -305,7 +337,7 @@ export default function ComandaModal({ open, onOpenChange, pedido }: ComandaModa
                     detalles.push(...item.ingredients.map((i: string) => `+ ${i}`))
                   }
                   if (item.premiumIngredients && item.premiumIngredients.length) {
-                    detalles.push(...item.premiumIngredients.map((i: string) => `+ ${i} (P)`))
+                    detalles.push(...item.premiumIngredients.map((i: string) => `+ ${i}`))
                   }
                 }
 

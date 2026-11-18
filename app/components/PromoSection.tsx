@@ -59,6 +59,7 @@ const imageMap: Record<string, string> = {
   'salsa bbq': 'salsa_bbq',
   'salsa pesto': 'salsa_pesto',
   'gauchitos': 'gauchitos',
+  'gauchitos x12': 'gauchitos',
   'gauchitos x24': 'gauchitos_x24',
   'rollitos de canela': 'canela',
   'canela': 'canela'
@@ -74,7 +75,8 @@ const normalizeText = (value: string): string =>
 const displayNameMap: Record<string, string> = {
   'neuquen': 'Neuquén',
   'lujan': 'Luján',
-  'entre rios': 'Entre Ríos'
+  'entre rios': 'Entre Ríos',
+  'gauchitos': 'Gauchitos x12'
 }
 
 const formatItemName = (name: string): string => {

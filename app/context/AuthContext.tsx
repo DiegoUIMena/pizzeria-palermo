@@ -409,6 +409,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     console.log("Iniciando escucha de cambios de autenticación");
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (typeof window !== "undefined") {
+        try {
+          const prevUid = window.localStorage.getItem("palermo_last_auth_uid");
+          const nextUid = firebaseUser?.uid || null;
+          if ((prevUid && !nextUid) || (prevUid && nextUid && prevUid !== nextUid)) {
+            window.localStorage.removeItem("pizzeria-palermo-cart-v1");
+            window.dispatchEvent(new Event("palermo:cart-clear"));
+          }
+          if (nextUid) {
+            window.localStorage.setItem("palermo_last_auth_uid", nextUid);
+          } else {
+            window.localStorage.removeItem("palermo_last_auth_uid");
+          }
+        } catch {
+          // Ignorar errores de almacenamiento
+        }
+      }
       if (firebaseUser) {
         try {
           // IMPORTANTE: Obtener el ID Token para leer los custom claims
@@ -433,26 +450,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const isInteractive = interactiveLoginRef.current;
           interactiveLoginRef.current = false;
 
-          // Si el usuario tiene rol admin/staff, verificar si la sesión sigue abierta en esta u otra pestaña.
-          // Si todas las pestañas del sistema se cerraron sin cerrar sesión, cerrar sesión automáticamente.
+          // Si el usuario tiene rol admin/staff, mantener la sesión compartida entre pestañas
           if (isAdminOrStaff) {
-            if (isInteractive) {
-              markAdminTabSessionActive();
-            } else {
-              const sessionAlive = await hasOrCanInheritAdminSession();
-              if (!sessionAlive) {
-                console.log("[AuthContext] Sesión de administrador expirada tras cerrar todas las pestañas; cerrando sesión automáticamente.");
-                clearAdminTabSession(true);
-                await signOut(auth);
-                setAuthState({
-                  user: null,
-                  firebaseUser: null,
-                  isAuthenticated: false,
-                  isLoading: false,
-                });
-                return;
-              }
-            }
+            markAdminTabSessionActive();
           } else {
             clearAdminTabSession(false);
           }
@@ -669,6 +669,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       interactiveLoginRef.current = false
       clearAdminTabSession(true)
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.removeItem("pizzeria-palermo-cart-v1")
+          window.dispatchEvent(new Event("palermo:cart-clear"))
+        } catch {
+          // Ignorar errores de almacenamiento
+        }
+      }
       await signOut(auth)
       // El estado se actualizará automáticamente por onAuthStateChanged
     } catch (error) {

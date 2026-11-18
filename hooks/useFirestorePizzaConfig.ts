@@ -34,6 +34,19 @@ export function useFirestorePizzaConfig() {
   const queryClient = useQueryClient()
   const [itemsMenu, setItemsMenu] = useState<any[]>([])
 
+  const normalizeMenuItems = (items: any[]): any[] =>
+    items.map((item) => {
+      const rawName = (item?.nombre || item?.name || '').trim()
+      if (rawName.toLowerCase() === 'gauchitos') {
+        return {
+          ...item,
+          nombre: 'Gauchitos x12',
+          ...(item.name ? { name: 'Gauchitos x12' } : {}),
+        }
+      }
+      return item
+    })
+
   // Carga inicial de items_menu para evitar depender solo del listener realtime
   const {
     data: initialItemsMenu = [],
@@ -43,7 +56,7 @@ export function useFirestorePizzaConfig() {
     queryKey: ['items_menu_initial'],
     queryFn: async () => {
       const snapshot = await getDocs(collection(db, 'items_menu'))
-      return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+      return normalizeMenuItems(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
     },
     enabled: initialized,
     staleTime: 5 * 60 * 1000,
@@ -138,7 +151,7 @@ export function useFirestorePizzaConfig() {
       'items_menu',
       (data) => {
         console.log(`Actualización recibida: ${data.length} pizzas`)
-        setItemsMenu(data)
+        setItemsMenu(normalizeMenuItems(data))
         // Invalidar cache de React Query si es necesario
         queryClient.invalidateQueries({ queryKey: ['items_menu'] })
       }
@@ -184,7 +197,7 @@ export function useFirestorePizzaConfig() {
         'coca cola 1.5 litro': 'coca_cola_1.5_litro', 'coca cola zero 1.5 litro': 'coca_cola_1.5_litro_zero',
         'lipton lata': 'lipton_lata', 'lipton botella': 'lipton_botella', 'salsa de ajo': 'salsa_de_ajo',
         'salsa chimichurri': 'salsa_chimichurri', 'salsa bbq': 'salsa_bbq', 'salsa pesto': 'salsa_pesto',
-        'gauchitos': 'gauchitos', 'rollitos de canela': 'canela', 'canela': 'canela'
+        'gauchitos': 'gauchitos', 'gauchitos x12': 'gauchitos', 'gauchitos x24': 'gauchitos_x24', 'rollitos de canela': 'canela', 'canela': 'canela'
       };
 
       const getImagePath = (itemName: string, defaultImage?: string): string => {

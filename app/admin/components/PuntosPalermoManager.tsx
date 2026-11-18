@@ -165,7 +165,7 @@ export default function PuntosPalermoManager() {
               </Label>
               <Input
                 id="product-name"
-                placeholder="Ej. Pizza Pepperoni Familiar Gratis, Gauchitos..."
+                placeholder="Ej. Pizza Pepperoni Familiar Gratis, Gauchitos x12..."
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 className="focus-visible:ring-pink-500"

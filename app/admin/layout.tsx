@@ -39,6 +39,17 @@ export default function AdminLayout({
   }, [])
 
   useEffect(() => {
+    if (isLoading || isChecking) {
+      document.documentElement.classList.add('admin-login-active')
+      document.body.classList.add('admin-login-active')
+      return () => {
+        document.documentElement.classList.remove('admin-login-active')
+        document.body.classList.remove('admin-login-active')
+      }
+    }
+  }, [isLoading, isChecking])
+
+  useEffect(() => {
     if (isTestProject) {
       // Entorno de pruebas aislado: permitir acceso admin para QA sin bloquear por Auth.
       setIsAuthorized(true)
@@ -67,8 +78,10 @@ export default function AdminLayout({
           inset: 0,
           top: 0,
           left: 0,
-          width: '100vw',
-          height: '100vh',
+          right: 0,
+          bottom: 0,
+          width: '100%',
+          height: '100%',
           zIndex: 99999,
           backgroundColor: '#08090d',
           display: 'flex',

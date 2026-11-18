@@ -93,6 +93,7 @@ function getExtraImagePath(itemName: string, imagePath?: string): string {
 
   let acompFileName = ''
   if (lowerName.includes('canela') || lowerName.includes('rollito')) acompFileName = 'canela.jpg'
+  else if (lowerName.includes('gauchitos x24')) acompFileName = 'Gauchitosx24.webp'
   else if (lowerName.includes('gauchito')) acompFileName = 'gauchitos.jpg'
   else if (lowerName.includes('salsa') && lowerName.includes('bbq')) acompFileName = 'salsa_bbq.jpg'
   else if (lowerName.includes('salsa') && lowerName.includes('chimichurri')) acompFileName = 'salsa_chimichurri.jpg'

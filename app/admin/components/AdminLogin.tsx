@@ -263,24 +263,26 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
         {/* Cabecera / Identidad Visual */}
         <div className="flex flex-col items-center text-center mb-5">
           <div className="relative mb-3">
-            <div className="admin-icon-container w-12 h-12 rounded-xl bg-gradient-to-tr from-pink-600/25 via-pink-500/20 to-rose-500/15 border border-pink-500/35 flex items-center justify-center text-pink-500 transition-transform duration-200">
-              {isUnauthorizedUser ? (
+            {isUnauthorizedUser ? (
+              <div className="admin-icon-container w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center">
                 <ShieldAlert className="w-6 h-6 text-amber-500" />
-              ) : isSuccess ? (
+              </div>
+            ) : isSuccess ? (
+              <div className="admin-icon-container w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/35 flex items-center justify-center">
                 <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-              ) : (
-                <ShieldCheck className="w-6 h-6 text-pink-500" />
-              )}
-            </div>
-            <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-zinc-900 border border-zinc-700 flex items-center justify-center">
-              <Lock className="w-2 h-2 text-zinc-400" />
-            </div>
+              </div>
+            ) : (
+              <img
+                src="/iconos/logo_blanco.png"
+                alt="Logo"
+                className="h-28 w-auto object-contain mx-auto"
+              />
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-base font-black tracking-wider text-white">PALERMO</span>
-            <span className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded bg-pink-600 text-white uppercase shadow-sm shadow-pink-600/50">
-              ADMIN
+          <div className="flex items-center justify-center">
+            <span className="text-sm font-black tracking-wider text-white uppercase">
+              PANEL ADMINISTRADOR
             </span>
           </div>
         </div>

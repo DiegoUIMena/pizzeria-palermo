@@ -115,6 +115,7 @@ async function getPriceConfig(): Promise<PriceConfig> {
       "coca cola 1.5l": 2900,
       "rollitos de canela": 4900,
       gauchitos: 4000,
+      "gauchitos x12": 4000,
       "gauchitos x24": 7000,
     },
   };
@@ -352,8 +353,10 @@ async function calculateItemPrice(item: OrderItem): Promise<number> {
     // Agregar costo de extras (salsas, bebidas, etc)
     if (item.extras) {
       item.extras.forEach((extra) => {
-        const extraName = extra.toLowerCase().replace(/\s*\(\+\$\d+\)/, "");
-        const extraPrice = PRICE_CONFIG.extras[extraName] || 0;
+        const extraName = extra.toLowerCase().replace(/\s*\(\+\$\d+\)/, "").trim();
+        const extraPrice =
+          PRICE_CONFIG.extras[extraName] ||
+          (extraName === "gauchitos x12" ? PRICE_CONFIG.extras["gauchitos"] || 4000 : 0);
         totalPrice += extraPrice;
       });
     }

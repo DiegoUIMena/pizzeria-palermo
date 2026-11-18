@@ -501,6 +501,21 @@ export default function FixedMapPicker({
     }
   };
 
+  // Sincronizar cuando initialLocation cambia externamente (geocodificación o GPS)
+  useEffect(() => {
+    if (!mapInitialized || !mapInstanceRef.current || !initialLocation) return;
+    if (
+      selectedLocation &&
+      Math.abs(selectedLocation.lat - initialLocation.lat) < 0.00001 &&
+      Math.abs(selectedLocation.lng - initialLocation.lng) < 0.00001
+    ) {
+      return;
+    }
+    setSelectedLocation(initialLocation);
+    updateMarker(initialLocation.lat, initialLocation.lng);
+    mapInstanceRef.current.setView([initialLocation.lat, initialLocation.lng], 16, { animate: true });
+  }, [initialLocation?.lat, initialLocation?.lng, mapInitialized]);
+
   // Manejar clic en el mapa
   const handleMapClick = (lat: number, lng: number) => {
     console.log(`🖱️ Procesando clic en mapa: [${lat}, ${lng}]`);
@@ -536,14 +551,27 @@ export default function FixedMapPicker({
       )
         .then((response) => response.json())
         .then((data) => {
-          if (data && data.display_name) {
-            const addressParts = data.display_name.split(",");
-            const shortAddress = addressParts.slice(0, 3).join(", ");
-            setAddress(shortAddress);
-            
-            // Notificar selección con dirección
-            console.log("🔔 Notificando selección con dirección:", shortAddress);
-            onLocationSelect(lat, lng, shortAddress);
+          if (data) {
+            const addr = data.address || {};
+            const road = addr.road || addr.pedestrian || addr.footway || addr.residential || addr.path || "";
+            const houseNumber = addr.house_number || "";
+            const city = addr.city || addr.town || addr.village || addr.municipality || "Los Andes";
+
+            let shortAddress = "";
+            if (road) {
+              const streetWithNumber = houseNumber ? `${road} ${houseNumber}` : road;
+              shortAddress = `${streetWithNumber}, ${city}`;
+            } else if (data.display_name) {
+              shortAddress = data.display_name.split(",").slice(0, 3).join(", ").trim();
+            }
+
+            if (shortAddress) {
+              setAddress(shortAddress);
+              console.log("🔔 Notificando selección con dirección:", shortAddress);
+              onLocationSelect(lat, lng, shortAddress);
+            } else {
+              onLocationSelect(lat, lng);
+            }
           } else {
             // Notificar selección sin dirección
             console.log("🔔 Notificando selección sin dirección");

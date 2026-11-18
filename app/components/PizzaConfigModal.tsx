@@ -130,7 +130,12 @@ function getExtraImagePath(itemName: string, imagePath?: string): string {
       const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/bebidas%2F${encodeURIComponent(cleanName + '.jpg')}?alt=media`;
       return url;
     } else if (isAcompFallback) {
-      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(cleanName + '.jpg')}?alt=media`;
+      const acompFile = lowerName.includes('gauchitos x24')
+        ? 'Gauchitosx24.webp'
+        : lowerName.includes('gauchito')
+          ? 'gauchitos.jpg'
+          : cleanName + '.jpg';
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/acompa%C3%B1amientos%2F${encodeURIComponent(acompFile)}?alt=media`;
       return url;
     }
   }
